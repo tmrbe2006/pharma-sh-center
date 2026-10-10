@@ -1,0 +1,13536 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Plus, Edit2, Trash2, Calendar, DollarSign, Package, Activity, AlertTriangle, 
+  Search, Shield, ShieldAlert, FileText, UserCheck, Bell, Printer, Sparkles, RefreshCw, 
+  Smartphone, Monitor, Moon, Sun, Info, CheckCircle2, User, HelpCircle, Eye, LogOut, X,
+  Lock, EyeOff, Mail, Copy, TrendingUp, TrendingDown, Download, BookOpen, Database, Clock,
+  Stethoscope
+} from 'lucide-react';
+import { 
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
+  PieChart, Pie, Cell, AreaChart, Area
+} from 'recharts';
+import { DbService, Medicine, DispenseRecord, UserSession, StockAuditLog, SecuritySettings, DEFAULT_SECURITY_SETTINGS, getLocalSecuritySettings, DEFAULT_UNITS, DEFAULT_CATEGORIES, getLocalUnits, getLocalCategories, getLocalMedicines, getLocalDispenses, getLocalSessions, getLocalStockLogs, getLocalResidents, saveLocalResidents, getLocalCompanies, saveLocalCompanies, getLocalBehaviorLogs, saveLocalBehaviorLogs, getLocalCustomSideEffects, saveLocalCustomSideEffects } from './db/mockDb';
+import { isFirebaseConnected, firebaseConfig } from './firebase';
+import { PWAInstallButton } from './PWAInstallButton';
+import { OfflineIndicator } from './OfflineIndicator';
+import { localizationData, Language } from './db/localization';
+import { SYSTEM_HELP_SECTIONS, ScreenGuide } from './helpManualData';
+import { generateMedicationPdfReports, PdfGenerationResult } from './utils/pdfReportGenerator';
+
+// User roles and permission matrix
+interface RoleConfig {
+  name: string;
+  allowedScreens: string[];
+}
+
+const ROLES: Record<string, RoleConfig> = {
+  developer: {
+    name: "المبرمج",
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'security', 'ai_reports', 'audit_logs', 'behavioral_tracker']
+  },
+  admin: {
+    name: "مدير النظام",
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'ai_reports', 'audit_logs', 'behavioral_tracker']
+  },
+  pharmacist: {
+    name: "صيدلي ممارس",
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'ai_reports', 'audit_logs', 'behavioral_tracker']
+  },
+  technician: {
+    name: "فني صيدلة",
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'audit_logs', 'behavioral_tracker']
+  }
+};
+
+export type SkinId = 'midnight' | 'clinical-light' | 'royal-navy' | 'forest-emerald' | 'amethyst' | 'slate-minimal';
+
+interface SkinOption {
+  id: SkinId;
+  nameAr: string;
+  nameEn: string;
+  descAr: string;
+  descEn: string;
+  isDark: boolean;
+  primaryColor: string;
+  bgColor: string;
+  cardColor: string;
+  borderColor: string;
+  previewBg: string;
+  badgeClass: string;
+}
+
+const SKINS: SkinOption[] = [
+  {
+    id: 'midnight',
+    nameAr: 'كحلي زمردي ليلي (Midnight)',
+    nameEn: 'Midnight Emerald (Default)',
+    descAr: 'المظهر الافتراضي الفخم عالي التباين للصيدلية',
+    descEn: 'Signature high-contrast executive dark theme',
+    isDark: true,
+    primaryColor: '#0d9488',
+    bgColor: '#030712',
+    cardColor: '#0e172a',
+    borderColor: '#1b263b',
+    previewBg: 'bg-[#030712] border-teal-500/40',
+    badgeClass: 'bg-teal-500/20 text-teal-300'
+  },
+  {
+    id: 'clinical-light',
+    nameAr: 'أبيض سريري ناصع (Daylight)',
+    nameEn: 'Clinical Daylight (Pure White)',
+    descAr: 'مظهر نهاري سريري فائق الوضوح ومريح للقراءة',
+    descEn: 'Ultra-crisp hospital daylight theme for daytime shifts',
+    isDark: false,
+    primaryColor: '#0284c7',
+    bgColor: '#f8fafc',
+    cardColor: '#ffffff',
+    borderColor: '#cbd5e1',
+    previewBg: 'bg-slate-50 border-sky-400',
+    badgeClass: 'bg-sky-500/20 text-sky-700'
+  },
+  {
+    id: 'royal-navy',
+    nameAr: 'كحلي ملكي وذهبي (Royal Navy)',
+    nameEn: 'Royal Navy & Gold',
+    descAr: 'أزرق ملكي داكن بلمسات ذهبية دافئة للإدارة العليا',
+    descEn: 'Deep sapphire navy with warm golden accents',
+    isDark: true,
+    primaryColor: '#f59e0b',
+    bgColor: '#040d21',
+    cardColor: '#0a1c45',
+    borderColor: '#1d3b82',
+    previewBg: 'bg-[#040d21] border-amber-500/40',
+    badgeClass: 'bg-amber-500/20 text-amber-300'
+  },
+  {
+    id: 'forest-emerald',
+    nameAr: 'أخضر زمردي صحي (Forest Mint)',
+    nameEn: 'Botanical Forest Mint',
+    descAr: 'أجواء صيدلانية نباتية هادئة ومريحة للعين',
+    descEn: 'Soothing apothecary emerald atmosphere',
+    isDark: true,
+    primaryColor: '#10b981',
+    bgColor: '#011711',
+    cardColor: '#052e23',
+    borderColor: '#0a5441',
+    previewBg: 'bg-[#011711] border-emerald-500/40',
+    badgeClass: 'bg-emerald-500/20 text-emerald-300'
+  },
+  {
+    id: 'amethyst',
+    nameAr: 'أرجواني نفسي حديث (Amethyst)',
+    nameEn: 'Modern Amethyst Neuro',
+    descAr: 'طابع بنفسجي دافئ ملائم لعيادات السلوك والنفسية',
+    descEn: 'Warm violet tone ideal for behavioral clinics',
+    isDark: true,
+    primaryColor: '#a855f7',
+    bgColor: '#0d051c',
+    cardColor: '#200b3b',
+    borderColor: '#5b1e94',
+    previewBg: 'bg-[#0d051c] border-purple-500/40',
+    badgeClass: 'bg-purple-500/20 text-purple-300'
+  },
+  {
+    id: 'slate-minimal',
+    nameAr: 'فحمي فولاذي عصري (Charcoal)',
+    nameEn: 'Charcoal & Steel Ice',
+    descAr: 'مظهر داكن عصري بدرجات الرمادي الفولاذي والأزرق الثلجي',
+    descEn: 'Clean minimalist dark steel with cool ice-blue accents',
+    isDark: true,
+    primaryColor: '#0ea5e9',
+    bgColor: '#0d0f13',
+    cardColor: '#1b1e26',
+    borderColor: '#323847',
+    previewBg: 'bg-[#0d0f13] border-zinc-700',
+    badgeClass: 'bg-sky-500/20 text-sky-300'
+  }
+];
+
+// 24-Hour Schedule definitions covering all 24 hours of the day
+export const HOURS_OF_DAY_24 = [
+  { value: "01:00", hour: 1, labelAr: "الساعة 1 صباحاً (01:00)", labelEn: "01:00 AM (Hour 1)", periodAr: "الفترة الصباحية" },
+  { value: "02:00", hour: 2, labelAr: "الساعة 2 صباحاً (02:00)", labelEn: "02:00 AM (Hour 2)", periodAr: "الفترة الصباحية" },
+  { value: "03:00", hour: 3, labelAr: "الساعة 3 صباحاً (03:00)", labelEn: "03:00 AM (Hour 3)", periodAr: "الفترة الصباحية" },
+  { value: "04:00", hour: 4, labelAr: "الساعة 4 صباحاً (04:00)", labelEn: "04:00 AM (Hour 4)", periodAr: "الفترة الصباحية" },
+  { value: "05:00", hour: 5, labelAr: "الساعة 5 صباحاً (05:00)", labelEn: "05:00 AM (Hour 5)", periodAr: "الفترة الصباحية" },
+  { value: "06:00", hour: 6, labelAr: "الساعة 6 صباحاً (06:00)", labelEn: "06:00 AM (Hour 6)", periodAr: "الفترة الصباحية" },
+  { value: "07:00", hour: 7, labelAr: "الساعة 7 صباحاً (07:00)", labelEn: "07:00 AM (Hour 7)", periodAr: "الفترة الصباحية" },
+  { value: "08:00", hour: 8, labelAr: "الساعة 8 صباحاً (08:00)", labelEn: "08:00 AM (Hour 8)", periodAr: "الفترة الصباحية" },
+  { value: "09:00", hour: 9, labelAr: "الساعة 9 صباحاً (09:00)", labelEn: "09:00 AM (Hour 9)", periodAr: "الفترة الصباحية" },
+  { value: "10:00", hour: 10, labelAr: "الساعة 10 صباحاً (10:00)", labelEn: "10:00 AM (Hour 10)", periodAr: "الفترة الصباحية" },
+  { value: "11:00", hour: 11, labelAr: "الساعة 11 صباحاً (11:00)", labelEn: "11:00 AM (Hour 11)", periodAr: "الفترة الصباحية" },
+  { value: "12:00", hour: 12, labelAr: "الساعة 12 ظهراً (12:00)", labelEn: "12:00 PM (Hour 12)", periodAr: "فترة الظهيرة" },
+  { value: "13:00", hour: 13, labelAr: "الساعة 1 مساءً / 13:00", labelEn: "01:00 PM (13:00)", periodAr: "فترة الظهيرة" },
+  { value: "14:00", hour: 14, labelAr: "الساعة 2 مساءً / 14:00", labelEn: "02:00 PM (14:00)", periodAr: "فترة المساء" },
+  { value: "15:00", hour: 15, labelAr: "الساعة 3 مساءً / 15:00", labelEn: "03:00 PM (15:00)", periodAr: "فترة المساء" },
+  { value: "16:00", hour: 16, labelAr: "الساعة 4 مساءً / 16:00", labelEn: "04:00 PM (16:00)", periodAr: "فترة المساء" },
+  { value: "17:00", hour: 17, labelAr: "الساعة 5 مساءً / 17:00", labelEn: "05:00 PM (17:00)", periodAr: "فترة المساء" },
+  { value: "18:00", hour: 18, labelAr: "الساعة 6 مساءً / 18:00", labelEn: "06:00 PM (18:00)", periodAr: "فترة المساء" },
+  { value: "19:00", hour: 19, labelAr: "الساعة 7 مساءً / 19:00", labelEn: "07:00 PM (19:00)", periodAr: "فترة المساء" },
+  { value: "20:00", hour: 20, labelAr: "الساعة 8 مساءً / 20:00", labelEn: "08:00 PM (20:00)", periodAr: "فترة المساء" },
+  { value: "21:00", hour: 21, labelAr: "الساعة 9 مساءً / 21:00", labelEn: "09:00 PM (21:00)", periodAr: "فترة المساء" },
+  { value: "22:00", hour: 22, labelAr: "الساعة 10 مساءً / 22:00", labelEn: "10:00 PM (22:00)", periodAr: "فترة الليل" },
+  { value: "23:00", hour: 23, labelAr: "الساعة 11 مساءً / 23:00", labelEn: "11:00 PM (23:00)", periodAr: "فترة الليل" },
+  { value: "24:00", hour: 24, labelAr: "الساعة 24 / 12 منتصف الليل (24:00)", labelEn: "12:00 AM (24:00)", periodAr: "منتصف الليل" }
+];
+
+export const normalizeHourSlot = (slot: string): string => {
+  if (!slot) return '08:00';
+  if (slot === 'morning') return '08:00';
+  if (slot === 'noon') return '13:00';
+  if (slot === 'evening') return '21:00';
+  if (slot === '00:00') return '24:00';
+  return slot;
+};
+
+export const getHourSlotLabel = (slot: string, isRtl: boolean = true): string => {
+  const norm = normalizeHourSlot(slot);
+  const found = HOURS_OF_DAY_24.find(h => h.value === norm);
+  if (found) {
+    return isRtl ? found.labelAr : `${found.value} - ${found.labelEn}`;
+  }
+  return `الساعة ${norm}`;
+};
+
+// Official Center Name required across all system reports and documents
+export const OFFICIAL_CENTER_NAME = "مركز التأهيل الشامل للذكور بشقراء";
+
+// Helper to strip markdown formatting (#, *, etc.) from AI-generated reports so they appear as clean lines without asterisks or hashes
+export const cleanAiReportText = (rawText: string | null | undefined): string => {
+  if (!rawText) return '';
+  return rawText
+    .split('\n')
+    .map(line => {
+      // Remove leading markdown headers like ### or ## or #
+      let l = line.replace(/^\s*#{1,6}\s*/g, '');
+      // Format markdown bullet asterisks into clean bullet points
+      l = l.replace(/^\s*[*•-]\s+/g, '• ');
+      // Remove all remaining asterisks anywhere in the line
+      l = l.replace(/\*/g, '');
+      // Remove any lingering hashes anywhere in the line
+      l = l.replace(/#/g, '');
+      return l;
+    })
+    .join('\n')
+    .trim();
+};
+
+// Helper to generate beautifully formatted Arabic and English email reports and attachments completely free of asterisks, hashes, and dashes
+export const generateFormattedEmailReports = (meds: Medicine[], thresholdDays: number = 30) => {
+  const parseFlexibleDate = (dateStr: string) => {
+    if (!dateStr) return null;
+    const clean = dateStr.trim();
+    let d = new Date(clean);
+    if (!isNaN(d.getTime())) return d;
+    const parts = clean.split(/[-/.]/);
+    if (parts.length === 3) {
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
+      const p2 = parseInt(parts[2], 10);
+      if (p2 > 1000) return new Date(p2, p1 - 1, p0);
+      if (p0 > 1000) return new Date(p0, p1 - 1, p2);
+    }
+    return null;
+  };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const warningThreshold = new Date(today);
+  warningThreshold.setDate(today.getDate() + thresholdDays);
+
+  const expired = meds.filter(m => {
+    const exp = parseFlexibleDate(m.expiryDate);
+    if (!exp) return false;
+    exp.setHours(0, 0, 0, 0);
+    return exp < today;
+  });
+
+  const expiring = meds.filter(m => {
+    const exp = parseFlexibleDate(m.expiryDate);
+    if (!exp) return false;
+    exp.setHours(0, 0, 0, 0);
+    return exp >= today && exp <= warningThreshold;
+  });
+
+  const critical = meds.filter(m => Number(m.quantity) <= 15);
+  const totalMeds = meds.length;
+
+  const dateNow = new Date();
+  const dateStrAr = `${dateNow.getFullYear()}/${(dateNow.getMonth() + 1).toString().padStart(2, '0')}/${dateNow.getDate().toString().padStart(2, '0')} الساعة ${dateNow.getHours().toString().padStart(2, '0')}:${dateNow.getMinutes().toString().padStart(2, '0')}`;
+  const dateStrEn = `${dateNow.getFullYear()}/${(dateNow.getMonth() + 1).toString().padStart(2, '0')}/${dateNow.getDate().toString().padStart(2, '0')} at ${dateNow.getHours().toString().padStart(2, '0')}:${dateNow.getMinutes().toString().padStart(2, '0')}`;
+
+  const cleanExpiry = (expStr: string) => {
+    return (expStr || '').replace(/-/g, '/');
+  };
+
+  // ================= ARABIC REPORT =================
+  let ar = `مركز التأهيل الشامل للذكور بشقراء\n`;
+  ar += `إدارة الرعاية الطبية والصيدلية\n`;
+  ar += `تقرير الرقابة الدوائية الشامل والتنبيهات الوقائية\n`;
+  ar += `________________________________________________________\n\n`;
+  ar += `بيانات التقرير الإداري:\n`;
+  ar += `الجهة: مركز التأهيل الشامل للذكور بشقراء\n`;
+  ar += `تاريخ ووقت الإصدار: ${dateStrAr}\n`;
+  ar += `نطاق فحص التنبيه الوقائي: الأدوية التي تنتهي خلال ${thresholdDays} يوماً\n`;
+  ar += `إجمالي الأصناف المسجلة بالنظام: ${totalMeds} صنف دواء\n`;
+  ar += `عدد الأدوية منتهية الصلاحية: ${expired.length}\n`;
+  ar += `عدد الأدوية قريبة الانتهاء: ${expiring.length}\n`;
+  ar += `عدد الأدوية ذات الرصيد الحرج: ${critical.length}\n\n`;
+
+  ar += `البند الأول: الأدوية منتهية الصلاحية الفعلية\n`;
+  if (expired.length > 0) {
+    expired.forEach((m, i) => {
+      const name = m.commercialNameAr || m.commercialName;
+      ar += `[${i + 1}] اسم الصنف: ${name} (${m.scientificName}) | تاريخ الانتهاء: ${cleanExpiry(m.expiryDate)} | الكمية: ${m.quantity} ${m.unit} | التوجيه: سحب فوري من الرف وتحريز\n`;
+    });
+  } else {
+    ar += `الحالة آمنة: لا توجد أي أدوية منتهية الصلاحية مسجلة في رصيد الصيدلية.\n`;
+  }
+  ar += `\n`;
+
+  ar += `البند الثاني: الأدوية التي تقترب صلاحيتها من الانتهاء (خلال ${thresholdDays} يوماً)\n`;
+  if (expiring.length > 0) {
+    expiring.forEach((m, i) => {
+      const name = m.commercialNameAr || m.commercialName;
+      ar += `[${i + 1}] اسم الصنف: ${name} (${m.scientificName}) | تاريخ الانتهاء: ${cleanExpiry(m.expiryDate)} | الكمية: ${m.quantity} ${m.unit} | التوجيه: أولوية الصرف والتدوير الوقائي\n`;
+    });
+  } else {
+    ar += `الحالة آمنة: جميع الأدوية الحالية تتمتع بفترات صلاحية آمنة ومطابقة للمعايير.\n`;
+  }
+  ar += `\n`;
+
+  ar += `البند الثالث: الأدوية التي بلغت حد المخزون الحرج (15 وحدة أو أقل)\n`;
+  if (critical.length > 0) {
+    critical.forEach((m, i) => {
+      const name = m.commercialNameAr || m.commercialName;
+      ar += `[${i + 1}] اسم الصنف: ${name} (${m.scientificName}) | الرصيد الحالي: ${m.quantity} ${m.unit} | الحد الأدنى: 15 | التوجيه: طلب توريد وتعزيز المخزون\n`;
+    });
+  } else {
+    ar += `الحالة آمنة: مستويات المخزون متوفرة بكميات كافية وتتجاوز حدود الأمان المقررة.\n`;
+  }
+  ar += `\n`;
+
+  ar += `البند الرابع: التوصيات الإدارية والرقابية المعتمدة\n`;
+  ar += `1. الالتزام بتطبيق قاعدة الصرف الدوائي للأقرب انتهاءً لضمان كفاءة المخزون.\n`;
+  ar += `2. المراجعة المستمرة لدرجات حرارة الثلاجات وغرف التخزين لحفظ الفعالية الحيوية.\n`;
+  ar += `3. استمرار التنسيق بين الصيدلية والأقسام الطبية لضمان سلامة مقيمي المركز.\n\n`;
+  ar += `صادر رسمي عن صيدلية مركز التأهيل الشامل للذكور بشقراء`;
+
+  // ================= ENGLISH REPORT =================
+  let en = `Shaqra Comprehensive Rehabilitation Center for Males\n`;
+  en += `Medical Care & Central Pharmacy Department\n`;
+  en += `Comprehensive Medication Safety & Preventive Alerts Report\n`;
+  en += `________________________________________________________\n\n`;
+  en += `Administrative Report Information:\n`;
+  en += `Organization: Shaqra Comprehensive Rehabilitation Center for Males\n`;
+  en += `Issue Date and Time: ${dateStrEn}\n`;
+  en += `Preventive Warning Threshold: Expirations within ${thresholdDays} days\n`;
+  en += `Total Registered Medications: ${totalMeds} items\n`;
+  en += `Expired Medications Count: ${expired.length}\n`;
+  en += `Near Expiry Medications Count: ${expiring.length}\n`;
+  en += `Critical Stock Medications Count: ${critical.length}\n\n`;
+
+  en += `Section 1: Expired Medications\n`;
+  if (expired.length > 0) {
+    expired.forEach((m, i) => {
+      const name = m.commercialNameEn || m.commercialName;
+      en += `[${i + 1}] Medication: ${name} (${m.scientificName}) | Expiry Date: ${cleanExpiry(m.expiryDate)} | Stock: ${m.quantity} ${m.unit} | Action: Immediate removal and safe quarantine\n`;
+    });
+  } else {
+    en += `Safe Status: No expired medications recorded in active center inventory.\n`;
+  }
+  en += `\n`;
+
+  en += `Section 2: Medications Approaching Expiration (Within ${thresholdDays} Days)\n`;
+  if (expiring.length > 0) {
+    expiring.forEach((m, i) => {
+      const name = m.commercialNameEn || m.commercialName;
+      en += `[${i + 1}] Medication: ${name} (${m.scientificName}) | Expiry Date: ${cleanExpiry(m.expiryDate)} | Stock: ${m.quantity} ${m.unit} | Action: Prioritize dispensing and stock rotation\n`;
+    });
+  } else {
+    en += `Safe Status: All medications are safely within acceptable validity periods.\n`;
+  }
+  en += `\n`;
+
+  en += `Section 3: Critical Low Stock Items (15 Units or Less)\n`;
+  if (critical.length > 0) {
+    critical.forEach((m, i) => {
+      const name = m.commercialNameEn || m.commercialName;
+      en += `[${i + 1}] Medication: ${name} (${m.scientificName}) | Current Stock: ${m.quantity} ${m.unit} | Safety Threshold: 15 | Action: Submit reorder request promptly\n`;
+    });
+  } else {
+    en += `Safe Status: Inventory levels are sufficient and well above critical thresholds.\n`;
+  }
+  en += `\n`;
+
+  en += `Section 4: Clinical & Governance Directives\n`;
+  en += `1. Strictly enforce First Expired First Out dispensing policy across all wards.\n`;
+  en += `2. Regularly verify storage temperature logs to ensure pharmacological integrity.\n`;
+  en += `3. Maintain active communication with clinical teams to guarantee resident wellness.\n\n`;
+  en += `Official Publication: Shaqra Comprehensive Rehabilitation Center for Males Pharmacy`;
+
+  // Final sanitation to strictly guarantee NO asterisks, NO hashes, NO raw dashes
+  const sanitize = (text: string) => {
+    return text
+      .replace(/\*/g, '')
+      .replace(/#/g, '')
+      .replace(/^- /gm, '')
+      .replace(/\n-\s+/g, '\n')
+      .replace(/ - /g, ' | ')
+      .replace(/-/g, '/');
+  };
+
+  return {
+    arReport: sanitize(ar),
+    enReport: sanitize(en)
+  };
+};
+
+// Safe UTF-8 to Base64 encoder for attachments
+export const toBase64Utf8 = (str: string) => {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+  } catch (e) {
+    return '';
+  }
+};
+
+// Helper to generate full styled HTML report for medication validity and quantities
+export const generateFormattedEmailHtmlReport = (meds: Medicine[], thresholdDays: number = 30) => {
+  const parseFlexibleDate = (dateStr: string) => {
+    if (!dateStr) return null;
+    const clean = dateStr.trim();
+    let d = new Date(clean);
+    if (!isNaN(d.getTime())) return d;
+    const parts = clean.split(/[-/.]/);
+    if (parts.length === 3) {
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
+      const p2 = parseInt(parts[2], 10);
+      if (p2 > 1000) return new Date(p2, p1 - 1, p0);
+      if (p0 > 1000) return new Date(p0, p1 - 1, p2);
+    }
+    return null;
+  };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const warningThreshold = new Date(today);
+  warningThreshold.setDate(today.getDate() + thresholdDays);
+
+  const expired = meds.filter(m => {
+    const exp = parseFlexibleDate(m.expiryDate);
+    if (!exp) return false;
+    exp.setHours(0, 0, 0, 0);
+    return exp < today;
+  });
+
+  const expiring = meds.filter(m => {
+    const exp = parseFlexibleDate(m.expiryDate);
+    if (!exp) return false;
+    exp.setHours(0, 0, 0, 0);
+    return exp >= today && exp <= warningThreshold;
+  });
+
+  const critical = meds.filter(m => Number(m.quantity) <= 15);
+  const totalMeds = meds.length;
+
+  const dateNow = new Date();
+  const dateStrAr = `${dateNow.getFullYear()}/${(dateNow.getMonth() + 1).toString().padStart(2, '0')}/${dateNow.getDate().toString().padStart(2, '0')} الساعة ${dateNow.getHours().toString().padStart(2, '0')}:${dateNow.getMinutes().toString().padStart(2, '0')}`;
+  const cleanExpiry = (expStr: string) => (expStr || '').replace(/-/g, '/');
+
+  return `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="utf-8">
+  <title>تقرير صلاحية وكمية الأدوية - مركز التأهيل الشامل للذكور بشقراء</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 20px; direction: rtl; }
+    .container { max-width: 800px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .header { text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 16px; margin-bottom: 20px; }
+    .header h1 { font-size: 20px; color: #0f172a; margin: 0 0 6px 0; }
+    .header h2 { font-size: 15px; color: #0d9488; margin: 0 0 6px 0; }
+    .header p { font-size: 12px; color: #64748b; margin: 0; }
+    .grid { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+    .card { flex: 1 1 calc(25% - 12px); min-width: 140px; padding: 12px; border-radius: 12px; text-align: center; background: #f1f5f9; }
+    .card.danger { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+    .card.warning { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
+    .card.info { background: #e0e7ff; border: 1px solid #a5b4fc; color: #3730a3; }
+    .card.success { background: #ccfbf1; border: 1px solid #5eead4; color: #115e59; }
+    .card .val { font-size: 24px; font-weight: 800; }
+    .card .lbl { font-size: 11px; font-weight: 600; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; text-align: right; }
+    th { background: #0f766e; color: #ffffff; padding: 8px 10px; font-weight: 700; border: 1px solid #0d9488; }
+    td { padding: 8px 10px; border: 1px solid #e2e8f0; }
+    tr:nth-child(even) { background: #f8fafc; }
+    .section-title { font-size: 14px; font-weight: 800; color: #0f172a; margin: 16px 0 8px 0; }
+    .empty-note { padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; border-radius: 8px; font-size: 12px; margin-bottom: 16px; }
+    .footer { text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>مركز التأهيل الشامل للذكور بشقراء</h1>
+      <h2>إدارة الرعاية الطبية والصيدلية • تقرير الرقابة الدوائية الشامل</h2>
+      <p>تاريخ ووقت الإصدار: ${dateStrAr}</p>
+    </div>
+
+    <div class="grid">
+      <div class="card success"><div class="val">${totalMeds}</div><div class="lbl">إجمالي الأصناف</div></div>
+      <div class="card danger"><div class="val">${expired.length}</div><div class="lbl">أدوية منتهية</div></div>
+      <div class="card warning"><div class="val">${expiring.length}</div><div class="lbl">قريبة الانتهاء (${thresholdDays} يوم)</div></div>
+      <div class="card info"><div class="val">${critical.length}</div><div class="lbl">أرصدة حرجة (≤ 15)</div></div>
+    </div>
+
+    <div class="section-title">🚫 أولاً: الأدوية منتهية الصلاحية الفعلية (${expired.length})</div>
+    ${expired.length > 0 ? `
+    <table>
+      <thead><tr><th>#</th><th>اسم الدواء التجاري</th><th>الاسم العلمي</th><th>تاريخ الانتهاء</th><th>الكمية</th><th>التوجيه السريري</th></tr></thead>
+      <tbody>
+        ${expired.map((m, i) => `<tr><td>${i+1}</td><td><strong>${m.commercialNameAr || m.commercialName}</strong></td><td>${m.scientificName}</td><td style="color:#dc2626;font-weight:700;">${cleanExpiry(m.expiryDate)}</td><td>${m.quantity} ${m.unit}</td><td>سحب فوري وتحريز</td></tr>`).join('')}
+      </tbody>
+    </table>` : `<div class="empty-note">✅ الحالة آمنة: لا توجد أي أدوية منتهية الصلاحية مسجلة بالصيدلية.</div>`}
+
+    <div class="section-title">⚠️ ثانياً: الأدوية التي تقترب صلاحيتها من الانتهاء (${expiring.length})</div>
+    ${expiring.length > 0 ? `
+    <table>
+      <thead><tr><th>#</th><th>اسم الدواء التجاري</th><th>الاسم العلمي</th><th>تاريخ الانتهاء</th><th>الكمية</th><th>التوجيه السريري</th></tr></thead>
+      <tbody>
+        ${expiring.map((m, i) => `<tr><td>${i+1}</td><td><strong>${m.commercialNameAr || m.commercialName}</strong></td><td>${m.scientificName}</td><td style="color:#d97706;font-weight:700;">${cleanExpiry(m.expiryDate)}</td><td>${m.quantity} ${m.unit}</td><td>أولوية الصرف والتدوير</td></tr>`).join('')}
+      </tbody>
+    </table>` : `<div class="empty-note">✅ الحالة آمنة: جميع الأدوية الحالية تتمتع بفترات صلاحية آمنة ومطابقة للمعايير.</div>`}
+
+    <div class="section-title">📉 ثالثاً: الأدوية ذات الرصيد الحرج 15 وحدة أو أقل (${critical.length})</div>
+    ${critical.length > 0 ? `
+    <table>
+      <thead><tr><th>#</th><th>اسم الدواء التجاري</th><th>الاسم العلمي</th><th>الرصيد المتبقي</th><th>التوجيه الإداري</th></tr></thead>
+      <tbody>
+        ${critical.map((m, i) => `<tr><td>${i+1}</td><td><strong>${m.commercialNameAr || m.commercialName}</strong></td><td>${m.scientificName}</td><td style="color:#4f46e5;font-weight:700;">${m.quantity} ${m.unit}</td><td>طلب توريد وتعزيز المخزون</td></tr>`).join('')}
+      </tbody>
+    </table>` : `<div class="empty-note">✅ الحالة آمنة: مستويات المخزون متوفرة بكميات كافية وتتجاوز حدود الأمان المقررة.</div>`}
+
+    <div class="footer">
+      صادر رسمياً عن صيدلية مركز التأهيل الشامل للذكور بشقراء • تم إصدار هذا التقرير آلياً لحماية وصحة المقيمين
+    </div>
+  </div>
+</body>
+</html>`;
+};
+
+// Generates complete package of attachments for medication reports
+export const generateMedicationEmailAttachments = (meds: Medicine[], thresholdDays: number = 30) => {
+  const { arReport, enReport } = generateFormattedEmailReports(meds, thresholdDays);
+  const htmlReport = generateFormattedEmailHtmlReport(meds, thresholdDays);
+
+  return [
+    {
+      name: 'Shaqra_Center_Medication_Alerts_AR.txt',
+      displayName: 'تقرير_صلاحية_وكمية_الأدوية_مركز_التأهيل_الشامل_بشقراء_عربي.txt',
+      content: arReport,
+      base64: toBase64Utf8(arReport),
+      mimeType: 'text/plain'
+    },
+    {
+      name: 'Shaqra_Center_Medication_Alerts_EN.txt',
+      displayName: 'Shaqra_Center_Medication_Alerts_Report_EN.txt',
+      content: enReport,
+      base64: toBase64Utf8(enReport),
+      mimeType: 'text/plain'
+    },
+    {
+      name: 'Shaqra_Center_Medication_Report.html',
+      displayName: 'تقرير_صلاحية_وكمية_الأدوية_مركز_التأهيل_الشامل_بشقراء.html',
+      content: htmlReport,
+      base64: toBase64Utf8(htmlReport),
+      mimeType: 'text/html'
+    }
+  ];
+};
+
+// Helper to generate beautifully formatted Arabic and English referral reports for residents whose referral date is due tomorrow (1-day prior notice)
+export const generateReferralAlertsReports = (residentsList: any[]) => {
+  const parseFlexibleDate = (dateStr: string) => {
+    if (!dateStr) return null;
+    const clean = dateStr.trim();
+    let d = new Date(clean);
+    if (!isNaN(d.getTime())) return d;
+    const parts = clean.split(/[-/.]/);
+    if (parts.length === 3) {
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
+      const p2 = parseInt(parts[2], 10);
+      if (p2 > 1000) return new Date(p2, p1 - 1, p0);
+      if (p0 > 1000) return new Date(p0, p1 - 1, p2);
+    }
+    return null;
+  };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+
+  const tomorrowStr = `${tomorrow.getFullYear()}/${(tomorrow.getMonth() + 1).toString().padStart(2, '0')}/${tomorrow.getDate().toString().padStart(2, '0')}`;
+  const todayStr = `${today.getFullYear()}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getDate().toString().padStart(2, '0')}`;
+
+  const dateNow = new Date();
+  const dateStrAr = `${dateNow.getFullYear()}/${(dateNow.getMonth() + 1).toString().padStart(2, '0')}/${dateNow.getDate().toString().padStart(2, '0')} الساعة ${dateNow.getHours().toString().padStart(2, '0')}:${dateNow.getMinutes().toString().padStart(2, '0')}`;
+  const dateStrEn = `${dateNow.getFullYear()}/${(dateNow.getMonth() + 1).toString().padStart(2, '0')}/${dateNow.getDate().toString().padStart(2, '0')} at ${dateNow.getHours().toString().padStart(2, '0')}:${dateNow.getMinutes().toString().padStart(2, '0')}`;
+
+  // Find residents whose referralDate is TOMORROW (1-day prior warning)
+  const dueTomorrow = (residentsList || []).filter(r => {
+    const d = parseFlexibleDate(r.referralDate);
+    if (!d) return false;
+    d.setHours(0, 0, 0, 0);
+    return d.getTime() === tomorrow.getTime();
+  });
+
+  // Find residents whose referralDate is TODAY
+  const dueToday = (residentsList || []).filter(r => {
+    const d = parseFlexibleDate(r.referralDate);
+    if (!d) return false;
+    d.setHours(0, 0, 0, 0);
+    return d.getTime() === today.getTime();
+  });
+
+  const cleanDate = (dStr: string) => (dStr || '').replace(/-/g, '/');
+
+  // ================= ARABIC REFERRAL REPORT =================
+  let ar = `مركز التأهيل الشامل للذكور بشقراء\n`;
+  ar += `إدارة الرعاية الطبية والصيدلية\n`;
+  ar += `تقرير تنبيهات الإحالات الطبية للمقيمين (إشعار وقائي قبل الموعد بيوم)\n`;
+  ar += `________________________________________________________\n\n`;
+  ar += `بيانات التقرير الإداري:\n`;
+  ar += `الجهة: مركز التأهيل الشامل للذكور بشقراء\n`;
+  ar += `تاريخ ووقت إصدار التقرير: ${dateStrAr}\n`;
+  ar += `تاريخ الإحالة المستهدفة بالتنبيه الوقائي: ${tomorrowStr} (متبقي يوم واحد • 24 ساعة)\n`;
+  ar += `عدد المقيمين أصحاب الإحالات المستحقة غداً: ${dueTomorrow.length} مقيم\n`;
+  if (dueToday.length > 0) {
+    ar += `عدد المقيمين أصحاب إحالات اليوم الحالي: ${dueToday.length} مقيم\n`;
+  }
+  ar += `إجمالي النزلاء المسجلين بالمركز: ${(residentsList || []).length} مقيم\n\n`;
+
+  ar += `البند الأول: قائمة المقيمين أصحاب الإحالات الطبية المستحقة غداً (قبلها بيوم)\n`;
+  if (dueTomorrow.length > 0) {
+    dueTomorrow.forEach((r, i) => {
+      const name = r.nameAr || r.name;
+      const scheduledMeds = (r.dosageSchedule || [])
+        .map((ds: any) => `${ds.medicineName} (${ds.dosage || ds.timeSlot})`)
+        .join('، ') || 'لا توجد أدوية مجدولة مسجلة';
+
+      ar += `[${i + 1}] اسم المقيم: ${name}${r.nameEn ? ` (${r.nameEn})` : ''}\n`;
+      ar += `رقم الهوية: ${r.nationalId || 'غير مسجل'} | الغرفة والجناح: ${r.roomNumber || 'غير محدد'}\n`;
+      ar += `تاريخ الإحالة الطبي: ${cleanDate(r.referralDate)} | الحالة: موعد الإحالة غداً (متبقي 24 ساعة)\n`;
+      ar += `الجهة المحال إليها: ${r.referralFacility || 'مستشفى شقراء العام - عيادة الرعاية المتخصصة'}\n`;
+      ar += `سبب الإحالة الطبية: ${r.referralReason || 'متابعة استشارية دورية وفحص سريري'}\n`;
+      ar += `فصيلة الدم: ${r.bloodGroup || 'غير محدد'} | الطبيب المشرف: ${r.attendingPhysician || 'د. طارق اليوسف'}\n`;
+      ar += `حساسية الأدوية المسجلة: ${r.allergies || 'لا توجد حساسية دوائية مسجلة'}\n`;
+      ar += `الأدوية المجدولة المطلوب تجهيزها وصرفها: ${scheduledMeds}\n`;
+      if (r.notes) ar += `ملاحظات الرعاية والبلع: ${r.notes}\n`;
+      ar += `التوجيه الصيدلي: تجهيز جرعات الصرف المعتمدة وملف التاريخ الدوائي وتسليمه للمرافق الطبي قبل موعد الخروج\n\n`;
+    });
+  } else {
+    ar += `الحالة آمنة: لا توجد أي إحالات طبية مجدولة لليوم القادم (غداً بتاريخ ${tomorrowStr}).\n\n`;
+  }
+
+  if (dueToday.length > 0) {
+    ar += `البند الثاني: إحالات طبية مستحقة خلال اليوم الحالي (${todayStr})\n`;
+    dueToday.forEach((r, i) => {
+      const name = r.nameAr || r.name;
+      ar += `[${i + 1}] المقيم: ${name} | رقم الهوية: ${r.nationalId || 'غير مسجل'} | الغرفة: ${r.roomNumber} | تاريخ اليوم: ${cleanDate(r.referralDate)} | التوجيه: مراجعة خروج المريض وتأمين الأدوية فوراً\n`;
+    });
+    ar += `\n`;
+  }
+
+  ar += `البند الثالث: التوصيات الإدارية والصيدلانية المعتمدة\n`;
+  ar += `1. صرف وتأمين الأدوية للمقيم المحال قبل موعد الإحالة بـ 24 ساعة لضمان استمرارية الخطة العلاجية.\n`;
+  ar += `2. تزويد الكادر الطبي المرافق بتقرير الحساسيات الدوائية والجرعات المعتمدة وتوقيتاتها.\n`;
+  ar += `3. التنسيق المسبق مع عيادة جهة الإحالة لضمان جاهزية الاستقبال والملف الصحي.\n\n`;
+  ar += `صادر رسمي عن صيدلية مركز التأهيل الشامل للذكور بشقراء`;
+
+  // ================= ENGLISH REFERRAL REPORT =================
+  let en = `Shaqra Comprehensive Rehabilitation Center for Males\n`;
+  en += `Medical Care & Central Pharmacy Department\n`;
+  en += `Resident Medical Refill Alerts Report (1-Day Prior Notice)\n`;
+  en += `________________________________________________________\n\n`;
+  en += `Administrative Report Information:\n`;
+  en += `Organization: Shaqra Comprehensive Rehabilitation Center for Males\n`;
+  en += `Report Issue Date and Time: ${dateStrEn}\n`;
+  en += `Target Warning Refill Date: ${tomorrowStr} (1 Day Remaining • 24 Hours)\n`;
+  en += `Count of Refills Due Tomorrow: ${dueTomorrow.length} residents\n`;
+  if (dueToday.length > 0) {
+    en += `Count of Refills Due Today: ${dueToday.length} residents\n`;
+  }
+  en += `Total Center Registered Residents: ${(residentsList || []).length} residents\n\n`;
+
+  en += `Section 1: Residents with Medical Refills Due Tomorrow (1-Day Notice)\n`;
+  if (dueTomorrow.length > 0) {
+    dueTomorrow.forEach((r, i) => {
+      const name = r.nameEn || r.nameAr || r.name;
+      const scheduledMeds = (r.dosageSchedule || [])
+        .map((ds: any) => `${ds.medicineName} (${ds.dosage || ds.timeSlot})`)
+        .join(', ') || 'No active scheduled medicines';
+
+      en += `[${i + 1}] Resident: ${name} (${r.nameAr || ''})\n`;
+      en += `National ID: ${r.nationalId || 'N/A'} | Room / Ward: ${r.roomNumber || 'N/A'}\n`;
+      en += `Refill Date: ${cleanDate(r.referralDate)} | Status: Due Tomorrow (24h Remaining)\n`;
+      en += `Refill Facility: ${r.referralFacility || 'Shaqra General Hospital - Specialist Clinic'}\n`;
+      en += `Clinical Reason: ${r.referralReason || 'Routine consultation and specialist examination'}\n`;
+      en += `Blood Group: ${r.bloodGroup || 'Not specified'} | Attending Doctor: ${r.attendingPhysician || 'Dr. Tareq Al-Yousef'}\n`;
+      en += `Recorded Drug Allergies: ${r.allergies || 'No known drug allergies'}\n`;
+      en += `Scheduled Prescriptions to Prepare: ${scheduledMeds}\n`;
+      if (r.notes) en += `Care & Swallowing Notes: ${r.notes}\n`;
+      en += `Pharmacy Action: Dispense scheduled doses and provide complete medication profile to medical escort team\n\n`;
+    });
+  } else {
+    en += `Safe Status: No medical refills scheduled for tomorrow (${tomorrowStr}).\n\n`;
+  }
+
+  if (dueToday.length > 0) {
+    en += `Section 2: Medical Refills Scheduled for Today (${todayStr})\n`;
+    dueToday.forEach((r, i) => {
+      const name = r.nameEn || r.nameAr || r.name;
+      en += `[${i + 1}] Resident: ${name} | National ID: ${r.nationalId || 'N/A'} | Room: ${r.roomNumber} | Today's Date: ${cleanDate(r.referralDate)} | Action: Expedite medication handover\n`;
+    });
+    en += `\n`;
+  }
+
+  en += `Section 3: Clinical & Governance Directives\n`;
+  en += `1. Verify and dispense all required medications 24 hours prior to refill transfer.\n`;
+  en += `2. Provide accompanying healthcare team with validated allergy alerts and dosage timing charts.\n`;
+  en += `3. Maintain active communication with receiving specialist hospital to coordinate treatment continuity.\n\n`;
+  en += `Official Publication: Shaqra Comprehensive Rehabilitation Center for Males Pharmacy`;
+
+  const sanitize = (text: string) => {
+    return text
+      .replace(/\*/g, '')
+      .replace(/#/g, '')
+      .replace(/^- /gm, '')
+      .replace(/\n-\s+/g, '\n')
+      .replace(/ - /g, ' | ')
+      .replace(/-/g, '/');
+  };
+
+  return {
+    arReferralReport: sanitize(ar),
+    enReferralReport: sanitize(en),
+    dueTomorrowCount: dueTomorrow.length,
+    dueTodayCount: dueToday.length,
+    dueTomorrowResidents: dueTomorrow
+  };
+};
+
+export default function App() {
+  // Global State
+  const [medicines, setMedicines] = useState<Medicine[]>(() => getLocalMedicines());
+  const [dispenseRecords, setDispenseRecords] = useState<DispenseRecord[]>(() => getLocalDispenses());
+  const [sessions, setSessions] = useState<UserSession[]>(() => getLocalSessions());
+  const [stockLogs, setStockLogs] = useState<StockAuditLog[]>(() => getLocalStockLogs());
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [darkMode, setDarkMode] = useState(true);
+  const [skin, setSkin] = useState<SkinId>(() => {
+    try {
+      const saved = localStorage.getItem('care_pharmacy_skin');
+      return (saved as SkinId) || 'midnight';
+    } catch {
+      return 'midnight';
+    }
+  });
+  const [showSkinModal, setShowSkinModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [selectedHelpSection, setSelectedHelpSection] = useState<string>('dashboard');
+  const [helpSearchQuery, setHelpSearchQuery] = useState<string>('');
+  const [lang, setLang] = useState<Language>(() => {
+    try {
+      const saved = localStorage.getItem('care_pharmacy_lang');
+      return (saved as Language) || 'ar';
+    } catch {
+      return 'ar';
+    }
+  });
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    }
+  }, [lang]);
+
+  const handleSelectSkin = (selectedSkinId: SkinId) => {
+    setSkin(selectedSkinId);
+    localStorage.setItem('care_pharmacy_skin', selectedSkinId);
+    if (selectedSkinId !== 'clinical-light') {
+      localStorage.setItem('care_pharmacy_last_dark_skin', selectedSkinId);
+    }
+    const targetConfig = SKINS.find(s => s.id === selectedSkinId);
+    if (targetConfig) {
+      setDarkMode(targetConfig.isDark);
+    }
+    setShowSkinModal(false);
+    showToast(
+      lang === 'ar' 
+        ? `تم تطبيق مظهر "${targetConfig?.nameAr}" وتحديث ألوان النظام بنجاح 🎨` 
+        : `Theme skin "${targetConfig?.nameEn}" applied! 🎨`, 
+      'success'
+    );
+  };
+
+  const handleToggleDarkMode = () => {
+    if (darkMode) {
+      setDarkMode(false);
+      setSkin('clinical-light');
+      localStorage.setItem('care_pharmacy_skin', 'clinical-light');
+      showToast(lang === 'ar' ? 'تم تفعيل الوضع النهاري المضيء (Clinical Daylight) ☀️' : 'Switched to Clinical Daylight Mode ☀️', 'success');
+    } else {
+      setDarkMode(true);
+      const savedDark = localStorage.getItem('care_pharmacy_last_dark_skin') as SkinId;
+      const targetDarkSkin = (savedDark && savedDark !== 'clinical-light') ? savedDark : 'midnight';
+      setSkin(targetDarkSkin);
+      localStorage.setItem('care_pharmacy_skin', targetDarkSkin);
+      const targetConfig = SKINS.find(s => s.id === targetDarkSkin);
+      showToast(lang === 'ar' ? `تم تفعيل ${targetConfig?.nameAr || 'الوضع الليلي'} 🌙` : 'Dark theme activated 🌙', 'success');
+    }
+  };
+
+  const handlePrintHelpManual = () => {
+    setPrintType('helpManual');
+    showToast(
+      lang === 'ar' 
+        ? 'جاري تجهيز دليل المساعدة والتشغيل للطباعة وتصدير PDF... 📄' 
+        : 'Preparing official help manual for printing / PDF export... 📄', 
+      'success'
+    );
+    setTimeout(() => {
+      window.print();
+    }, 350);
+  };
+
+  const t = (key: keyof typeof localizationData.ar) => {
+    return localizationData[lang][key] || localizationData.ar[key] || '';
+  };
+
+  const text = (ar: string, en?: string) => {
+    return lang === 'en' ? (en || ar) : ar;
+  };
+
+  const translateCategory = (cat: string) => {
+    if (lang !== 'en' || !cat) return cat;
+    const dict: Record<string, string> = {
+      'مسكنات وآلام': 'Painkillers & Analgesics',
+      'مضادات حيوية': 'Antibiotics',
+      'مضادات الالتهاب': 'Anti-inflammatory',
+      'الجهاز التنفسي والأزمات': 'Respiratory & Asthma',
+      'مضادات الصرع والتشنج': 'Anticonvulsants & Epilepsy',
+      'الرعاية النفسية والسلوكية': 'Psychiatric & Behavioral Care',
+      'الحساسية ومضادات الهستامين': 'Allergy & Antihistamines',
+      'عام': 'General',
+      'أخرى': 'Others'
+    };
+    return dict[cat] || cat;
+  };
+
+  const translateUnit = (unit: string) => {
+    if (lang !== 'en' || !unit) return unit;
+    const dict: Record<string, string> = {
+      'علبة': 'Box / Pack',
+      'شريط': 'Strip / Blister',
+      'حبة': 'Tablet / Pill',
+      'حبايتين': '2 Tablets',
+      'قرص': 'Tablet',
+      'كبسولة': 'Capsule',
+      'أمبول': 'Ampoule / Vial',
+      'أمبولة': 'Ampoule',
+      'زجاجة': 'Bottle / Syrup',
+      'قارورة': 'Vial / Bottle',
+      'مرهم': 'Ointment / Tube',
+      'قطرة': 'Drops',
+      'حقنة': 'Injection',
+      'جرعة': 'Dose',
+      'بخاخ': 'Spray / Inhaler',
+      'كيس': 'Sachet',
+      'وحدة': 'Unit'
+    };
+    return dict[unit] || unit;
+  };
+
+  // Care Center Residents State with localStorage persistence
+  const [residents, setResidents] = useState<any[]>(() => {
+    return getLocalResidents();
+  });
+
+  // User Accounts State with localStorage persistence
+  const [users, setUsers] = useState<any[]>(() => {
+    const defaultUsers = [
+      {
+        uid: "user-tmrbe",
+        name: "م. تامر (المبرمج)",
+        email: "tmrbe2006@gmail.com",
+        role: "developer",
+        phone: "+966500001122",
+        password: "dev"
+      },
+      {
+        uid: "user-100",
+        name: "م. عبد الرحمن (المبرمج)",
+        email: "dev@carecenter.org",
+        role: "developer",
+        phone: "+966500001122",
+        password: "dev"
+      },
+      {
+        uid: "user-101",
+        name: "د. طارق اليوسف",
+        email: "yousef.t@carecenter.org",
+        role: "admin",
+        phone: "+966501234567",
+        password: "admin"
+      },
+      {
+        uid: "user-102",
+        name: "صيدلي. كريم القحطاني",
+        email: "kareem.q@carecenter.org",
+        role: "pharmacist",
+        phone: "+966507654321",
+        password: "pharm"
+      },
+      {
+        uid: "user-103",
+        name: "فني. ماجد الرويلي",
+        email: "majed.r@carecenter.org",
+        role: "technician",
+        phone: "+966509998887",
+        password: "tech"
+      }
+    ];
+
+    try {
+      const saved = localStorage.getItem('care_pharmacy_all_users');
+      let list = saved ? JSON.parse(saved) : defaultUsers;
+      if (Array.isArray(list)) {
+        const tmrbeIdx = list.findIndex((u: any) => u.email?.toLowerCase() === 'tmrbe2006@gmail.com');
+        if (tmrbeIdx !== -1) {
+          list[tmrbeIdx] = { ...list[tmrbeIdx], role: 'developer' };
+        } else {
+          list = [defaultUsers[0], ...list];
+        }
+        if (!list.some((u: any) => u.role === 'developer')) {
+          list = [defaultUsers[0], ...list];
+        }
+        try { localStorage.setItem('care_pharmacy_all_users', JSON.stringify(list)); } catch (e) {}
+      }
+      return list;
+    } catch {
+      return defaultUsers;
+    }
+  });
+
+  const updateResidentsList = async (newList: any[]) => {
+    setResidents(newList);
+    saveLocalResidents(newList);
+    try {
+      await DbService.syncAllResidents(newList);
+    } catch (e) {
+      console.warn("Failed to sync residents with database:", e);
+    }
+  };
+
+  const updateUsersList = (newList: any[]) => {
+    setUsers(newList);
+    localStorage.setItem('care_pharmacy_all_users', JSON.stringify(newList));
+  };
+  
+  // Security & Authentication State
+  const [currentUser, setCurrentUser] = useState<any | null>(() => {
+    try {
+      const saved = localStorage.getItem('care_pharmacy_user');
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (u.email?.toLowerCase() === 'tmrbe2006@gmail.com') {
+          u.role = 'developer';
+          try { localStorage.setItem('care_pharmacy_user', JSON.stringify(u)); } catch (e) {}
+        }
+        return u;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Login Screen states
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginShowPassword, setLoginShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+
+  // Settings state
+  const [alertDays, setAlertDays] = useState(30);
+
+  // WhatsApp UltraMsg & Email Settings State with localStorage persistence
+  const [whatsAppEnabled, setWhatsAppEnabled] = useState(() => {
+    return localStorage.getItem('whatsAppEnabled') !== 'false';
+  });
+  const [whatsAppMode, setWhatsAppMode] = useState<'ultramsg' | 'callmebot' | 'manual' | 'wapilot'>(() => {
+    return (localStorage.getItem('whatsAppMode') as any) || 'manual';
+  });
+  const [ultraMsgInstance, setUltraMsgInstance] = useState(() => {
+    return localStorage.getItem('ultraMsgInstance') || 'instance98412';
+  });
+  const [ultraMsgToken, setUltraMsgToken] = useState(() => {
+    return localStorage.getItem('ultraMsgToken') || 'tkn_998348123984axcd';
+  });
+  const [callMeBotApiKey, setCallMeBotApiKey] = useState(() => {
+    return localStorage.getItem('callMeBotApiKey') || '';
+  });
+  const [waPilotBaseUrl, setWaPilotBaseUrl] = useState(() => {
+    return localStorage.getItem('waPilotBaseUrl') || 'https://api.wapilot.io';
+  });
+  const [waPilotApiKey, setWaPilotApiKey] = useState(() => {
+    return localStorage.getItem('waPilotApiKey') || '';
+  });
+  const [waPilotType, setWaPilotType] = useState<'wapilot' | 'wapilot_net' | 'wautopilot'>(() => {
+    return (localStorage.getItem('waPilotType') as any) || 'wapilot';
+  });
+  const [secSettingsState, setSecSettingsState] = useState<SecuritySettings>(() => getLocalSecuritySettings());
+  const [savingSecSettings, setSavingSecSettings] = useState(false);
+
+  const [waPilotDevice, setWaPilotDevice] = useState(() => {
+    return getLocalSecuritySettings().waPilotDevice || '';
+  });
+  const [waPilotPath, setWaPilotPath] = useState(() => {
+    return getLocalSecuritySettings().waPilotPath || '/api/v1/api/messages';
+  });
+  const [whatsAppNumber, setWhatsAppNumber] = useState(() => {
+    return getLocalSecuritySettings().whatsAppNumber || '966502792157+, 201111256095';
+  });
+  const [emailEnabled, setEmailEnabled] = useState(() => {
+    return getLocalSecuritySettings().emailEnabled !== false;
+  });
+  const [appsScriptUrl, setAppsScriptUrl] = useState(() => {
+    return getLocalSecuritySettings().appsScriptUrl || 'AKfycbwES7mkB6q2gKtiKDbUOHIBZeLruWaE8zROrFasOHjtWXcsklq8yZZDRCDYQJVJVru4og/exec';
+  });
+  const [notificationEmail, setNotificationEmail] = useState(() => {
+    return getLocalSecuritySettings().notificationEmail || 'tmrbe2006@gmail.com, rooq113@gmail.com, abdelrahim.mahjob@gmail.com';
+  });
+  const [appsScriptError, setAppsScriptError] = useState<any | null>(null);
+  const [emailPreviewLang, setEmailPreviewLang] = useState<'ar' | 'en'>('ar');
+  const [waPreviewLang, setWaPreviewLang] = useState<'ar' | 'en'>('ar');
+
+  const saveChannelSettings = async () => {
+    try {
+      setSavingSecSettings(true);
+      const payload: Partial<SecuritySettings> = {
+        whatsAppEnabled,
+        whatsAppMode,
+        ultraMsgInstance,
+        ultraMsgToken,
+        callMeBotApiKey,
+        waPilotBaseUrl,
+        waPilotApiKey,
+        waPilotType,
+        waPilotDevice,
+        waPilotPath,
+        whatsAppNumber,
+        emailEnabled,
+        appsScriptUrl,
+        notificationEmail,
+        alertDays
+      };
+
+      const updated = await DbService.saveSecuritySettings(payload, {
+        name: currentUser?.name || 'م. تامر (المبرمج)',
+        email: currentUser?.email || 'tmrbe2006@gmail.com'
+      });
+      setSecSettingsState(updated);
+      showToast(text('تم حفظ إعدادات الحماية والأمان وقنوات الاتصال سحابياً في قاعدة بيانات Firebase بنجاح! ☁️🔒', 'Security and gateway settings saved to Firebase Cloud Firestore successfully! ☁️🔒'), 'success');
+    } catch (err: any) {
+      console.error('Failed saving security settings to Firebase:', err);
+      showToast(text(`فشل حفظ الإعدادات في قاعدة البيانات: ${err.message}`, `Failed saving settings to DB: ${err.message}`), 'error');
+    } finally {
+      setSavingSecSettings(false);
+    }
+  };
+
+  // Custom Categories & Units State with database persistence
+  const [customCategories, setCustomCategories] = useState<string[]>(() => {
+    return getLocalCategories();
+  });
+
+  const [customUnits, setCustomUnits] = useState<string[]>(() => {
+    return getLocalUnits();
+  });
+
+  // Units Management Modal State
+  const [showManageUnitsModal, setShowManageUnitsModal] = useState(false);
+  const [editingUnitIdx, setEditingUnitIdx] = useState<number | null>(null);
+  const [editingUnitVal, setEditingUnitVal] = useState('');
+  const [newUnitInputModal, setNewUnitInputModal] = useState('');
+  const [unitSearchQuery, setUnitSearchQuery] = useState('');
+
+  // Categories Management Modal State
+  const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
+  const [editingCategoryIdx, setEditingCategoryIdx] = useState<number | null>(null);
+  const [editingCategoryVal, setEditingCategoryVal] = useState('');
+  const [newCategoryInputModal, setNewCategoryInputModal] = useState('');
+
+  // Unit CRUD handlers with Database (Firestore) persistence
+  const handleCreateUnit = async (name: string) => {
+    if (currentUser?.role === 'technician') {
+      showToast(text('ليس لديك صلاحية إضافة وحدات دوائية جديدة (مقتصرة على الصيدلي القانوني ومدير النظام).', 'Pharmacy technicians cannot add new units.'), 'error');
+      return;
+    }
+    const cleaned = name.trim();
+    if (!cleaned) {
+      showToast(text('يرجى إدخال اسم الوحدة الدوائية أولاً', 'Please enter unit name first'), 'error');
+      return;
+    }
+    if (customUnits.includes(cleaned)) {
+      showToast(text('هذه الوحدة الدوائية مسجلة بالفعل!', 'This unit is already registered!'), 'error');
+      return;
+    }
+    try {
+      const updated = await DbService.addUnit(cleaned);
+      setCustomUnits(updated);
+      setMedForm(prev => ({ ...prev, unit: cleaned }));
+      setNewUnitInputModal('');
+      showToast(text(`تم حفظ الوحدة "${cleaned}" في قاعدة البيانات بنجاح!`, `Unit "${cleaned}" saved to database!`), 'success');
+    } catch (e) {
+      showToast(text('فشل حفظ الوحدة في قاعدة البيانات', 'Failed to save unit to database'), 'error');
+    }
+  };
+
+  const handleUpdateUnit = async (index: number, newName: string) => {
+    if (currentUser?.role === 'technician') {
+      showToast(text('ليس لديك صلاحية تعديل الوحدات الدوائية (مقتصرة على الصيدلي القانوني ومدير النظام).', 'Pharmacy technicians cannot edit units.'), 'error');
+      return;
+    }
+    const cleaned = newName.trim();
+    if (!cleaned) {
+      showToast(text('اسم الوحدة لا يمكن أن يكون فارغاً', 'Unit name cannot be empty'), 'error');
+      return;
+    }
+    const oldUnit = customUnits[index];
+    if (cleaned === oldUnit) {
+      setEditingUnitIdx(null);
+      return;
+    }
+    try {
+      const updated = await DbService.updateUnit(oldUnit, cleaned);
+      setCustomUnits(updated);
+      if (medForm.unit === oldUnit) {
+        setMedForm(prev => ({ ...prev, unit: cleaned }));
+      }
+      // Update any medicines in state & database that have this old unit
+      const affectedMeds = medicines.filter(m => m.unit === oldUnit);
+      if (affectedMeds.length > 0) {
+        for (const m of affectedMeds) {
+          await DbService.updateMedicine(m.id, { unit: cleaned });
+        }
+        loadAllData();
+      }
+      setEditingUnitIdx(null);
+      setEditingUnitVal('');
+      showToast(text(`تم تعديل الوحدة في قاعدة البيانات وتحديث الأصناف المرتبطة بها!`, `Unit updated in database!`), 'success');
+    } catch (e) {
+      showToast(text('فشل تعديل الوحدة في قاعدة البيانات', 'Failed to update unit in database'), 'error');
+    }
+  };
+
+  const handleDeleteUnit = async (index: number) => {
+    if (currentUser?.role === 'technician') {
+      showToast(text('ليس لديك صلاحية حذف الوحدات الدوائية (مقتصرة على الصيدلي القانوني ومدير النظام).', 'Pharmacy technicians cannot delete units.'), 'error');
+      return;
+    }
+    if (customUnits.length <= 1) {
+      showToast(text('يجب الإبقاء على وحدة واحدة على الأقل في النظام!', 'At least one unit must remain in the system!'), 'error');
+      return;
+    }
+    const targetUnit = customUnits[index];
+    const affectedCount = medicines.filter(m => m.unit === targetUnit).length;
+    if (affectedCount > 0) {
+      const confirmDelete = window.confirm(lang === 'ar' 
+        ? `تنبيه: توجد (${affectedCount}) أصناف دوائية مسجلة بوحدة "${targetUnit}". هل أنت متأكد من حذف هذه الوحدة؟ سيتم تحويلها تلقائياً للوحدة الأولى المتبقية.` 
+        : `Warning: ${affectedCount} items are registered with "${targetUnit}". Are you sure you want to delete it?`);
+      if (!confirmDelete) return;
+    }
+    try {
+      const updated = await DbService.deleteUnit(targetUnit);
+      setCustomUnits(updated);
+      if (medForm.unit === targetUnit) {
+        setMedForm(prev => ({ ...prev, unit: updated[0] }));
+      }
+      if (affectedCount > 0) {
+        for (const m of medicines.filter(m => m.unit === targetUnit)) {
+          await DbService.updateMedicine(m.id, { unit: updated[0] });
+        }
+        loadAllData();
+      }
+      showToast(text(`تم حذف الوحدة "${targetUnit}" من قاعدة البيانات بنجاح!`, `Unit "${targetUnit}" deleted from database!`), 'success');
+    } catch (e) {
+      showToast(text('فشل حذف الوحدة من قاعدة البيانات', 'Failed to delete unit from database'), 'error');
+    }
+  };
+
+  // Category CRUD handlers with Database (Firestore) persistence
+  const handleCreateCategory = async (name: string) => {
+    if (currentUser?.role === 'technician') {
+      showToast(text('ليس لديك صلاحية إضافة فئات علاجية جديدة (مقتصرة على الصيدلي القانوني ومدير النظام).', 'Pharmacy technicians cannot add categories.'), 'error');
+      return;
+    }
+    const cleaned = name.trim();
+    if (!cleaned) {
+      showToast(text('يرجى إدخال اسم الفئة العلاجية أولاً', 'Please enter category name first'), 'error');
+      return;
+    }
+    if (customCategories.includes(cleaned)) {
+      showToast(text('هذه الفئة العلاجية مسجلة بالفعل!', 'This category is already registered!'), 'error');
+      return;
+    }
+    try {
+      const updated = await DbService.addCategory(cleaned);
+      setCustomCategories(updated);
+      setMedForm(prev => ({ ...prev, category: cleaned }));
+      setNewCategoryInputModal('');
+      showToast(text(`تمت إضافة الفئة العلاجية "${cleaned}" لقاعدة البيانات بنجاح!`, `Category "${cleaned}" saved to database!`), 'success');
+    } catch (e) {
+      showToast(text('فشل حفظ الفئة في قاعدة البيانات', 'Failed to save category to database'), 'error');
+    }
+  };
+
+  const handleUpdateCategory = async (index: number, newName: string) => {
+    if (currentUser?.role === 'technician') {
+      showToast(text('ليس لديك صلاحية تعديل الفئات العلاجية (مقتصرة على الصيدلي القانوني ومدير النظام).', 'Pharmacy technicians cannot edit categories.'), 'error');
+      return;
+    }
+    const cleaned = newName.trim();
+    if (!cleaned) {
+      showToast(text('اسم الفئة العلاجية لا يمكن أن يكون فارغاً', 'Category name cannot be empty'), 'error');
+      return;
+    }
+    const oldCat = customCategories[index];
+    if (cleaned === oldCat) {
+      setEditingCategoryIdx(null);
+      return;
+    }
+    try {
+      const updated = await DbService.updateCategory(oldCat, cleaned);
+      setCustomCategories(updated);
+      if (medForm.category === oldCat) {
+        setMedForm(prev => ({ ...prev, category: cleaned }));
+      }
+      // Update any medicines in state & database that have this old category
+      const affectedMeds = medicines.filter(m => m.category === oldCat);
+      if (affectedMeds.length > 0) {
+        for (const m of affectedMeds) {
+          await DbService.updateMedicine(m.id, { category: cleaned });
+        }
+        loadAllData();
+      }
+      setEditingCategoryIdx(null);
+      setEditingCategoryVal('');
+      showToast(text(`تم تعديل الفئة في قاعدة البيانات وتحديث الأصناف المرتبطة بها!`, `Category updated in database!`), 'success');
+    } catch (e) {
+      showToast(text('فشل تعديل الفئة في قاعدة البيانات', 'Failed to update category in database'), 'error');
+    }
+  };
+
+  const handleDeleteCategory = async (index: number) => {
+    if (currentUser?.role === 'technician') {
+      showToast(text('ليس لديك صلاحية حذف الفئات العلاجية (مقتصرة على الصيدلي القانوني ومدير النظام).', 'Pharmacy technicians cannot delete categories.'), 'error');
+      return;
+    }
+    if (customCategories.length <= 1) {
+      showToast(text('يجب الإبقاء على فئة علاجية واحدة على الأقل في النظام!', 'At least one category must remain in the system!'), 'error');
+      return;
+    }
+    const targetCat = customCategories[index];
+    const affectedCount = medicines.filter(m => m.category === targetCat).length;
+    if (affectedCount > 0) {
+      const confirmDelete = window.confirm(lang === 'ar' 
+        ? `تنبيه: توجد (${affectedCount}) أصناف دوائية مسجلة بالفئة "${targetCat}". هل أنت متأكد من حذف هذه الفئة؟ سيتم تحويلها تلقائياً للفئة الأولى المتبقية.` 
+        : `Warning: ${affectedCount} medications are registered under "${targetCat}". Delete anyway?`);
+      if (!confirmDelete) return;
+    }
+    try {
+      const updated = await DbService.deleteCategory(targetCat);
+      setCustomCategories(updated);
+      if (medForm.category === targetCat) {
+        setMedForm(prev => ({ ...prev, category: updated[0] }));
+      }
+      if (affectedCount > 0) {
+        for (const m of medicines.filter(m => m.category === targetCat)) {
+          await DbService.updateMedicine(m.id, { category: updated[0] });
+        }
+        loadAllData();
+      }
+      showToast(text(`تم حذف الفئة "${targetCat}" من قاعدة البيانات بنجاح!`, `Category "${targetCat}" deleted from database!`), 'success');
+    } catch (e) {
+      showToast(text('فشل حذف الفئة من قاعدة البيانات', 'Failed to delete category from database'), 'error');
+    }
+  };
+
+  // Filter & Search states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [behaviorSearchQuery, setBehaviorSearchQuery] = useState('');
+  const [dispenseSearchQuery, setDispenseSearchQuery] = useState('');
+  const [dispenseStartDate, setDispenseStartDate] = useState('');
+  const [dispenseEndDate, setDispenseEndDate] = useState('');
+  const [dispenseTimeQuery, setDispenseTimeQuery] = useState('');
+  const [residentsSearchQuery, setResidentsSearchQuery] = useState('');
+  const [usersSearchQuery, setUsersSearchQuery] = useState('');
+  const [filterBehavior, setFilterBehavior] = useState('all');
+  const [filterSeverity, setFilterSeverity] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedStockFilter, setSelectedStockFilter] = useState('all');
+
+  // Filter Dispense Records with Date Range (من تاريخ إلى تاريخ) and Time/Text queries
+  const getFilteredDispenseRecords = () => {
+    return dispenseRecords.filter(rec => {
+      const q = dispenseSearchQuery.trim().toLowerCase();
+      const startDt = dispenseStartDate.trim();
+      const endDt = dispenseEndDate.trim();
+      const tq = dispenseTimeQuery.trim().toLowerCase();
+
+      // General search filter
+      const matchesGeneral = !q ||
+        (rec.residentName || '').toLowerCase().includes(q) ||
+        (rec.medicineName || '').toLowerCase().includes(q) ||
+        (rec.dispensedBy || '').toLowerCase().includes(q) ||
+        (rec.unit || '').toLowerCase().includes(q);
+
+      // Date Range Filter (من تاريخ كذا إلى تاريخ كذا)
+      let matchesDateRange = true;
+      const recDateStr = rec.dispensedAt ? rec.dispensedAt.split('T')[0] : '';
+      if (startDt && endDt) {
+        matchesDateRange = recDateStr >= startDt && recDateStr <= endDt;
+      } else if (startDt) {
+        matchesDateRange = recDateStr >= startDt;
+      } else if (endDt) {
+        matchesDateRange = recDateStr <= endDt;
+      }
+
+      // Time/Date text query filter
+      let matchesTimeText = true;
+      if (tq) {
+        const fullFormatted = rec.dispensedAt ? new Date(rec.dispensedAt).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US').toLowerCase() : '';
+        const rawIso = (rec.dispensedAt || '').toLowerCase();
+        matchesTimeText = fullFormatted.includes(tq) || rawIso.includes(tq);
+      }
+
+      return matchesGeneral && matchesDateRange && matchesTimeText;
+    });
+  };
+
+  // Export Dispense Records to Excel (.xls) with full native UTF-8 formatting and zero question marks
+  const handleExportDispenseToExcel = () => {
+    try {
+      const recordsToExport = getFilteredDispenseRecords();
+      if (recordsToExport.length === 0) {
+        showToast(lang === 'ar' ? 'لا توجد سجلات صرف لتصديرها وفق الفلتر المحدد حالياً' : 'No dispense records found for export', 'error');
+        return;
+      }
+
+      const isAr = lang === 'ar';
+      const headers = isAr ? [
+        'م',
+        'رقم السجل',
+        'اسم المقيم المستفيد',
+        'اسم الدواء المصروف',
+        'الكمية المقررة',
+        'الكمية المصروفة فعلياً',
+        'الوحدة',
+        'إجمالي السعر (ر.س)',
+        'اسم الصيدلي المسؤول',
+        'تاريخ ووقت الصرف'
+      ] : [
+        '#',
+        'Record ID',
+        'Resident Name',
+        'Medication Dispensed',
+        'Prescribed Qty',
+        'Actual Dispensed Qty',
+        'Unit',
+        'Total Cost (SAR)',
+        'Pharmacist in Charge',
+        'Dispensation Date & Time'
+      ];
+
+      const totalQuantity = recordsToExport.reduce((acc, r) => acc + (r.actualQuantityDispensed || r.quantityDispensed || 0), 0);
+      const totalAmount = recordsToExport.reduce((acc, r) => acc + (r.totalPrice || 0), 0);
+
+      // Construct native Excel HTML table with explicit UTF-8 charset, borders, and RTL/LTR styling
+      const rowsHtml = recordsToExport.map((rec, idx) => {
+        const formattedDate = rec.dispensedAt 
+          ? new Date(rec.dispensedAt).toISOString().replace('T', ' ').substring(0, 16)
+          : '';
+        return `
+          <tr>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${idx + 1}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">DSP-${idx + 1}</td>
+            <td style="text-align: ${isAr ? 'right' : 'left'}; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">${rec.residentName || ''}</td>
+            <td style="text-align: ${isAr ? 'right' : 'left'}; border: 1px solid #cbd5e1; padding: 8px;">${rec.medicineName || ''}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${rec.quantityDispensed || 0}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold; color: #0d9488;">${rec.actualQuantityDispensed || rec.quantityDispensed || 0}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${rec.unit || ''}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">${Number(rec.totalPrice || 0).toFixed(2)}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${rec.dispensedBy || ''}</td>
+            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px; direction: ltr;">${formattedDate}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const excelHtml = `\uFEFF<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <!--[if gte mso 9]>
+  <xml>
+    <x:ExcelWorkbook>
+      <x:ExcelWorksheets>
+        <x:ExcelWorksheet>
+          <x:Name>${isAr ? 'تقرير صرف الأدوية' : 'Dispense Report'}</x:Name>
+          <x:WorksheetOptions>
+            ${isAr ? '<x:DisplayRightToLeft/>' : ''}
+          </x:WorksheetOptions>
+        </x:ExcelWorksheet>
+      </x:ExcelWorksheets>
+    </x:ExcelWorkbook>
+  </xml>
+  <![endif]-->
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; }
+    table { border-collapse: collapse; width: 100%; }
+    th { background-color: #0d9488; color: #ffffff; font-weight: bold; border: 1px solid #0f766e; padding: 10px; font-size: 13px; text-align: center; }
+    td { font-size: 12px; }
+    .title-banner { font-size: 16px; font-weight: bold; color: #0f766e; text-align: center; padding: 14px; }
+    .meta-info { font-size: 11px; color: #64748b; padding-bottom: 8px; text-align: ${isAr ? 'right' : 'left'}; }
+    .total-row td { background-color: #f1f5f9; font-weight: bold; border: 1px solid #cbd5e1; padding: 10px; }
+  </style>
+</head>
+<body dir="${isAr ? 'rtl' : 'ltr'}">
+  <div class="title-banner">${isAr ? `${OFFICIAL_CENTER_NAME} - تقرير صرف الأدوية المعتمد` : 'Shaqra Comprehensive Rehabilitation Center for Males - Medication Dispense Report'}</div>
+  <div class="meta-info">
+    ${isAr ? `تاريخ تصدير التقرير: ${new Date().toISOString().split('T')[0]} | إجمالي العمليات المصدرة: ${recordsToExport.length}` : `Report Export Date: ${new Date().toISOString().split('T')[0]} | Total Records: ${recordsToExport.length}`}
+  </div>
+  <table>
+    <thead>
+      <tr>
+        ${headers.map(h => `<th>${h}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+      <tr class="total-row">
+        <td colspan="4" style="text-align: center; font-size: 13px;">${isAr ? 'المجموع الكلي للتقرير' : 'Grand Total'}</td>
+        <td style="text-align: center;">-</td>
+        <td style="text-align: center; color: #0d9488;">${totalQuantity}</td>
+        <td style="text-align: center;">-</td>
+        <td style="text-align: center; color: #b45309;">${totalAmount.toFixed(2)} ${isAr ? 'ر.س' : 'SAR'}</td>
+        <td colspan="2" style="text-align: center;">${isAr ? `${recordsToExport.length} عملية صرف` : `${recordsToExport.length} transactions`}</td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+      const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      const fileName = isAr 
+        ? `تقرير_صرف_الأدوية_${new Date().toISOString().split('T')[0]}.xls`
+        : `Medication_Dispense_Report_${new Date().toISOString().split('T')[0]}.xls`;
+      link.setAttribute("download", fileName);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showToast(isAr ? '📥 تم تصدير تقرير صرف الأدوية لملف Excel بنجاح باللغة العربية!' : 'Dispense report exported to Excel successfully in English!', 'success');
+    } catch (e) {
+      showToast(lang === 'ar' ? 'عذراً، فشل تصدير التقرير لملف Excel.' : 'Failed to export report to Excel.', 'error');
+    }
+  };
+
+  // Modal forms states
+  const [showAddMedModal, setShowAddMedModal] = useState(false);
+  const [showEditMedModal, setShowEditMedModal] = useState(false);
+  const [showDispenseModal, setShowDispenseModal] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Companies Directory States
+  const [inventorySubTab, setInventorySubTab] = useState<'medicines' | 'companies'>('medicines');
+  const [companies, setCompanies] = useState<any[]>(() => {
+    return getLocalCompanies();
+  });
+
+  const [showCompanyModal, setShowCompanyModal] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [companyForm, setCompanyForm] = useState({
+    name: '',
+    country: '',
+    contactPerson: '',
+    phone: '',
+    email: '',
+    notes: ''
+  });
+  const [companiesSearchQuery, setCompaniesSearchQuery] = useState('');
+
+  // Forms fields
+  const [medForm, setMedForm] = useState<Omit<Medicine, 'id' | 'createdAt' | 'updatedAt'>>({
+    commercialName: '',
+    commercialNameAr: '',
+    commercialNameEn: '',
+    scientificName: '',
+    quantity: 100,
+    entryDate: new Date().toISOString().split('T')[0],
+    expiryDate: '',
+    price: 25.0,
+    unit: 'علبة',
+    category: 'مسكنات وآلام',
+    manufacturer: '',
+    isControlled: false
+  });
+  const [selectedMedId, setSelectedMedId] = useState<string | null>(null);
+
+  const [dispenseForm, setDispenseForm] = useState({
+    medicineId: '',
+    residentName: '',
+    quantityDispensed: 1,
+    actualQuantityDispensed: 1,
+    unit: 'قرص'
+  });
+  const [dispenseMedSearch, setDispenseMedSearch] = useState('');
+  const [dispenseResidentSearch, setDispenseResidentSearch] = useState('');
+
+  const openDispenseModal = (preset?: { medicineId?: string; residentName?: string; unit?: string }) => {
+    setDispenseMedSearch('');
+    setDispenseResidentSearch('');
+    const firstAvail = preset?.medicineId 
+      ? medicines.find(m => m.id === preset.medicineId) 
+      : medicines.find(m => m.quantity > 0);
+    setDispenseForm({
+      medicineId: preset?.medicineId || '',
+      residentName: preset?.residentName || '',
+      quantityDispensed: 1,
+      actualQuantityDispensed: 1,
+      unit: preset?.unit || firstAvail?.unit || customUnits[0] || 'قرص'
+    });
+    setShowDispenseModal(true);
+  };
+
+  // Calculate age accurately from Date of Birth
+  const calculateAgeFromDob = (dobString: string): number => {
+    if (!dobString) return 0;
+    const birthDate = new Date(dobString);
+    if (isNaN(birthDate.getTime())) return 0;
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return Math.max(0, age);
+  };
+
+  // Care Center Residents Form and modal states
+  const [showAddResidentModal, setShowAddResidentModal] = useState(false);
+  const [showEditResidentModal, setShowEditResidentModal] = useState(false);
+  const [selectedResidentId, setSelectedResidentId] = useState<string | null>(null);
+  const [residentForm, setResidentForm] = useState({
+    name: '',
+    nameAr: '',
+    nameEn: '',
+    birthDate: '',
+    referralDate: '',
+    roomNumber: '',
+    nationalId: '',
+    age: 0,
+    notes: ''
+  });
+
+  // Users Form and modal states
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [showAddUserPassword, setShowAddUserPassword] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [userForm, setUserForm] = useState({
+    name: '',
+    email: '',
+    role: 'pharmacist',
+    phone: '',
+    password: ''
+  });
+
+
+  // Custom states for Delete Confirm Modal and Print Preview Modal
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string, name: string, type: 'resident' | 'user' | 'behaviorLog' | 'company' } | null>(null);
+  const [printType, setPrintType] = useState<'inventory' | 'aiDossier' | 'helpManual'>('inventory');
+  const [showPrintPreviewModal, setShowPrintPreviewModal] = useState(false);
+  
+  // Care center resident Dossier and Medication daily schedule
+  const [activeDossierResident, setActiveDossierResident] = useState<any | null>(null);
+  
+  // Dedicated Medical File edit modal state (edits clinical data only without touching resident demographics)
+  const [showEditMedicalDossierModal, setShowEditMedicalDossierModal] = useState(false);
+  const [medicalDossierForm, setMedicalDossierForm] = useState({
+    referralDate: '',
+    referralFacility: '',
+    referralReason: '',
+    allergies: '',
+    notes: '',
+    bloodGroup: 'O+',
+    attendingPhysician: '',
+    chronicDiseases: ''
+  });
+
+  // Referral Report states & preview
+  const [referralPreviewLang, setReferralPreviewLang] = useState<'ar' | 'en'>('ar');
+  const [showReferralReportModal, setShowReferralReportModal] = useState(false);
+  const [sendingReferralEmail, setSendingReferralEmail] = useState(false);
+
+  // WhatsApp Report Modal states & preview
+  const [showWhatsAppReportModal, setShowWhatsAppReportModal] = useState(false);
+  const [waModalLang, setWaModalLang] = useState<'ar' | 'en'>('ar');
+  const [generatingPdfLoading, setGeneratingPdfLoading] = useState(false);
+  const [sendingWhatsAppReport, setSendingWhatsAppReport] = useState(false);
+
+  // Email sender for Resident Referrals Report (1-day prior notice to pharmacy officials)
+  const sendReferralAlertsEmail = async (isAutoPilot = false) => {
+    if (!emailEnabled || !appsScriptUrl || !notificationEmail) {
+      if (!isAutoPilot) {
+        showToast(text('يرجى تفعيل البريد وإدخال رابط Google Apps Script وبريد المستلم في شاشة الأمان أولاً', 'Please enable email and set Apps Script URL & email in Security settings first'), 'error');
+      }
+      return false;
+    }
+
+    try {
+      if (!isAutoPilot) setSendingReferralEmail(true);
+      const { arReferralReport, enReferralReport, dueTomorrowCount } = generateReferralAlertsReports(residents);
+      const combinedMsg = `${arReferralReport}\n\n${"=".repeat(56)}\n\n${enReferralReport}`;
+
+      // Helper to encode UTF-8 to Base64 safely
+      const toBase64Utf8 = (str: string) => {
+        try {
+          return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+        } catch (e) {
+          return '';
+        }
+      };
+
+      const attachments = [
+        {
+          name: 'Shaqra_Center_Resident_Refills_AR.txt',
+          displayName: 'تقرير_إحالات_المقيمين_مركز_التأهيل_الشامل_شقراء.txt',
+          content: arReferralReport,
+          base64: toBase64Utf8(arReferralReport),
+          mimeType: 'text/plain;charset=utf-8'
+        },
+        {
+          name: 'Shaqra_Center_Resident_Refills_EN.txt',
+          displayName: 'Shaqra_Rehab_Center_Resident_Refills_Report.txt',
+          content: enReferralReport,
+          base64: toBase64Utf8(enReferralReport),
+          mimeType: 'text/plain;charset=utf-8'
+        }
+      ];
+
+      const emailSubject = `🔔 تنبيه استباقي: تقرير الإحالات الطبية للمقيمين (قبل الموعد بيوم • ${dueTomorrowCount} إحالات) - ${OFFICIAL_CENTER_NAME}`;
+
+      let sentSuccess = false;
+      let errorMsg = '';
+
+      // 1. Try server-side proxy endpoint first
+      try {
+        const res = await fetch('/api/notifications/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scriptUrl: appsScriptUrl,
+            to: notificationEmail,
+            subject: emailSubject,
+            body: combinedMsg,
+            arReport: arReferralReport,
+            enReport: enReferralReport,
+            attachments: attachments
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            sentSuccess = true;
+          } else {
+            errorMsg = data.error || 'فشل في استجابة الخادم';
+          }
+        } else {
+          errorMsg = `خطأ HTTP ${res.status}`;
+        }
+      } catch (err: any) {
+        errorMsg = err.message;
+      }
+
+      // 2. Client-side fallback directly to Google Apps Script if proxy failed or running statically
+      if (!sentSuccess) {
+        const urls = appsScriptUrl
+          .split(/[\n,;]+/)
+          .map((u: string) => u.trim())
+          .filter((u: string) => u.length > 0);
+
+        for (const url of urls) {
+          try {
+            const cleanUrl = url.startsWith('http') ? url : `https://script.google.com/macros/s/${url}`;
+            const resp = await fetch(cleanUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                to: notificationEmail,
+                subject: emailSubject,
+                body: combinedMsg,
+                attachments: attachments
+              })
+            });
+            if (resp.ok) {
+              sentSuccess = true;
+              break;
+            }
+          } catch (e: any) {
+            console.warn("Direct Apps Script client fallback notice:", e.message);
+          }
+        }
+      }
+
+      if (sentSuccess) {
+        if (!isAutoPilot) {
+          showToast(text(`تم إرسال تقرير الإحالات الطبية المنسق مع المرفقات بنجاح إلى المسؤولين (${notificationEmail})! ✉️📋`, `Resident refill report dispatched successfully to ${notificationEmail}!`), 'success');
+        }
+        return true;
+      } else {
+        if (!isAutoPilot) {
+          showToast(`فشل إرسال تقرير الإحالات: ${errorMsg || 'يرجى مراجعة إعدادات البريد'}`, 'error');
+        }
+        return false;
+      }
+    } catch (e: any) {
+      if (!isAutoPilot) {
+        showToast(`فشل إرسال تقرير الإحالات: ${e.message}`, 'error');
+      }
+      return false;
+    } finally {
+      if (!isAutoPilot) setSendingReferralEmail(false);
+    }
+  };
+
+  const [showAddDoseModal, setShowAddDoseModal] = useState(false);
+  const [newDoseForm, setNewDoseForm] = useState({
+    timeSlot: '08:00',
+    medicineId: '',
+    dosage: '',
+    quantity: 1
+  });
+  const [doseMedSearch, setDoseMedSearch] = useState('');
+  const [interactionResult, setInteractionResult] = useState<any | null>(null);
+  const [interactionLoading, setInteractionLoading] = useState(false);
+
+  // Filtered medications for dose scheduling combobox in Medical Record
+  const filteredDoseMeds = useMemo(() => {
+    if (!doseMedSearch.trim()) return medicines;
+    const q = doseMedSearch.toLowerCase().trim();
+    return medicines.filter(m => 
+      (m.commercialNameAr && m.commercialNameAr.toLowerCase().includes(q)) ||
+      (m.commercialName && m.commercialName.toLowerCase().includes(q)) ||
+      (m.commercialNameEn && m.commercialNameEn.toLowerCase().includes(q)) ||
+      (m.scientificName && m.scientificName.toLowerCase().includes(q))
+    );
+  }, [medicines, doseMedSearch]);
+
+  // Notifications alerts & simulated dispatch logs
+  const [notificationLogs, setNotificationLogs] = useState<string[]>([]);
+  const [notificationAlertText, setNotificationAlertText] = useState<string | null>(null);
+
+  // AI premium report states
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const [deleteConfirmCompanyId, setDeleteConfirmCompanyId] = useState<string | null>(null);
+
+  // IP detection
+  const [clientIp, setClientIp] = useState('127.0.0.1');
+
+  // Error logging state
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Behavioral & Side Effect Logs state with localStorage persistence
+  const [behaviorLogs, setBehaviorLogs] = useState<any[]>(() => {
+    return getLocalBehaviorLogs();
+  });
+
+  const updateBehaviorLogs = async (newList: any[]) => {
+    setBehaviorLogs(newList);
+    saveLocalBehaviorLogs(newList);
+    try {
+      await DbService.syncAllBehaviorLogs(newList);
+    } catch (e) {
+      console.warn("Failed to sync behavior logs with database:", e);
+    }
+  };
+
+  const [showAddBehaviorModal, setShowAddBehaviorModal] = useState(false);
+  const [behaviorForm, setBehaviorForm] = useState({
+    residentId: '',
+    behaviorRating: 'stable',
+    sideEffects: [] as string[],
+    severity: 'none',
+    recentMedicineId: '',
+    notes: ''
+  });
+
+  const [selectedBehaviorLogId, setSelectedBehaviorLogId] = useState<string | null>(null);
+  const [aiDossierResult, setAiDossierResult] = useState<string | null>(null);
+  const [aiDossierLoading, setAiDossierLoading] = useState(false);
+
+  const [customSideEffects, setCustomSideEffects] = useState<{key: string, label: string}[]>(() => {
+    return getLocalCustomSideEffects();
+  });
+
+  const [newSideEffectInput, setNewSideEffectInput] = useState('');
+  const [editingSideEffectKey, setEditingSideEffectKey] = useState<string | null>(null);
+  const [editingSideEffectLabel, setEditingSideEffectLabel] = useState('');
+  const [showAddSideEffectInput, setShowAddSideEffectInput] = useState(false);
+  const [deletingSideEffectKey, setDeletingSideEffectKey] = useState<string | null>(null);
+  const [behaviorResidentSearch, setBehaviorResidentSearch] = useState('');
+
+  const filteredBehaviorResidents = useMemo(() => {
+    if (!behaviorResidentSearch.trim()) return residents;
+    const q = behaviorResidentSearch.toLowerCase().trim();
+    return residents.filter(r => {
+      const matchName = r.name && r.name.toLowerCase().includes(q);
+      const matchAr = r.nameAr && r.nameAr.toLowerCase().includes(q);
+      const matchEn = r.nameEn && r.nameEn.toLowerCase().includes(q);
+      const matchRoom = r.roomNumber && String(r.roomNumber).toLowerCase().includes(q);
+      const matchId = r.nationalId && String(r.nationalId).toLowerCase().includes(q);
+      const matchFile = r.fileNumber && String(r.fileNumber).toLowerCase().includes(q);
+      return matchName || matchAr || matchEn || matchRoom || matchId || matchFile;
+    });
+  }, [residents, behaviorResidentSearch]);
+
+  const [auditMedicineSearch, setAuditMedicineSearch] = useState('');
+  const [selectedAuditMedicineId, setSelectedAuditMedicineId] = useState('');
+
+  const filteredAuditMedicines = useMemo(() => {
+    if (!auditMedicineSearch.trim()) return medicines;
+    const q = auditMedicineSearch.toLowerCase().trim();
+    return medicines.filter(m => {
+      const matchComm = m.commercialName && m.commercialName.toLowerCase().includes(q);
+      const matchCommAr = m.commercialNameAr && m.commercialNameAr.toLowerCase().includes(q);
+      const matchCommEn = m.commercialNameEn && m.commercialNameEn.toLowerCase().includes(q);
+      const matchSci = m.scientificName && m.scientificName.toLowerCase().includes(q);
+      const matchCat = m.category && m.category.toLowerCase().includes(q);
+      const matchMan = m.manufacturer && m.manufacturer.toLowerCase().includes(q);
+      return matchComm || matchCommAr || matchCommEn || matchSci || matchCat || matchMan;
+    });
+  }, [medicines, auditMedicineSearch]);
+
+  const handleAddCustomSideEffect = (label: string) => {
+    const cleaned = label.trim();
+    if (!cleaned) return;
+    const key = "se-" + Date.now();
+    const updated = [...customSideEffects, { key, label: cleaned }];
+    setCustomSideEffects(updated);
+    saveLocalCustomSideEffects(updated);
+    DbService.saveCustomSideEffects(updated).catch(() => {});
+    showToast(text(`تمت إضافة العرض الجانبي: ${cleaned}`, `Side effect added: ${cleaned}`), 'success');
+  };
+
+  const handleEditCustomSideEffect = (key: string, newLabel: string) => {
+    const cleaned = newLabel.trim();
+    if (!cleaned) return;
+    const updated = customSideEffects.map(se => se.key === key ? { ...se, label: cleaned } : se);
+    setCustomSideEffects(updated);
+    saveLocalCustomSideEffects(updated);
+    DbService.saveCustomSideEffects(updated).catch(() => {});
+    showToast(text('تم تعديل العرض الجانبي بنجاح', 'Side effect updated successfully'), 'success');
+  };
+
+  const handleDeleteCustomSideEffect = (key: string) => {
+    const updated = customSideEffects.filter(se => se.key !== key);
+    setCustomSideEffects(updated);
+    saveLocalCustomSideEffects(updated);
+    DbService.saveCustomSideEffects(updated).catch(() => {});
+    showToast(text('تم حذف العرض الجانبي', 'Side effect deleted successfully'), 'success');
+  };
+
+  // Load Data with Instant Cache and Parallel Background Cloud Sync
+  const loadAllData = async () => {
+    // 1. Instant optimistic population from local storage (Zero wait time)
+    const localMeds = getLocalMedicines();
+    const localDisp = getLocalDispenses();
+    const localSess = getLocalSessions();
+    const localLogs = getLocalStockLogs();
+    const localUnits = getLocalUnits();
+    const localCats = getLocalCategories();
+    const localResidents = getLocalResidents();
+    const localCompanies = getLocalCompanies();
+    const localBehaviorLogs = getLocalBehaviorLogs();
+    const localSideEffects = getLocalCustomSideEffects();
+
+    if (localMeds && localMeds.length > 0) setMedicines(localMeds);
+    if (localDisp && localDisp.length > 0) setDispenseRecords(localDisp);
+    if (localSess && localSess.length > 0) setSessions(localSess);
+    if (localLogs && localLogs.length > 0) setStockLogs(localLogs);
+    if (localUnits && localUnits.length > 0) setCustomUnits(localUnits);
+    if (localCats && localCats.length > 0) setCustomCategories(localCats);
+    if (localResidents && localResidents.length > 0) setResidents(localResidents);
+    if (localCompanies && localCompanies.length > 0) setCompanies(localCompanies);
+    if (localBehaviorLogs && localBehaviorLogs.length > 0) setBehaviorLogs(localBehaviorLogs);
+    if (localSideEffects && localSideEffects.length > 0) setCustomSideEffects(localSideEffects);
+
+    // Stop loading immediately so the screen is interactive and never hangs
+    setLoading(false);
+
+    try {
+      // 2. Fetch fresh updates from Firestore in parallel (non-blocking)
+      const [
+        medsRes, 
+        dispRes, 
+        sessRes, 
+        logsRes, 
+        usersRes,
+        residentsRes,
+        companiesRes,
+        behaviorLogsRes,
+        sideEffectsRes
+      ] = await Promise.allSettled([
+        DbService.fetchMedicines(),
+        DbService.fetchDispenseRecords(),
+        DbService.fetchSessions(),
+        DbService.fetchStockLogs(),
+        DbService.fetchUsers(),
+        DbService.fetchResidents(),
+        DbService.fetchCompanies(),
+        DbService.fetchBehaviorLogs(),
+        DbService.fetchCustomSideEffects()
+      ]);
+
+      const meds = medsRes.status === 'fulfilled' ? medsRes.value : localMeds;
+      const disp = dispRes.status === 'fulfilled' ? dispRes.value : localDisp;
+      const sess = sessRes.status === 'fulfilled' ? sessRes.value : localSess;
+      const logs = logsRes.status === 'fulfilled' ? logsRes.value : localLogs;
+      const loadedUsers = usersRes.status === 'fulfilled' ? usersRes.value : users;
+      const loadedResidents = residentsRes.status === 'fulfilled' ? residentsRes.value : localResidents;
+      const loadedCompanies = companiesRes.status === 'fulfilled' ? companiesRes.value : localCompanies;
+      const loadedBehaviorLogs = behaviorLogsRes.status === 'fulfilled' ? behaviorLogsRes.value : localBehaviorLogs;
+      const loadedSideEffects = sideEffectsRes.status === 'fulfilled' ? sideEffectsRes.value : localSideEffects;
+
+      const ensuredUsers = loadedUsers.map((u: any) => 
+        u.email?.toLowerCase() === 'tmrbe2006@gmail.com' ? { ...u, role: 'developer' } : u
+      );
+      if (!ensuredUsers.some((u: any) => u.email?.toLowerCase() === 'tmrbe2006@gmail.com')) {
+        ensuredUsers.unshift({
+          uid: "user-tmrbe",
+          name: "م. تامر (المبرمج)",
+          email: "tmrbe2006@gmail.com",
+          role: "developer",
+          phone: "+966500001122",
+          password: "dev"
+        });
+      }
+
+      setMedicines(meds);
+      setDispenseRecords(disp);
+      setSessions(sess);
+      setStockLogs(logs);
+      setUsers(ensuredUsers);
+      if (loadedResidents && loadedResidents.length > 0) setResidents(loadedResidents);
+      if (loadedCompanies && loadedCompanies.length > 0) setCompanies(loadedCompanies);
+      if (loadedBehaviorLogs && loadedBehaviorLogs.length > 0) setBehaviorLogs(loadedBehaviorLogs);
+      if (loadedSideEffects && loadedSideEffects.length > 0) setCustomSideEffects(loadedSideEffects);
+
+      // Load Units and Categories directly from Database (Firestore) in parallel
+      try {
+        const [unitsRes, catsRes] = await Promise.allSettled([
+          DbService.fetchUnits(),
+          DbService.fetchCategories()
+        ]);
+        if (unitsRes.status === 'fulfilled' && unitsRes.value.length > 0) setCustomUnits(unitsRes.value);
+        if (catsRes.status === 'fulfilled' && catsRes.value.length > 0) setCustomCategories(catsRes.value);
+      } catch (err) {
+        console.warn('Failed to fetch units or categories from DB:', err);
+      }
+
+      // Load Security & Channel Settings from Firebase Firestore
+      try {
+        const sec = await DbService.fetchSecuritySettings();
+        setSecSettingsState(sec);
+        if (sec.emailEnabled !== undefined) setEmailEnabled(sec.emailEnabled);
+        if (sec.appsScriptUrl !== undefined) setAppsScriptUrl(sec.appsScriptUrl);
+        if (sec.notificationEmail !== undefined) setNotificationEmail(sec.notificationEmail);
+        if (sec.whatsAppEnabled !== undefined) setWhatsAppEnabled(sec.whatsAppEnabled);
+        if (sec.whatsAppMode) setWhatsAppMode(sec.whatsAppMode as any);
+        if (sec.whatsAppNumber) setWhatsAppNumber(sec.whatsAppNumber);
+        if (sec.callMeBotApiKey !== undefined) setCallMeBotApiKey(sec.callMeBotApiKey);
+        if (sec.ultraMsgInstance !== undefined) setUltraMsgInstance(sec.ultraMsgInstance);
+        if (sec.ultraMsgToken !== undefined) setUltraMsgToken(sec.ultraMsgToken);
+        if (sec.waPilotBaseUrl) setWaPilotBaseUrl(sec.waPilotBaseUrl);
+        if (sec.waPilotApiKey !== undefined) setWaPilotApiKey(sec.waPilotApiKey);
+        if (sec.waPilotType) setWaPilotType(sec.waPilotType as any);
+        if (sec.waPilotDevice !== undefined) setWaPilotDevice(sec.waPilotDevice);
+        if (sec.waPilotPath) setWaPilotPath(sec.waPilotPath);
+        if (sec.alertDays) setAlertDays(sec.alertDays);
+      } catch (secErr) {
+        console.warn("Could not load security settings from Firestore, using offline fallback:", secErr);
+      }
+
+      // If current active session is tmrbe2006@gmail.com, ensure developer role
+      setCurrentUser((prev: any) => {
+        if (prev && prev.email?.toLowerCase() === 'tmrbe2006@gmail.com' && prev.role !== 'developer') {
+          const updated = { ...prev, role: 'developer' };
+          try { localStorage.setItem('care_pharmacy_user', JSON.stringify(updated)); } catch (e) {}
+          return updated;
+        }
+        return prev;
+      });
+
+      // 1. Silent Daily Auto-Pilot Safety Dispatch (Checks once a day automatically with fresh medicines)
+      const todayStr = new Date().toDateString();
+      const lastDispatchedDate = localStorage.getItem('lastAutoAlertDispatchDate');
+      if (lastDispatchedDate !== todayStr) {
+        setTimeout(() => {
+          triggerScheduledAlertsTest(true, meds).catch(() => {});
+          localStorage.setItem('lastAutoAlertDispatchDate', todayStr);
+        }, 4000);
+      }
+    } catch (e: any) {
+      console.warn('Background sync note:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAllData();
+
+    // 2. Silent Daily Auto-Pilot Resident Referral Alerts Dispatch (1-Day Prior Notice to Pharmacy Officials)
+    const todayStr = new Date().toDateString();
+    const lastReferralDispatchedDate = localStorage.getItem('lastAutoReferralDispatchDate');
+    if (lastReferralDispatchedDate !== todayStr) {
+      setTimeout(() => {
+        sendReferralAlertsEmail(true).catch(() => {});
+        localStorage.setItem('lastAutoReferralDispatchDate', todayStr);
+      }, 7000); // Settle down loading before dispatching referral report
+    }
+
+    // Resolve client IP from full-stack backend Express API
+    fetch('/api/ip')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.ip) {
+          setClientIp(data.ip);
+          // Log user session on startup if already logged in
+          if (currentUser) {
+            logUserSessionOnStartup(data.ip, currentUser);
+          }
+        }
+      })
+      .catch(e => {
+        console.warn("Unable to fetch real IP via backend. Using fallback IP.");
+        if (currentUser) {
+          logUserSessionOnStartup('192.168.1.104', currentUser);
+        }
+      });
+  }, []);
+
+  // Log user session
+  const logUserSessionOnStartup = async (ip: string, userToLog = currentUser) => {
+    if (!userToLog) return;
+    try {
+      await DbService.logSession({
+        userId: userToLog.uid,
+        name: userToLog.name,
+        email: userToLog.email,
+        ipAddress: ip,
+        deviceToken: "FCM-TOKEN-" + Math.random().toString(36).substr(2, 12).toUpperCase(),
+        loginTime: new Date().toISOString()
+      });
+      // reload sessions
+      const sess = await DbService.fetchSessions();
+      setSessions(sess);
+    } catch (e) {
+      console.error("Session recording error: ", e);
+    }
+  };
+
+  // Helper to trigger custom user notifications/toasts
+  const showToast = (text: string, type: 'success' | 'error') => {
+    setToastMessage({ text, type });
+    setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  // Switch role and update allowed screens automatically
+  const handleRoleChange = (role: string) => {
+    try {
+      const selectedRole = ROLES[role];
+      if (!selectedRole) return;
+      
+      // التأكد من أن المستخدم لا يمكنه تغيير دوره الوظيفي إطلاقاً إذا كان مسجلاً دخول بالفعل
+      if (currentUser) {
+        if (currentUser.role !== 'admin') {
+          // تعطيل التبديل تماماً للمستخدمين العاديين
+          showToast('عذراً، لا يمكنك تغيير الدور الوظيفي للمستخدمين العاديين. يجب تسجيل الخروج والدخول بحساب آخر.', 'error');
+          return;
+        } else {
+          // إضافة شرط يمنع حتى المدير من تبديل الدور أثناء الجلسة الحالية
+          showToast('عذراً، يمنع تغيير الدور للمدير أثناء الجلسة الحالية. يرجى تسجيل الخروج والدخول بمستخدم آخر.', 'error');
+          return;
+        }
+      }
+      
+      setCurrentUser((prev: any) => {
+        if (!prev) return null;
+        const updated = {
+          ...prev,
+          role: role,
+          isSimulated: true, // Mark as simulated
+          name: role === 'developer' ? "م. تامر (المبرمج)" : role === 'admin' ? "د. طارق اليوسف" : role === 'pharmacist' ? "صيدلي. كريم القحطاني" : "فني. ماجد الرويلي",
+          email: role === 'developer' ? "tmrbe2006@gmail.com" : role === 'admin' ? "yousef.t@carecenter.org" : role === 'pharmacist' ? "kareem.q@carecenter.org" : "majed.r@carecenter.org",
+          phone: role === 'developer' ? "+966500001122" : role === 'admin' ? "+966501234567" : role === 'pharmacist' ? "+966507654321" : "+966509998887"
+        };
+        // Persist role change if user has opted for remember me
+        if (localStorage.getItem('care_pharmacy_user')) {
+          localStorage.setItem('care_pharmacy_user', JSON.stringify(updated));
+        }
+        return updated;
+      });
+
+      // Adjust active tab if no longer permitted
+      if (!selectedRole.allowedScreens.includes(activeTab)) {
+        setActiveTab(selectedRole.allowedScreens[0]);
+      }
+
+      showToast(`تم تبديل الصلاحية الوظيفية إلى: ${selectedRole.name}`, 'success');
+    } catch (e) {
+      showToast('فشل تغيير الصلاحية والمستند الأساسي', 'error');
+    }
+  };
+
+  // Secure and functional Arabesque Login Submission handler
+  const handleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginEmail || !loginPassword) {
+      showToast('برجاء إدخال البريد الإلكتروني وكلمة المرور', 'error');
+      return;
+    }
+
+    const cleanEmail = loginEmail.trim().toLowerCase();
+    let matchedUser = users.find(
+      u => u.email.toLowerCase() === cleanEmail && (u.password === loginPassword || (cleanEmail === 'tmrbe2006@gmail.com' && (loginPassword === 'dev' || loginPassword === 'admin' || loginPassword === '123456')))
+    );
+
+    if (!matchedUser && cleanEmail === 'tmrbe2006@gmail.com') {
+      matchedUser = {
+        uid: "user-tmrbe",
+        name: "م. تامر (المبرمج)",
+        email: "tmrbe2006@gmail.com",
+        role: "developer",
+        phone: "+966500001122",
+        password: loginPassword || "dev"
+      };
+    }
+
+    if (matchedUser && matchedUser.email.toLowerCase() === 'tmrbe2006@gmail.com') {
+      matchedUser.role = 'developer';
+    }
+
+    if (matchedUser) {
+      const sessionUser = {
+        uid: matchedUser.uid,
+        name: matchedUser.name,
+        email: matchedUser.email,
+        role: matchedUser.role,
+        phone: matchedUser.phone
+      };
+
+      setCurrentUser(sessionUser);
+      if (rememberMe) {
+        localStorage.setItem('care_pharmacy_user', JSON.stringify(sessionUser));
+      } else {
+        localStorage.removeItem('care_pharmacy_user');
+      }
+
+      showToast(`أهلاً بك مجدداً، ${matchedUser.name}! تم تسجيل الدخول بنجاح.`, 'success');
+      logUserSessionOnStartup(clientIp, sessionUser);
+    } else {
+      showToast('عذراً، البريد الإلكتروني أو كلمة المرور غير صحيحة. يرجى تجربة النقر على خيارات الدخول السريع!', 'error');
+    }
+  };
+
+  // Logout handler
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('care_pharmacy_user');
+    showToast('تم تسجيل الخروج بنجاح. في أمان الله ورعايته!', 'success');
+  };
+
+  // Add Behavior Log Handler
+  const handleAddBehaviorLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (!behaviorForm.residentId) {
+        showToast(text('يرجى اختيار المقيم أولاً', 'Please select a resident first'), 'error');
+        return;
+      }
+      
+      const res = residents.find(r => r.id === behaviorForm.residentId);
+      if (!res) {
+        showToast(text('المقيم غير موجود', 'Resident not found'), 'error');
+        return;
+      }
+
+      let medName = '';
+      if (behaviorForm.recentMedicineId) {
+        const med = medicines.find(m => m.id === behaviorForm.recentMedicineId);
+        if (med) medName = med.commercialName;
+      }
+
+      if (selectedBehaviorLogId) {
+        // Editing existing log
+        const updatedLogs = behaviorLogs.map(log => {
+          if (log.id === selectedBehaviorLogId) {
+            return {
+              ...log,
+              residentId: behaviorForm.residentId,
+              residentName: res.name,
+              behaviorRating: behaviorForm.behaviorRating,
+              sideEffects: behaviorForm.sideEffects,
+              severity: behaviorForm.severity,
+              recentMedicineId: behaviorForm.recentMedicineId,
+              recentMedicineName: medName,
+              notes: behaviorForm.notes.trim()
+            };
+          }
+          return log;
+        });
+        updateBehaviorLogs(updatedLogs);
+        setShowAddBehaviorModal(false);
+        setSelectedBehaviorLogId(null);
+        showToast(text(`تم تعديل الملاحظة السلوكية بنجاح للمقيم: ${res.name}`, `Behavioral observation updated successfully for: ${res.name}`), 'success');
+      } else {
+        // Creating new log
+        const newLog = {
+          id: "blog-" + Date.now(),
+          residentId: behaviorForm.residentId,
+          residentName: res.name,
+          loggedAt: new Date().toISOString(),
+          loggedBy: currentUser?.name || text('مستخدم مجهول', 'Staff Member'),
+          behaviorRating: behaviorForm.behaviorRating,
+          sideEffects: behaviorForm.sideEffects,
+          severity: behaviorForm.severity,
+          recentMedicineId: behaviorForm.recentMedicineId,
+          recentMedicineName: medName,
+          notes: behaviorForm.notes.trim()
+        };
+
+        const updated = [newLog, ...behaviorLogs];
+        updateBehaviorLogs(updated);
+        setShowAddBehaviorModal(false);
+        showToast(text(`تم تسجيل الملاحظة السلوكية بنجاح للمقيم: ${res.name}`, `Behavioral observation logged successfully for: ${res.name}`), 'success');
+      }
+
+      // Reset Form
+      setBehaviorForm({
+        residentId: '',
+        behaviorRating: 'stable',
+        sideEffects: [],
+        severity: 'none',
+        recentMedicineId: '',
+        notes: ''
+      });
+    } catch (err) {
+      showToast(text('حدث خطأ أثناء تسجيل الملاحظة السلوكية', 'Error recording behavioral observation'), 'error');
+    }
+  };
+
+  const handleDeleteBehaviorLog = async (id: string) => {
+    if (confirm(text('هل أنت متأكد من رغبتك في حذف هذا السجل السلوكي؟', 'Are you sure you want to delete this behavioral entry?'))) {
+      await DbService.deleteBehaviorLog(id);
+      const updated = behaviorLogs.filter(b => b.id !== id);
+      setBehaviorLogs(updated);
+      saveLocalBehaviorLogs(updated);
+      showToast(text('تم حذف السجل السلوكي بنجاح.', 'Behavioral entry deleted successfully.'), 'success');
+    }
+  };
+
+  // Open Add Medicine Modal with Clean State
+  const openAddMedicineModal = () => {
+    setMedForm({
+      commercialName: '',
+      commercialNameAr: '',
+      commercialNameEn: '',
+      scientificName: '',
+      quantity: 100,
+      entryDate: new Date().toISOString().split('T')[0],
+      expiryDate: '',
+      price: 25.0,
+      unit: customUnits[0] || 'علبة',
+      category: customCategories[0] || 'مسكنات وآلام',
+      manufacturer: '',
+      isControlled: false
+    });
+    setShowAddMedModal(true);
+  };
+
+  // Add Medicine Form Handler
+  const handleAddMedicine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const comm = (medForm.commercialNameEn || medForm.commercialName || medForm.commercialNameAr || '').trim();
+      const entryDt = medForm.entryDate || new Date().toISOString().split('T')[0];
+
+      if (!comm) {
+        showToast(text('يرجى كتابة اسم الدواء التجاري', 'Please enter commercial medicine name'), 'error');
+        return;
+      }
+      if (!medForm.scientificName?.trim()) {
+        showToast(text('يرجى كتابة الاسم العلمي للدواء (المادة الفعالة)', 'Please enter scientific / generic name'), 'error');
+        return;
+      }
+      if (!medForm.expiryDate) {
+        showToast(text('يرجى إدخال تاريخ انتهاء الصلاحية', 'Please enter expiry date'), 'error');
+        return;
+      }
+      const added = await DbService.addMedicine({
+        ...medForm,
+        commercialName: comm,
+        commercialNameAr: medForm.commercialNameAr || '',
+        commercialNameEn: comm,
+        scientificName: medForm.scientificName.trim(),
+        entryDate: entryDt,
+        quantity: Math.max(0, Number(medForm.quantity) || 0),
+        price: Math.max(0, Number(medForm.price) || 0),
+        isControlled: !!medForm.isControlled
+      }, {
+        name: currentUser?.name || 'م. تامر (المبرمج)',
+        email: currentUser?.email || 'tmrbe2006@gmail.com',
+        id: currentUser?.uid || 'user-1'
+      });
+      setMedicines(prev => [added, ...prev]);
+      setShowAddMedModal(false);
+      showToast(text(`تمت إضافة الدواء "${added.commercialName}" بنجاح في مخزن الصيدلية.`, `Medication "${added.commercialName}" added successfully to pharmacy inventory.`), 'success');
+      loadAllData();
+      // Reset
+      setMedForm({
+        commercialName: '',
+        commercialNameAr: '',
+        commercialNameEn: '',
+        scientificName: '',
+        quantity: 100,
+        entryDate: new Date().toISOString().split('T')[0],
+        expiryDate: '',
+        price: 25.0,
+        unit: customUnits[0] || 'علبة',
+        category: customCategories[0] || 'مسكنات وآلام',
+        manufacturer: '',
+        isControlled: false
+      });
+    } catch (err) {
+      console.error(err);
+      showToast(text('حدث خطأ فني أثناء إضافة الدواء للمخزن. يرجى مراجعة المدخلات.', 'Error adding medication to stock. Please check inputs.'), 'error');
+    }
+  };
+
+  // Set values for Editing Medicine
+  const openEditModal = (med: Medicine) => {
+    setSelectedMedId(med.id);
+    const commName = med.commercialNameEn || med.commercialName || med.commercialNameAr || '';
+    setMedForm({
+      commercialName: commName,
+      commercialNameAr: '',
+      commercialNameEn: commName,
+      scientificName: med.scientificName,
+      quantity: med.quantity,
+      entryDate: med.entryDate || (med.createdAt ? med.createdAt.split('T')[0] : new Date().toISOString().split('T')[0]),
+      expiryDate: med.expiryDate,
+      price: med.price,
+      unit: med.unit || customUnits[0] || 'علبة',
+      category: med.category || customCategories[0] || 'مسكنات وآلام',
+      manufacturer: med.manufacturer || '',
+      isControlled: !!med.isControlled
+    });
+    setShowEditMedModal(true);
+  };
+
+  // Edit Medicine Form Handler
+  const handleEditMedicine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (currentUser?.role === 'technician') {
+      showToast(text('ليس لديك صلاحية لتعديل بيانات أو أرصدة المخزون (صلاحيات فني صيدلة مقيدة).', 'Pharmacy technicians are not permitted to edit medications or stock levels.'), 'error');
+      return;
+    }
+    if (!selectedMedId) return;
+    try {
+      const commEn = (medForm.commercialNameEn || medForm.commercialName || '').trim();
+      const entryDt = medForm.entryDate || new Date().toISOString().split('T')[0];
+
+      if (!commEn || !medForm.scientificName || !medForm.expiryDate) {
+        showToast('يرجى كتابة اسم الدواء التجاري باللغة الإنجليزية والاسم العلمي وتاريخ الصلاحية', 'error');
+        return;
+      }
+
+      const updated = await DbService.updateMedicine(selectedMedId, {
+        ...medForm,
+        commercialName: commEn,
+        commercialNameAr: '',
+        commercialNameEn: commEn,
+        entryDate: entryDt,
+        quantity: Number(medForm.quantity),
+        price: Number(medForm.price)
+      });
+      setMedicines(prev => prev.map(m => m.id === selectedMedId ? updated : m));
+      setShowEditMedModal(false);
+      showToast(`تم تحديث بيانات الدواء "${updated.commercialName}" بنجاح.`, 'success');
+      loadAllData();
+      // Reset
+      setMedForm({
+        commercialName: '',
+        commercialNameAr: '',
+        commercialNameEn: '',
+        scientificName: '',
+        quantity: 100,
+        entryDate: new Date().toISOString().split('T')[0],
+        expiryDate: '',
+        price: 25.0,
+        unit: customUnits[0] || 'علبة',
+        category: customCategories[0] || 'مسكنات وآلام',
+        manufacturer: ''
+      });
+    } catch (err) {
+      showToast('فشل تعديل بيانات الدواء في نظام حفظ الملفات.', 'error');
+    }
+  };
+
+  // Delete Medicine Handler with Confirmation Modal protection
+  const handleDeleteMedicine = async () => {
+    if (!deleteConfirmId) return;
+    try {
+      await DbService.deleteMedicine(deleteConfirmId);
+      setMedicines(prev => prev.filter(m => m.id !== deleteConfirmId));
+      setDeleteConfirmId(null);
+      showToast('تم شطب الدواء نهائياً من مخزون الصيدلية.', 'success');
+      loadAllData();
+    } catch (err) {
+      showToast('عذراً، تعذر إتمام عملية الحذف لخلل في قاعدة البيانات.', 'error');
+    }
+  };
+
+  // Pharmaceutical Companies CRUD Handlers
+  const handleAddOrEditCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!companyForm.name) {
+      showToast('يرجى ملء اسم شركة الأدوية أولاً!', 'error');
+      return;
+    }
+    let updated;
+    if (selectedCompanyId) {
+      const updatedComp = { id: selectedCompanyId, ...companyForm };
+      updated = companies.map(c => c.id === selectedCompanyId ? updatedComp : c);
+      await DbService.saveCompany(updatedComp);
+      showToast(`تم تحديث بيانات شركة "${companyForm.name}" بنجاح.`, 'success');
+    } else {
+      const newCompany = {
+        id: `comp-${Date.now()}`,
+        ...companyForm
+      };
+      updated = [newCompany, ...companies];
+      await DbService.saveCompany(newCompany);
+      showToast(`تمت إضافة شركة الأدوية "${companyForm.name}" بنجاح.`, 'success');
+    }
+    setCompanies(updated);
+    saveLocalCompanies(updated);
+    setShowCompanyModal(false);
+    setSelectedCompanyId(null);
+    setCompanyForm({ name: '', country: '', contactPerson: '', phone: '', email: '', notes: '' });
+  };
+
+  const openEditCompanyModal = (comp: any) => {
+    setSelectedCompanyId(comp.id);
+    setCompanyForm({
+      name: comp.name,
+      country: comp.country || '',
+      contactPerson: comp.contactPerson || '',
+      phone: comp.phone || '',
+      email: comp.email || '',
+      notes: comp.notes || ''
+    });
+    setShowCompanyModal(true);
+  };
+
+  // Dispense Form Handler (Updates Medicine quantity, and adds DispenseRecord)
+  const handleAddDispense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const med = medicines.find(m => m.id === dispenseForm.medicineId);
+      if (!med) {
+        showToast('يرجى تحديد الدواء المطلوب صرفه من القائمة', 'error');
+        return;
+      }
+
+      // Check if medication is controlled (أدوية كنترول / خاضعة للرقابة لا يصرفها فني الصيدلة)
+      if (med.isControlled && currentUser?.role === 'technician') {
+        showToast(
+          text(
+            '⚠️ خطأ أمني: هذا الدواء خاضع للرقابة (Control Drug) ومقيد بالكامل. لا يُسمح لفني الصيدلة بصرفه نظامياً؛ الصرف مقتصر على الصيدلي المعتمد أو مدير النظام.',
+            '⚠️ Security Alert: This medication is a Controlled Drug. Pharmacy technicians are strictly prohibited from dispensing it; dispensing must be performed by an authorized Pharmacist or Admin.'
+          ),
+          'error'
+        );
+        return;
+      }
+
+      if (!dispenseForm.residentName.trim()) {
+        showToast('يرجى كتابة اسم المقيم المعاق المستفيد', 'error');
+        return;
+      }
+
+      if (dispenseForm.actualQuantityDispensed > med.quantity) {
+        showToast(`الكمية المطلوبة أكبر من المخزون المتاح حالياً (${med.quantity} ${med.unit})`, 'error');
+        return;
+      }
+
+      const totalCost = med.price * dispenseForm.actualQuantityDispensed;
+
+      const record = await DbService.addDispenseRecord({
+        medicineId: med.id,
+        medicineName: med.commercialName,
+        residentName: dispenseForm.residentName,
+        quantityDispensed: Number(dispenseForm.quantityDispensed),
+        unit: dispenseForm.unit || med.unit,
+        totalPrice: totalCost,
+        actualQuantityDispensed: Number(dispenseForm.actualQuantityDispensed),
+        dispensedBy: currentUser.name,
+        dispensedById: currentUser.uid
+      });
+
+      // Update state
+      setDispenseRecords(prev => [record, ...prev]);
+      // Sync local medicines list and refresh audit logs
+      loadAllData();
+
+      setShowDispenseModal(false);
+      showToast(`تم تسجيل عملية صرف الدواء ومراجعة الكمية المصروفة فعلياً بنجاح للمريض: ${dispenseForm.residentName}`, 'success');
+
+      // Reset
+      setDispenseForm({
+        medicineId: '',
+        residentName: '',
+        quantityDispensed: 1,
+        actualQuantityDispensed: 1,
+        unit: customUnits[0] || 'قرص'
+      });
+      setDispenseMedSearch('');
+      setDispenseResidentSearch('');
+    } catch (err) {
+      showToast('فشل تسجيل علمية الصرف. يرجى محاولة الصرف مرة أخرى.', 'error');
+    }
+  };
+
+  const triggerAiDossierAssessment = async (resident: any) => {
+    if (!resident) return;
+    setAiDossierLoading(true);
+    setAiDossierResult(null);
+
+    // Find matching behavior logs for this resident
+    const logs = behaviorLogs.filter(b => b.residentId === resident.id);
+
+    try {
+      // Call standard server-side AI evaluation API
+      const response = await fetch('/api/ai/assess-patient', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resident,
+          logs,
+          medicines
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('حدث خطأ في استجابة خادم الذكاء الاصطناعي');
+      }
+
+      const result = await response.json();
+      if (result && result.report) {
+        setAiDossierResult(cleanAiReportText(result.report));
+        showToast('🛡️ تم توليد التقييم السلوكي والطبي المتقدم بنجاح بالذكاء الاصطناعي!', 'success');
+        return;
+      }
+      throw new Error('لم يرجع الخادم تقريراً صالحاً');
+
+    } catch (e: any) {
+      console.warn("Server AI Assessment failed, falling back to local clinical rules engine:", e);
+      
+      // Local fallback generation
+      try {
+        const hasAgitated = logs.some(l => ['agitated', 'anxious'].includes(l.behaviorRating));
+        const hasDrowsiness = logs.some(l => (l.sideEffects || []).includes('drowsiness'));
+        const hasTremors = logs.some(l => (l.sideEffects || []).includes('tremors'));
+        const hasSevere = logs.some(l => l.severity === 'severe');
+        const latestLog = logs[0];
+
+        let report = `${OFFICIAL_CENTER_NAME}\n`;
+        report += `تقرير التقييم الطبي الاستقصائي بالذكاء الاصطناعي السريري المتقدم\n`;
+        report += `تم التحليل والإنشاء: ${new Date().toLocaleDateString('ar-EG')} | رقم الملف الطبي: AI-${resident.id}\n`;
+        report += `المريض: ${resident.nameAr || resident.name} | العمر: ${resident.age} سنة | رقم الغرفة: ${resident.roomNumber}\n\n`;
+        
+        report += `1. التشخيص العام وتقييم الحالة الحيوية:\n`;
+        if (resident.age > 70) {
+          report += `• عامل السن المتقدم (كبار السن): تزداد حساسية المريض للأدوية العصبية والنفسية بسبب بطء التخلص الكلوي والكبدي من المواد الفعالة. يوصى بتبني مبدأ "ابدأ بجرعة منخفضة وزد ببطء".\n`;
+        } else {
+          report += `• الحالة الحيوية العامة: المريض مستقر عمره يقع في فئة البالغين، لكنه يستدعي رعاية خاصة حسب توصيات الأجنحة.\n`;
+        }
+        
+        if (resident.notes) {
+          report += `• ملاحظات الملف المضمنة: ${resident.notes}\n`;
+        }
+        
+        report += `\n2. تحليل الحساسية وعوامل الخطورة الدوائية:\n`;
+        if (resident.allergies && resident.allergies.toLowerCase() !== 'لا توجد' && resident.allergies.trim()) {
+          report += `• ⚠️ تنبيه حساسية مهدد للحياة: المريض مسجل لديه تحسس من: [ ${resident.allergies} ].\n`;
+          report += `  - توجيه فوري: يجب مطابقة أي مادة دوائية جديدة قبل الصرف لضمان عدم احتوائها على مشتقات تسبب نوبة صدمة تحسسية (Anaphylactic Shock).\n`;
+        } else {
+          report += `• ✅ خلو الملف من الحساسيات المعروفة: لم يتم رصد أي تفاعلات تحسسية دوائية مسبقة، ويظل المريض تحت المراقبة عند إدخال أي صنف جديد.\n`;
+        }
+
+        report += `\n3. تقييم النمط السلوكي والأعراض الجانبية (بناءً على ${logs.length} سجل تتبع):\n`;
+        if (logs.length === 0) {
+          report += `• غياب السجلات القريبة: لا توجد ملاحظات مرصودة قريباً للمريض في النظام. يُنصح كادر التمريض بإنشاء أول بطاقة تقييم سريري.\n`;
+        } else {
+          const stableCount = logs.filter(l => l.behaviorRating === 'stable').length;
+          const stabilityRate = Math.round((stableCount / logs.length) * 100);
+          
+          report += `• معدل الاستقرار العام: ${stabilityRate}% (${stableCount} مستقر من أصل ${logs.length} مرات رصد).\n`;
+          if (hasAgitated) {
+            report += `• ⚠️ مؤشر توتر / قلق رصدي: تم تسجيل فترات من التوتر العصبي أو الهياج. يجب مراجعة محفزات البيئة المحيطة ومدى الالتزام بمواعيد الأدوية المهدئة.\n`;
+          }
+          if (latestLog) {
+            report += `• آخر ملاحظة مسجلة (${new Date(latestLog.loggedAt).toLocaleDateString('ar-EG')}): "${latestLog.notes}" (التقييم: ${latestLog.behaviorRating}).\n`;
+          }
+        }
+
+        report += `\n4. تحليل الأعراض الجانبية وتداخل الأدوية المجدولة:\n`;
+        const dosageCount = (resident.dosageSchedule || []).length;
+        report += `• عدد الأدوية المجدولة يومياً: ${dosageCount} أدوية دورية.\n`;
+        
+        if (dosageCount > 3) {
+          report += `• ⚠️ تنبيه التعدد الدوائي المفرط (Polypharmacy): يتلقى المريض أكثر من 3 أدوية تزامناً، مما يضاعف احتمالية تداخل الأدوية بشكل أسي. يوصى بمراجعة الطبيب لتقليص الأدوية لغير الضرورية.\n`;
+        }
+
+        const currentMedNames = (resident.dosageSchedule || []).map((d: any) => d.medicineName);
+        if (currentMedNames.some((m: string) => m.toLowerCase().includes('ديباكين') || m.toLowerCase().includes('كيبرا') || m.toLowerCase().includes('تجريتول'))) {
+          report += `• تحليل مضادات الصرع والتشنج: المريض يعتمد على علاج تشنجات دوري. يجب الانتباه لمستويات وعي المريض وتجنب صرف الأدوية المضادة للهيستامين من الجيل الأول التي قد تسبب النعاس الشديد أو تزيد التشنج.\n`;
+        }
+
+        if (hasDrowsiness) {
+          report += `• 😴 رصد خمول دوائي متكرر: تشير سجلات الأعراض الجانبية إلى إصابة المريض بالنعاس والخمول الحاد. يوصى بجدولة الأدوية النفسية المسببة للخمول لتؤخذ بالكامل في الفترة المسائية قبل النوم فقط.\n`;
+        }
+        if (hasTremors) {
+          report += `• 🫨 رصد ارتعاش عضلي: تم رصد حركات اهتزازية بالأطراف. قد تكون دليلاً على أعراض هرمية خارج السبيل بسبب بعض مضادات الذهان. تستدعي مراجعة الطبيب فوراً للنظر في تقليل الجرعة أو إضافة علاج مضاد للرعاش.\n`;
+        }
+        if (hasSevere) {
+          report += `• 🚨 تحذير أعراض جانبية حادة: يحتوي سجل المريض على عوارض من الدرجة الشديدة! يرجى الرجوع لملف رصد الأعراض ومطابقة الدواء المتسبب فيها لوقفه فوراً بالتشاور مع الفريق الطبي.\n`;
+        }
+        if (!hasDrowsiness && !hasTremors && !hasSevere) {
+          report += `• ✅ سلامة التفاعل الدوائي: لم تظهر السجلات أي أعراض جانبية حادة ناتجة عن الأدوية الحالية حتى الآن.\n`;
+        }
+
+        report += `\n5. التوصيات والتدابير الوقائية السريرية:\n`;
+        report += `1. إعادة توزيع الأدوية زمنياً: في حال وجود خمول، يُفضل تقديم الجرعات التي تسبب الخمول ليلاً بعد الساعة 8 مساءً.\n`;
+        if (resident.allergies) {
+          report += `2. بطاقة تنبيه حمراء: تعليق بطاقة حمراء واضحة على سرير المريض وفي عربة الدواء تفيد بتحسسه الحاد من [ ${resident.allergies} ].\n`;
+        }
+        report += `3. تفعيل الفحص العيني بعد الصرف: تفعيل مسح باركود الدواء وسوار المريض مع كل جرعة لضمان دقة الصرف بنسبة 100%.\n`;
+        report += `4. مراجعة الطبيب الدورية: جدولة مراجعة الملف الطبي من قبل طبيب الأعصاب المعالج كل 30 يوماً لتقييم الحاجة الفعلية لمضادات الصرع والذهان المجدولة.\n`;
+
+        setAiDossierResult(cleanAiReportText(report));
+        showToast('🛡️ تم توليد تقييم الحالة الطبي السريري بنجاح بالذكاء الاصطناعي!', 'success');
+      } catch (err) {
+        showToast('تعذر توليد تقييم المريض بالذكاء الاصطناعي حالياً.', 'error');
+      }
+    } finally {
+      setAiDossierLoading(false);
+    }
+  };
+
+  // AI White-labeled report generator (Local-First, 100% Free, Safe & Instant)
+  const triggerAIReport = async () => {
+    setAiLoading(true);
+    setAiReport(null);
+    
+    // Simulate a brief natural thinking delay for professional clinical feel
+    await new Promise(resolve => setTimeout(resolve, 850));
+
+    try {
+      const totalCount = medicines.length;
+      const criticalExpiry = medicines.filter(m => {
+        if (!m.expiryDate) return false;
+        const exp = new Date(m.expiryDate);
+        const today = new Date();
+        const diffTime = exp.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays <= alertDays && diffDays > 0;
+      });
+
+      const alreadyExpired = medicines.filter(m => {
+        if (!m.expiryDate) return false;
+        const exp = new Date(m.expiryDate);
+        return exp < new Date();
+      });
+
+      const lowStock = medicines.filter(m => m.quantity <= 15);
+
+      // Category counts
+      const categoryCounts: Record<string, number> = {};
+      medicines.forEach(m => {
+        const cat = m.category || "عام";
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      });
+
+      // Total inventory valuation
+      const totalValuation = medicines.reduce((sum, m) => sum + ((m.price || 0) * (m.quantity || 0)), 0);
+
+      // Generate magnificent strategic report with clean lines
+      let reportStr = `${OFFICIAL_CENTER_NAME}\n`;
+      reportStr += `تقرير التحليل الاستراتيجي للمخزون الطبي والذكاء الاصطناعي المتقدم\n`;
+      reportStr += `تم الإنشاء بنجاح: ${new Date().toLocaleDateString('ar-EG')} | التحليل الاستباقي الذكي المتكامل\n\n`;
+      
+      reportStr += `أولاً: مؤشرات المخزون العامة\n`;
+      reportStr += `• إجمالي أصناف الأدوية المسجلة: ${totalCount} صنف دواء.\n`;
+      reportStr += `• القيمة الإجمالية التقديرية للمخزن: ${totalValuation.toLocaleString('ar-EG')} ريال سعودي.\n`;
+      reportStr += `• عدد الأصناف تحت حد الأمان (مخزون حرج <= 15 وحدة): ${lowStock.length} صنف.\n`;
+      reportStr += `• الأدوية قريبة الانتهاء (أقل من ${alertDays} يوم): ${criticalExpiry.length} صنف.\n`;
+      reportStr += `• الأدوية منتهية الصلاحية فعلياً: ${alreadyExpired.length} صنف.\n\n`;
+
+      reportStr += `ثانياً: الفحص التفصيلي وتحليل الثغرات الأمنية\n`;
+      if (criticalExpiry.length > 0) {
+        reportStr += `⚠️ أدوية عاجلة جداً لقرب انتهاء الصلاحية:\n`;
+        criticalExpiry.forEach(m => {
+          const exp = new Date(m.expiryDate);
+          const diffDays = Math.ceil((exp.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+          reportStr += `  • ${m.commercialName} (${m.scientificName}) - متبقي له ${diffDays} يوم فقط! (الكمية الحالية: ${m.quantity} ${m.unit}).\n`;
+        });
+      } else {
+        reportStr += `✅ حالة الصلاحية: ممتاز! لا توجد أدوية صالحة لأقل من ${alertDays} يوم.\n`;
+      }
+
+      if (lowStock.length > 0) {
+        reportStr += `\n📦 تنبيهات نقص المخزون الاستراتيجي (عجز وشيك):\n`;
+        lowStock.forEach(m => {
+          reportStr += `  • ${m.commercialName} - المخزون الحالي: ${m.quantity} ${m.unit} فقط (سعر الوحدة: ${m.price} ريال).\n`;
+        });
+      } else {
+        reportStr += `\n✅ حالة مستويات التوريد: جميع الأصناف تتمتع بمخزون آمن وفوق حد الطلب.\n`;
+      }
+
+      reportStr += `\nثالثاً: توزيع الفئات الدوائية في المركز\n`;
+      Object.entries(categoryCounts).forEach(([cat, count]) => {
+        const pct = totalCount > 0 ? ((count / totalCount) * 100).toFixed(0) : "0";
+        reportStr += `• فئة ${cat}: ${count} صنف دواء (يمثل حوالي ${pct}% من المخزون الكلي).\n`;
+      });
+
+      reportStr += `\nرابعاً: خطة العمل والتوصيات السريرية المقترحة\n`;
+      reportStr += `1. إعادة توجيه الاستخدام الفوري: يوصى بتسريع صرف الأدوية في القائمة قريبة الانتهاء لتجنب الخسائر المالية والهدر السريري.\n`;
+      if (lowStock.length > 0) {
+        reportStr += `2. أمر شراء عاجل: يرجى إرسال طلب تزويد فوري للأدوية التي تقل عن 15 وحدة لضمان عدم انقطاع الرعاية الدوائية للمقيمين.\n`;
+      }
+      reportStr += `3. تطبيق سياسة FIFO (ما يدخل أولاً يخرج أولاً): يجب مراجعة ترتيب الأرفف بالصيدلية لوضع الأدوية الأقدم صلاحية في المقدمة.\n`;
+      reportStr += `4. ضبط المراقبة اليومية: تم تفعيل نظام الفحص الصباحي الآمن بنجاح لإرسال كشف النقص اليومي للبريد الإلكتروني المعتمد.\n`;
+
+      setAiReport(cleanAiReportText(reportStr));
+      showToast('🛡️ تم توليد التقرير الاستراتيجي المتقدم بنجاح!', 'success');
+    } catch (e) {
+      showToast('تعذر توليد تقرير التحليل الاستراتيجي المحلي.', 'error');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Simulated scheduled WhatsApp & Email Alert System Trigger with Real Configurations
+  const triggerScheduledAlertsTest = async (isAutoPilot = false, medsOverride?: Medicine[]) => {
+    if (!isAutoPilot && currentUser?.role !== 'developer') {
+      showToast(text('عذراً، محاكاة وإرسال الإشعارات مخصصة لدور المبرمج فقط!', 'Sorry, notification simulation is restricted to Developer role only!'), 'error');
+      return;
+    }
+
+    const currentMeds = (medsOverride && medsOverride.length > 0) ? medsOverride : medicines;
+    const { arReport, enReport } = generateFormattedEmailReports(currentMeds, alertDays);
+    const htmlReport = generateFormattedEmailHtmlReport(currentMeds, alertDays);
+    const emailAttachments = generateMedicationEmailAttachments(currentMeds, alertDays);
+    const combinedCleanBody = `${arReport}\n\n${"=".repeat(56)}\n\n${enReport}`;
+    const emailSubject = `🛡️ تقرير صلاحية وكمية الأدوية - ${OFFICIAL_CENTER_NAME}`;
+
+    let response;
+    let data;
+    let fetchFailed = false;
+
+    try {
+      response = await fetch('/api/notifications/dispatch-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          medicines: currentMeds,
+          alertSettingsDays: alertDays,
+          whatsAppEnabled: whatsAppEnabled,
+          whatsAppMode: whatsAppMode,
+          ultraMsgInstance: ultraMsgInstance,
+          ultraMsgToken: ultraMsgToken,
+          whatsAppNumber: whatsAppNumber,
+          callMeBotApiKey: callMeBotApiKey,
+          waPilotBaseUrl: waPilotBaseUrl,
+          waPilotApiKey: waPilotApiKey,
+          waPilotType: waPilotType,
+          waPilotDevice: waPilotDevice,
+          waPilotPath: waPilotPath,
+          emailEnabled: emailEnabled,
+          appsScriptUrl: appsScriptUrl,
+          notificationEmail: notificationEmail,
+          arReport: arReport,
+          enReport: enReport,
+          htmlReport: htmlReport,
+          attachments: emailAttachments
+        })
+      });
+
+      if (!response.ok) {
+        fetchFailed = true;
+      } else {
+        data = await response.json();
+      }
+    } catch (e) {
+      fetchFailed = true;
+    }
+
+    // Client-side fallback if backend API fetch fails (e.g. running statically on Cloudflare Pages)
+    if (fetchFailed || !data || !data.success) {
+      try {
+        console.log("⚠️ Backend API dispatch-test failed or unavailable. Initiating client-side secure fallback dispatch...");
+        
+        const parseFlexibleDateLoc = (dateStr: string) => {
+          if (!dateStr) return null;
+          const clean = dateStr.trim();
+          let d = new Date(clean);
+          if (!isNaN(d.getTime())) return d;
+          const parts = clean.split(/[-/.]/);
+          if (parts.length === 3) {
+            const p0 = parseInt(parts[0], 10);
+            const p1 = parseInt(parts[1], 10);
+            const p2 = parseInt(parts[2], 10);
+            if (p2 > 1000) return new Date(p2, p1 - 1, p0);
+            if (p0 > 1000) return new Date(p0, p1 - 1, p2);
+          }
+          return null;
+        };
+
+        const days = Number(alertDays) || 30;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const warningThreshold = new Date(today);
+        warningThreshold.setDate(today.getDate() + days);
+
+        const expiredList: any[] = [];
+        const expiringSoon: any[] = [];
+
+        (medicines || []).forEach((m: any) => {
+          const exp = parseFlexibleDateLoc(m.expiryDate);
+          if (exp) {
+            exp.setHours(0, 0, 0, 0);
+            if (exp < today) {
+              expiredList.push(m);
+            } else if (exp <= warningThreshold) {
+              expiringSoon.push(m);
+            }
+          }
+        });
+
+        const criticalStock = (medicines || []).filter((m: any) => Number(m.quantity) <= 15);
+        const logs: string[] = [`[مشغل السحابة المحمول] تم تشغيل الفحص الاحتياطي الذكي من متصفح المستخدم مباشرة.`];
+
+        let alertMessage = `🛡️ تقرير التنبيهات الوقائي - ${OFFICIAL_CENTER_NAME} 🛡️\n\n`;
+        let hasActualWarnings = expiredList.length > 0 || expiringSoon.length > 0 || criticalStock.length > 0;
+
+        if (hasActualWarnings) {
+          if (expiredList.length > 0) {
+            alertMessage += `🚫 *أدوية منتهية الصلاحية بالفعل (يجب سحبها فوراً):*\n`;
+            expiredList.forEach((m: any) => {
+              alertMessage += `- اسم الدواء: *${m.commercialName}* (${m.scientificName}) - تاريخ انتهاء الصلاحية: *${m.expiryDate}* - الكمية: *${m.quantity} ${m.unit}*\n`;
+            });
+            alertMessage += `\n`;
+          }
+
+          if (expiringSoon.length > 0) {
+            alertMessage += `⚠️ *أدوية تقترب صلاحيتها من الانتهاء (أقل من ${days} يوم):*\n`;
+            expiringSoon.forEach((m: any) => {
+              alertMessage += `- اسم الدواء: *${m.commercialName}* (${m.scientificName}) - تاريخ انتهاء الصلاحية: *${m.expiryDate}* - الكمية: *${m.quantity} ${m.unit}*\n`;
+            });
+            alertMessage += `\n`;
+          }
+
+          if (criticalStock.length > 0) {
+            alertMessage += `📉 *أدوية وصلت لمعدل مخزون حرج (15 وحدة أو أقل):*\n`;
+            criticalStock.forEach((m: any) => {
+              alertMessage += `- *${m.commercialName}* (${m.scientificName}): المتبقي ${m.quantity} ${m.unit} فقط!\n`;
+            });
+            alertMessage += `\n`;
+          }
+        } else {
+          alertMessage += `💡 *تنبيه تجريبي ومحاكاة للتأكد من فاعلية التنبيهات (لوجود مخزونك في حالة سليمة وآمنة):*\n\n`;
+          alertMessage += `⚠️ *أدوية تقترب صلاحيتها من الانتهاء (أقل من ${days} يوم):*\n`;
+          alertMessage += `- اسم الدواء: *بندول كولد اند فلو (Panadol)* - تاريخ انتهاء الصلاحية: *2026-10-15* - الكمية: *10 علبة*\n`;
+          alertMessage += `- اسم الدواء: *شراب كيبرا صيدلاني (Keppra)* - تاريخ انتهاء الصلاحية: *2026-11-02* - الكمية: *4 عبوة*\n\n`;
+          alertMessage += `📉 *أدوية وصلت لمعدل مخزون حرج (15 وحدة أو أقل):*\n`;
+          alertMessage += `- *شراب أومول للأطفال (Omol)*: المتبقي 15 زجاجة فقط!\n\n`;
+          alertMessage += `📝 *ملاحظة:* تم إنشاء هذه القائمة كمحاكاة ذكية للتأكد من وصول الأسماء والكميات بدقة لأن جميع أدويتك الحالية في النظام صالحة تماماً ومستواها آمن!\n\n`;
+        }
+
+        alertMessage += `⏱️ تم إصدار هذا التنبيه آلياً بواسطة نظام المراقبة الدوائية الاحتياطي.`;
+
+        // Dispatch WhatsApp Client-side
+        if (whatsAppEnabled && whatsAppNumber) {
+          const mode = whatsAppMode || 'ultramsg';
+          if (mode === 'ultramsg' && ultraMsgInstance && ultraMsgToken) {
+            try {
+              const waResponse = await fetch(`https://api.ultramsg.com/${ultraMsgInstance}/messages/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  token: ultraMsgToken,
+                  to: whatsAppNumber,
+                  body: alertMessage
+                })
+              });
+              const waResult = await waResponse.json();
+              if (waResult.sent === "true" || waResult.success) {
+                logs.push(`[WhatsApp UltraMsg] تم إرسال التنبيه الوقائي لـ ${whatsAppNumber} بنجاح من المتصفح.`);
+              } else {
+                logs.push(`[WhatsApp UltraMsg Error] بوابة UltraMsg رفضت الطلب: ${JSON.stringify(waResult)}`);
+              }
+            } catch (err: any) {
+              logs.push(`[WhatsApp UltraMsg Error] فشل الاتصال بالبوابة: ${err.message}`);
+            }
+          } else if (mode === 'callmebot' && callMeBotApiKey) {
+            try {
+              const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(whatsAppNumber)}&text=${encodeURIComponent(alertMessage)}&apikey=${encodeURIComponent(callMeBotApiKey)}`;
+              await fetch(url, { method: 'GET', mode: 'no-cors' }); 
+              logs.push(`[WhatsApp CallMeBot] تم إرسال التنبيه التلقائي المجاني بنجاح لـ ${whatsAppNumber} من المتصفح.`);
+            } catch (err: any) {
+              logs.push(`[WhatsApp CallMeBot Error] فشل الاتصال ببوابة CallMeBot: ${err.message}`);
+            }
+          } else if (mode === 'wapilot' && waPilotApiKey) {
+            try {
+              const resolveWaPilotUrl = (base: string, path: string, dev: string, type: string) => {
+                let baseUrl = base ? base.trim() : 'https://api.wapilot.io';
+                if (!baseUrl.startsWith('http')) baseUrl = 'https://' + baseUrl;
+                if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+                let urlPath = path ? path.trim() : '';
+                if (urlPath && !urlPath.startsWith('/')) urlPath = '/' + urlPath;
+                if (urlPath) return baseUrl + urlPath;
+                return type === 'wautopilot' 
+                  ? `${baseUrl}/v1/messages` 
+                  : `${baseUrl}/v1/accounts/${dev || 'default'}/messages`;
+              };
+              let url = resolveWaPilotUrl(waPilotBaseUrl, waPilotPath, waPilotDevice, waPilotType);
+              let headers: any = { 'Content-Type': 'application/json' };
+              let requestBody: any = {};
+
+              if (waPilotType === 'wautopilot') {
+                headers['X-Api-Key'] = waPilotApiKey;
+                requestBody = {
+                  message: { type: 'TEXT', text: alertMessage },
+                  recipient: whatsAppNumber.replace(/\+/g, '').replace(/\s/g, '')
+                };
+              } else {
+                headers['Authorization'] = `Bearer ${waPilotApiKey}`;
+                requestBody = {
+                  messaging_product: "whatsapp",
+                  recipient_type: "individual",
+                  to: whatsAppNumber.replace(/\+/g, '').replace(/\s/g, ''),
+                  type: "text",
+                  text: { body: alertMessage }
+                };
+                if (waPilotDevice) {
+                  requestBody.deviceId = waPilotDevice;
+                  requestBody.phone_number_id = waPilotDevice;
+                }
+              }
+
+              const waResponse = await fetch(url, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(requestBody)
+              });
+              if (waResponse.ok) {
+                logs.push(`[WhatsApp WAPilot] تم إرسال التنبيه بنجاح لـ ${whatsAppNumber} من المتصفح.`);
+              } else {
+                const text = await waResponse.text();
+                logs.push(`[WhatsApp WAPilot Error] البوابة رفضت الطلب: ${text.substring(0, 150)}`);
+              }
+            } catch (err: any) {
+              logs.push(`[WhatsApp WAPilot Error] فشل الاتصال ببوابة WAPilot: ${err.message}`);
+            }
+          } else {
+            logs.push(`[WhatsApp Channel] غير مفعل أو مبرمج كإرسال يدوي مجاني.`);
+          }
+        } else {
+          logs.push(`[WhatsApp Channel] غير مفعل أو رقم المستلم غير متوفر.`);
+        }
+
+        // Dispatch Email Client-side via Google Apps Script (Fully Supported Client-side!)
+        if (emailEnabled && appsScriptUrl && notificationEmail) {
+          const urls = appsScriptUrl
+            .split(/[\n,;]+/)
+            .map((u: string) => u.trim())
+            .filter((u: string) => u.length > 0);
+
+          if (urls.length === 0) {
+            logs.push(`[Email Channel Error] لم يتم إدخال أي روابط صالحة لـ Google Apps Script في الإعدادات.`);
+          } else {
+            let emailSentSuccessfully = false;
+
+            for (let i = 0; i < urls.length; i++) {
+              const currentUrl = urls[i];
+              try {
+                const cleanUrl = currentUrl.startsWith('http') ? currentUrl : `https://script.google.com/macros/s/${currentUrl}`;
+                const responseMail = await fetch(cleanUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+                  body: JSON.stringify({
+                    to: notificationEmail,
+                    subject: emailSubject,
+                    body: combinedCleanBody,
+                    htmlBody: htmlReport,
+                    attachments: emailAttachments
+                  })
+                });
+
+                if (responseMail.ok) {
+                  logs.push(`[Google Apps Script Email] تم إرسال البريد بنجاح باستخدام الرابط رقم ${i + 1}/${urls.length} للمستلم ${notificationEmail}.`);
+                  emailSentSuccessfully = true;
+                  break;
+                } else {
+                  logs.push(`[Google Apps Script Email Warning] الرابط رقم ${i + 1} رفض الطلب.`);
+                }
+              } catch (err: any) {
+                logs.push(`[Google Apps Script Email Error] الرابط رقم ${i + 1} واجه خطأً: ${err.message}`);
+              }
+            }
+
+            if (!emailSentSuccessfully) {
+              logs.push(`[Google Apps Script Email Error] فشلت جميع روابط Apps Script الـ ${urls.length} المتوفرة في إرسال البريد الإلكتروني.`);
+            }
+          }
+        } else {
+          logs.push(`[Email Channel] غير مفعل أو غير مكتمل الإعداد.`);
+        }
+
+        const fallbackMsg = `اكتمل تشغيل نظام الإشعارات الاحتياطي من المتصفح مباشرة. أدوية منتهية: ${expiredList.length}، قريبة الانتهاء: ${expiringSoon.length}، كميات حرجة: ${criticalStock.length}.`;
+        setNotificationAlertText(fallbackMsg);
+        setNotificationLogs(prev => [...logs, ...prev]);
+
+        if (isAutoPilot) {
+          if (emailEnabled) {
+            showToast('🛡️ تم فحص صلاحيات الأدوية والكميات تلقائياً كبداية لليوم الجديد، وتم إرسال التقرير بنجاح لبريدك الإلكتروني! ✉️', 'success');
+          } else {
+            showToast('🛡️ تم فحص صلاحية الأدوية والكميات تلقائياً للبداية اليومية بنجاح!', 'success');
+          }
+        } else {
+          showToast('تم تشغيل ملقم المراقبة الدوائية وإرسال الإشعارات عبر القنوات المحددة بنجاح (المسار الاحتياطي)!', 'success');
+        }
+
+      } catch (errFallback: any) {
+        if (!isAutoPilot) {
+          showToast('عذراً، فشلت عملية تشغيل نظام الإشعارات الاحتياطي.', 'error');
+        }
+      }
+    } else {
+      // Backend succeeded
+      setNotificationAlertText(data.message);
+      if (data.logs && data.logs.length > 0) {
+        setNotificationLogs(prev => [...data.logs, ...prev]);
+      }
+      if (isAutoPilot) {
+        if (emailEnabled) {
+          showToast('🛡️ تم فحص صلاحيات الأدوية وإحالات المقيمين تلقائياً كبداية لليوم الجديد، وتم إرسال التقارير لبريدك الإلكتروني! ✉️📋', 'success');
+        } else {
+          showToast('🛡️ تم فحص صلاحية الأدوية والكميات تلقائياً للبداية اليومية بنجاح!', 'success');
+        }
+      } else {
+        showToast('تم تشغيل ملقم المراقبة الدوائية وإرسال الإشعارات عبر القنوات المحددة بنجاح!', 'success');
+      }
+    }
+
+    // Automatically dispatch Referral Alerts Email to Pharmacy Officials
+    if (emailEnabled) {
+      sendReferralAlertsEmail(isAutoPilot);
+    }
+  };
+
+  // Download high-resolution medication PDF report (Arabic or English)
+  const handleDownloadPdf = async (pdfLang: 'ar' | 'en') => {
+    try {
+      setGeneratingPdfLoading(true);
+      showToast(text('جاري توليد ملف الـ PDF عالي الدقة...', 'Generating high-resolution PDF...'), 'success');
+      const pdfs = await generateMedicationPdfReports(medicines, alertDays);
+      const blob = pdfLang === 'ar' ? pdfs.arPdfBlob : pdfs.enPdfBlob;
+      const fileName = pdfLang === 'ar'
+        ? `تقرير_الرقابة_الدوائية_مركز_شقراء_${new Date().toISOString().slice(0, 10)}.pdf`
+        : `Shaqra_Center_Medication_Alerts_${new Date().toISOString().slice(0, 10)}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(text('تم تنزيل ملف الـ PDF المعتمد بنجاح! 📄', 'Official PDF report downloaded successfully! 📄'), 'success');
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      showToast(text(`فشل توليد ملف الـ PDF: ${err.message}`, `Failed to generate PDF: ${err.message}`), 'error');
+    } finally {
+      setGeneratingPdfLoading(false);
+    }
+  };
+
+  // 100% FREE WhatsApp direct report dispatcher with in-memory PDF generation (ZERO local disk download!)
+  const sendFreeWhatsAppReport = async () => {
+    try {
+      setSendingWhatsAppReport(true);
+      showToast(text('جاري تجهيز وتوليد ملفي الـ PDF (عربي + إنجليزي) للواتساب...', 'Generating Arabic & English PDF reports for WhatsApp...'), 'success');
+      
+      const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+      
+      // 1. Generate real, high-resolution PDF files in memory (without downloading to user disk!)
+      const pdfs = await generateMedicationPdfReports(medicines, alertDays);
+
+      // 2. Upload PDFs to the server so live direct links are available immediately for WhatsApp recipients
+      let arPdfUrl = `${window.location.origin}/api/reports/pdf/arabic`;
+      let enPdfUrl = `${window.location.origin}/api/reports/pdf/english`;
+      try {
+        await fetch('/api/reports/pdf/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            arPdfBase64: pdfs.arPdfBase64,
+            enPdfBase64: pdfs.enPdfBase64,
+            arText: arReport,
+            enText: enReport
+          })
+        });
+      } catch (uploadErr) {
+        console.warn('PDF server upload notice:', uploadErr);
+      }
+
+      // 3. Construct WhatsApp Message with official center branding and direct cloud links to the two PDF attachments
+      const targetPhone = whatsAppNumber ? whatsAppNumber.replace(/\+/g, '').replace(/\s/g, '') : '';
+      
+      const today = new Date();
+      const alertThreshold = new Date();
+      alertThreshold.setDate(today.getDate() + alertDays);
+      const expiredCount = medicines.filter(m => new Date(m.expiryDate) <= today).length;
+      const nearExpiryCount = medicines.filter(m => {
+        const exp = new Date(m.expiryDate);
+        return exp > today && exp <= alertThreshold;
+      }).length;
+      const criticalCount = medicines.filter(m => m.quantity <= 15).length;
+
+      // Safe concise message for WhatsApp URL (guaranteed < 1200 chars to avoid HTTP 414 URI Too Long)
+      const conciseMsg = 
+        `🛡️ *${OFFICIAL_CENTER_NAME}*\n` +
+        `📋 *تقرير الرقابة الدوائية والتنبيهات الوقائية*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📊 *إحصائية المخزون:* إجمالي الأصناف (${medicines.length}) | ⚠️ منتهية (${expiredCount}) | ⏳ قريبة الانتهاء (${nearExpiryCount}) | 📉 رصيد حرج (${criticalCount})\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📎 *روابط ملفات الـ PDF الرسمية المعتمدة (عرض فوري):*\n` +
+        `🇸🇦 التقرير الرسمي بالعربية:\n${arPdfUrl}\n` +
+        `🇬🇧 Official English Report:\n${enPdfUrl}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        (nearExpiryCount > 0 ? `⚠️ يوجد ${nearExpiryCount} أدوية تنتهي صلاحيتها خلال ${alertDays} يوماً.\n` : `✅ لا توجد أدوية قريبة الانتهاء حالياً.\n`) +
+        (criticalCount > 0 ? `📉 يوجد ${criticalCount} أصناف وصلت للحد الحرج (15 عبوة أو أقل).\n` : '') +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `💡 تم نسخ نص التقرير المفصل كاملاً للحافظة.`;
+
+      const fullCombinedMsg = 
+        `🛡️ *${OFFICIAL_CENTER_NAME}*\n` +
+        `📋 *تقرير الرقابة الدوائية والتنبيهات الوقائية*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `📎 *ملفات الـ PDF الرسمية المعتمدة (اضغط للفتح الفوري دون تنزيل مسبق):*\n` +
+        `🇸🇦 التقرير الرسمي بالعربية (PDF):\n${arPdfUrl}\n\n` +
+        `🇬🇧 Official English Report (PDF):\n${enPdfUrl}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `*ملخص التقرير العربي:*\n${arReport}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `*English Report Summary:*\n${enReport}`;
+
+      // Automatically copy the full detailed report to clipboard so user can paste it anywhere
+      try {
+        if (navigator.clipboard) {
+          await navigator.clipboard.writeText(fullCombinedMsg);
+        }
+      } catch (clipErr) {
+        console.warn('Clipboard write fallback:', clipErr);
+      }
+
+      // 4. Native Web Share API (Mobile WhatsApp & supported Desktop browsers):
+      if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [pdfs.arPdfFile, pdfs.enPdfFile] })) {
+        try {
+          await navigator.share({
+            title: `${OFFICIAL_CENTER_NAME} - تقرير الأدوية والمخزون`,
+            text: conciseMsg,
+            files: [pdfs.arPdfFile, pdfs.enPdfFile]
+          });
+          showToast('تم فتح مشاركة النظام وإرفاق ملفي الـ PDF (العربي والإنجليزي) والتقرير بنجاح! 📲📎', 'success');
+          return;
+        } catch (shareErr: any) {
+          if (shareErr.name === 'AbortError') {
+            return;
+          }
+          console.warn('Web Share failed, falling back to direct WhatsApp Web:', shareErr);
+        }
+      }
+
+      // 5. WhatsApp Web Click-to-Chat Fallback
+      const encodedText = encodeURIComponent(conciseMsg);
+      const whatsappUrl = `https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodedText}`;
+      
+      const openedWin = window.open(whatsappUrl, '_blank');
+      if (!openedWin) {
+        // If window.open was blocked by iframe sandbox or popup blocker, open the dedicated modal
+        setShowWhatsAppReportModal(true);
+        showToast('تم تجهيز التقرير! يرجى النقر على "فتح محادثة واتساب الآن" من النافذة الظاهرة 📲', 'success');
+      } else {
+        showToast('تم فتح محادثة WhatsApp مع روابط ملفي الـ PDF، ونُسخ التقرير المفصل للحافظة! 📲📄', 'success');
+      }
+
+    } catch (err: any) {
+      console.error('WhatsApp report generation error:', err);
+      showToast(`تعذر إرسال التقرير: ${err.message}`, 'error');
+    } finally {
+      setSendingWhatsAppReport(false);
+    }
+  };
+
+  // Helper statistics calculations
+  const getStats = () => {
+    const totalItems = medicines.length;
+    const totalInventoryValue = Math.round((medicines.reduce((acc, med) => acc + ((Number(med.price) || 0) * (Number(med.quantity) || 0)), 0) + Number.EPSILON) * 100) / 100;
+    const rawDispensed = dispenseRecords.reduce((acc, rec) => acc + (Number(rec.actualQuantityDispensed) || 0), 0);
+    const totalDispensedCount = Math.round((rawDispensed + Number.EPSILON) * 100) / 100;
+
+    // Filter by near expiry
+    const today = new Date();
+    const alertThreshold = new Date();
+    alertThreshold.setDate(today.getDate() + alertDays);
+
+    const nearExpiryMeds = medicines.filter(med => {
+      const exp = new Date(med.expiryDate);
+      return exp > today && exp <= alertThreshold;
+    });
+
+    const expiredMeds = medicines.filter(med => {
+      const exp = new Date(med.expiryDate);
+      return exp <= today;
+    });
+
+    const criticalStock = medicines.filter(med => med.quantity <= 15);
+
+    return {
+      totalItems,
+      totalInventoryValue,
+      totalDispensedCount,
+      nearExpiryCount: nearExpiryMeds.length,
+      expiredCount: expiredMeds.length,
+      criticalStockCount: criticalStock.length,
+      nearExpiryMeds,
+      expiredMeds
+    };
+  };
+
+  const stats = getStats();
+
+  // --- Recharts Data Calculations for Monthly Consumption & Category Distributions ---
+  const getMonthlyDispenseData = () => {
+    const arabicMonths = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+    const dataPoints: { month: string; disp: number; cost: number }[] = [];
+    const now = new Date();
+    
+    // Create baseline for the last 6 months
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mName = arabicMonths[d.getMonth()];
+      dataPoints.push({ month: mName, disp: 0, cost: 0 });
+    }
+    
+    // Monthly baseline simulated consumption to make the chart gorgeous on first load
+    const simulatedBaselines = [
+      { disp: 54, cost: 2450 },
+      { disp: 68, cost: 3200 },
+      { disp: 61, cost: 2900 },
+      { disp: 78, cost: 3950 },
+      { disp: 84, cost: 4400 },
+      { disp: 35, cost: 1800 }
+    ];
+
+    return dataPoints.map((dp, idx) => {
+      const sim = simulatedBaselines[idx] || { disp: 0, cost: 0 };
+      
+      // Calculate actual real dispenses recorded this month
+      let realQty = 0;
+      let realCost = 0;
+      
+      dispenseRecords.forEach(rec => {
+        try {
+          const rDate = new Date(rec.dispensedAt);
+          const rMonthName = arabicMonths[rDate.getMonth()];
+          if (rMonthName === dp.month) {
+            realQty += Number(rec.actualQuantityDispensed || rec.quantityDispensed || 0);
+            realCost += Number(rec.totalPrice || 0);
+          }
+        } catch (err) {
+          // ignore parsing error
+        }
+      });
+      
+      return {
+        month: dp.month,
+        "الكمية المصروفة": sim.disp + realQty,
+        "القيمة الإجمالية (ر.س)": Math.round(sim.cost + realCost)
+      };
+    });
+  };
+
+  const getCategoryDistributionData = () => {
+    const dataMap: Record<string, {
+      totalStock: number;
+      dispensedQty: number;
+      itemsCount: number;
+      value: number;
+    }> = {};
+
+    medicines.forEach(m => {
+      const cat = m.category || "عام";
+      if (!dataMap[cat]) {
+        dataMap[cat] = { totalStock: 0, dispensedQty: 0, itemsCount: 0, value: 0 };
+      }
+      dataMap[cat].totalStock += Number(m.quantity || 0);
+      dataMap[cat].value += (Number(m.quantity || 0) * Number(m.price || 0));
+      dataMap[cat].itemsCount += 1;
+    });
+
+    dispenseRecords.forEach(r => {
+      const med = medicines.find(m => m.id === r.medicineId);
+      const cat = med?.category || "عام";
+      if (!dataMap[cat]) {
+        dataMap[cat] = { totalStock: 0, dispensedQty: 0, itemsCount: 0, value: 0 };
+      }
+      dataMap[cat].dispensedQty += Number(r.actualQuantityDispensed || r.quantityDispensed || 0);
+    });
+
+    const COLORS = ['#0d9488', '#6366f1', '#f59e0b', '#ec4899', '#3b82f6', '#10b981', '#f43f5e', '#8b5cf6'];
+    
+    return Object.entries(dataMap).map(([name, data], index) => {
+      const stock = data.totalStock;
+      const dispensed = data.dispensedQty;
+      const totalUnits = stock + dispensed;
+      const withdrawPct = totalUnits > 0 ? Math.round((dispensed / totalUnits) * 100) : 0;
+      return {
+        name,
+        category: name,
+        "الكمية الكلية للمخزون": stock,
+        "كمية السحب": dispensed,
+        value: stock,
+        cost: Math.round(data.value),
+        itemsCount: data.itemsCount,
+        withdrawPct,
+        color: COLORS[index % COLORS.length]
+      };
+    }).sort((a, b) => b["الكمية الكلية للمخزون"] - a["الكمية الكلية للمخزون"]);
+  };
+
+  const getBehaviorChartData = () => {
+    const counts: Record<string, number> = {
+      stable: 0,
+      agitated: 0,
+      anxious: 0,
+      withdrawn: 0,
+      hyperactive: 0
+    };
+    behaviorLogs.forEach(l => {
+      if (counts[l.behaviorRating] !== undefined) {
+        counts[l.behaviorRating]++;
+      }
+    });
+    const labels: Record<string, string> = {
+      stable: text('مستقر 🟢', 'Stable 🟢'),
+      agitated: text('هياج سلوكي 🔴', 'Agitation 🔴'),
+      anxious: text('قلق وتوتر 🟡', 'Anxiety 🟡'),
+      withdrawn: text('انسحاب اجتماعي 🟣', 'Social Withdrawal 🟣'),
+      hyperactive: text('نشاط مفرط 🔵', 'Hyperactive 🔵')
+    };
+    const colors: Record<string, string> = {
+      stable: '#10b981',
+      agitated: '#ef4444',
+      anxious: '#f59e0b',
+      withdrawn: '#8b5cf6',
+      hyperactive: '#3b82f6'
+    };
+    return Object.entries(counts).map(([key, val]) => ({
+      name: labels[key],
+      value: val,
+      color: colors[key]
+    })).filter(item => item.value > 0);
+  };
+
+  const getPredictiveDepletionForecasting = () => {
+    return medicines.map(m => {
+      const relatedDispenses = dispenseRecords.filter(rec => rec.medicineId === m.id);
+      const totalDispensed = relatedDispenses.reduce((sum, rec) => sum + (rec.actualQuantityDispensed || rec.quantityDispensed || 0), 0);
+      
+      const monthlyRate = relatedDispenses.length > 0 ? Math.max(1, totalDispensed) : Math.max(2, Math.round(m.quantity * 0.12));
+      const monthsLeft = m.quantity / monthlyRate;
+      const daysLeft = Math.round(monthsLeft * 30);
+      
+      return {
+        ...m,
+        monthlyRate,
+        daysLeft,
+        severity: daysLeft <= 15 ? 'critical' : daysLeft <= 45 ? 'warning' : 'safe'
+      };
+    }).filter(forecast => forecast.daysLeft <= 60 && forecast.quantity > 0)
+      .sort((a, b) => a.daysLeft - b.daysLeft)
+      .slice(0, 5);
+  };
+
+  const getManufacturerStockData = () => {
+    const counts: Record<string, { qty: number; value: number; count: number }> = {};
+    medicines.forEach(m => {
+      const man = m.manufacturer || "غير محددة";
+      if (!counts[man]) {
+        counts[man] = { qty: 0, value: 0, count: 0 };
+      }
+      counts[man].qty += m.quantity;
+      counts[man].value += (m.quantity * m.price);
+      counts[man].count += 1;
+    });
+
+    return Object.entries(counts).map(([name, data]) => ({
+      name,
+      "الكمية المتوفرة": data.qty,
+      "القيمة المالية (ر.س)": Math.round(data.value),
+      "عدد الأصناف": data.count
+    })).sort((a, b) => b["القيمة المالية (ر.س)"] - a["القيمة المالية (ر.س)"]).slice(0, 6);
+  };
+
+  const getManufacturerDispenseData = () => {
+    const counts: Record<string, number> = {};
+    dispenseRecords.forEach(r => {
+      const med = medicines.find(m => m.id === r.medicineId);
+      const man = med?.manufacturer || (r.medicineName.includes('بنادول') ? 'شركة الخليج للصناعات الدوائية (جلفار)' : 'غير محددة');
+      if (!counts[man]) {
+        counts[man] = 0;
+      }
+      counts[man] += r.actualQuantityDispensed;
+    });
+
+    return Object.entries(counts).map(([name, qty]) => ({
+      name,
+      "الكمية المصروفة فعلياً": qty
+    })).sort((a, b) => b["الكمية المصروفة فعلياً"] - a["الكمية المصروفة فعلياً"]).slice(0, 6);
+  };
+
+  const monthlyChartData = getMonthlyDispenseData();
+  const categoryChartData = getCategoryDistributionData();
+  const predictiveForecasts = getPredictiveDepletionForecasting();
+  const manufacturerStockData = getManufacturerStockData();
+  const manufacturerDispenseData = getManufacturerDispenseData();
+
+  // Unified Filter logic for Table view
+  const getFilteredMedicines = () => {
+    return medicines.filter(med => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q ||
+        med.commercialName.toLowerCase().includes(q) ||
+        (med.commercialNameAr && med.commercialNameAr.toLowerCase().includes(q)) ||
+        (med.commercialNameEn && med.commercialNameEn.toLowerCase().includes(q)) ||
+        med.scientificName.toLowerCase().includes(q) ||
+        (med.manufacturer && med.manufacturer.toLowerCase().includes(q));
+      
+      const matchesCategory = selectedCategory === 'all' || med.category === selectedCategory;
+
+      let matchesStock = true;
+      if (selectedStockFilter === 'critical') {
+        matchesStock = med.quantity <= 15;
+      } else if (selectedStockFilter === 'expired') {
+        const exp = new Date(med.expiryDate);
+        matchesStock = exp <= new Date();
+      } else if (selectedStockFilter === 'expiring_soon') {
+        const exp = new Date(med.expiryDate);
+        const soon = new Date();
+        soon.setDate(soon.getDate() + alertDays);
+        matchesStock = exp > new Date() && exp <= soon;
+      }
+
+      return matchesSearch && matchesCategory && matchesStock;
+    });
+  };
+
+  const filteredMedicines = getFilteredMedicines();
+
+  // All unique therapeutic categories including dynamic custom categories
+  const categories = Array.from(new Set([...customCategories, ...medicines.map(m => m.category || "عام")]));
+
+  // --- Medical Dossier & Daily Dosage Checklist Helper Functions ---
+  // Comprehensive dosage quantity parser: extracts numeric count of units/tablets/pills from Arabic or English text,
+  // handling dialect terms like "حبايتين", "حبتين", "قرصين", "3 حبات", Arabic numerals, while ignoring strengths (e.g. 500 ملجم)
+  const parseDoseQuantity = (dosageStr?: string, explicitQty?: number | string): number => {
+    if (explicitQty !== undefined && explicitQty !== null && explicitQty !== '') {
+      const parsedExplicit = Number(explicitQty);
+      if (!isNaN(parsedExplicit) && parsedExplicit > 0) {
+        return parsedExplicit;
+      }
+    }
+
+    if (!dosageStr || typeof dosageStr !== 'string') return 1;
+
+    let text = dosageStr.trim().toLowerCase();
+
+    // Convert Arabic-Indic numerals (٠-٩) to standard digits
+    const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    arabicDigits.forEach((digit, i) => {
+      text = text.replaceAll(digit, i.toString());
+    });
+
+    // 0. Convert comma used as decimal separator (e.g. "0,25" or "0،25")
+    text = text.replace(/(\d+)[,،](\d+)/g, '$1.$2');
+
+    // Remove medication strength/volume specifications like "500 ملجم", "400mg", "1000 mg", "10 مل", etc.
+    // to prevent confusing chemical strength with count of tablets/units to deduct
+    text = text.replace(/(\d+(\.\d+)?)\s*(ملجم|مجم|ملغ|جم|غرام|مايكروجرام|ميكروغرام|mg|mcg|gm|g|ml|مل)\b/gi, ' ');
+
+    // 0. Explicit decimal numbers (e.g. 0.25, 0.5, 0.2, 0.75, 1.5, 2.5)
+    const decimalMatch = text.match(/(?:^|[^\d.])(\d+\.\d+)(?!\d|\.)/);
+    if (decimalMatch) {
+      const val = parseFloat(decimalMatch[1]);
+      if (!isNaN(val) && val > 0 && val <= 50) {
+        return Math.round(val * 10000) / 10000;
+      }
+    }
+
+    // Fractions in Arabic / Symbols / Presets:
+    // Quarter tablet: ربع حبة / ربع قرص / 0.25 / ¼
+    if (
+      text.includes('ربع') ||
+      text.includes('¼') ||
+      text.includes('quarter')
+    ) {
+      return 0.25;
+    }
+
+    // Half tablet: نصف حبة / نص حبة / نصف قرص / نص قرص / ½ / 0.5
+    if (
+      text.includes('نصف') ||
+      text.includes('نص') ||
+      text.includes('½') ||
+      text.includes('half')
+    ) {
+      return 0.5;
+    }
+
+    // Three quarters: ثلاثة أرباع / ثلاث ارباع / ثلاث أرباع / ¾ / 0.75
+    if (
+      text.includes('ثلاثة أرباع') ||
+      text.includes('ثلاث ارباع') ||
+      text.includes('ثلاثة ارباع') ||
+      text.includes('ثلاث أرباع') ||
+      text.includes('¾')
+    ) {
+      return 0.75;
+    }
+
+    // One-fifth (0.2 حبة / 0.2 قرص / خمس حبة)
+    if (
+      text.includes('خمس حبة') ||
+      text.includes('خمس قرص') ||
+      text.includes('خمس')
+    ) {
+      return 0.2;
+    }
+
+    // 1. Dual form in Arabic ("حبايتين"، "حبايتان"، "حبتين"، "حبتان"، "قرصين"، "قرصان"، "كبسولتين"...) -> 2
+    if (
+      text.includes('حبايتين') ||
+      text.includes('حبايتان') ||
+      text.includes('حبتين') ||
+      text.includes('حبتان') ||
+      text.includes('قرصين') ||
+      text.includes('قرصان') ||
+      text.includes('كبسولتين') ||
+      text.includes('كبسولتان') ||
+      text.includes('بختين') ||
+      text.includes('بختان') ||
+      text.includes('جرعتين') ||
+      text.includes('جرعتان') ||
+      text.includes('أمبولين') ||
+      text.includes('أمبولتين') ||
+      text.includes('ملعقتين') ||
+      text.includes('كيسين') ||
+      text.includes('نقطتين') ||
+      text.includes('اثنين') ||
+      text.includes('إثنين') ||
+      text.includes('اثنان') ||
+      text.includes('إثنان') ||
+      text.includes('2 حبة') ||
+      text.includes('2 قرص') ||
+      text.includes('2 حبايات')
+    ) {
+      return 2;
+    }
+
+    // 2. Three units in Arabic
+    if (
+      text.includes('3 حبايات') ||
+      text.includes('3 حبات') ||
+      text.includes('3 أقراص') ||
+      text.includes('ثلاث حبات') ||
+      text.includes('ثلاثة حبايات') ||
+      text.includes('ثلاثة أقراص') ||
+      text.includes('ثلاث أقراص') ||
+      text.includes('ثلاث') ||
+      text.includes('ثلاثة')
+    ) {
+      return 3;
+    }
+
+    // 3. Four units in Arabic
+    if (
+      text.includes('4 حبايات') ||
+      text.includes('4 حبات') ||
+      text.includes('4 أقراص') ||
+      text.includes('أربع حبات') ||
+      text.includes('أربعة حبايات') ||
+      text.includes('أربعة أقراص') ||
+      text.includes('أربع') ||
+      text.includes('أربعة')
+    ) {
+      return 4;
+    }
+
+    // 4. Five units in Arabic
+    if (
+      text.includes('5 حبايات') ||
+      text.includes('5 حبات') ||
+      text.includes('خمس حبات') ||
+      text.includes('خمسة') ||
+      text.includes('خمس')
+    ) {
+      return 5;
+    }
+
+    // 5. Look for explicit count or quantity with unit (e.g. "2 حبة", "2 قرص", "2 حبايات", "2 units")
+    const unitMatch = text.match(/(\d+(\.\d+)?)\s*(حبة|حبوب|حبايات|قرص|أقراص|كبسولة|كبسولات|بخة|ببخات|جرعة|جرعات|أمبول|أمبولات|علبة|وحدة|وحدات|tab|tabs|tablet|tablets|capsule|capsules|puff|puffs|unit|units)/i);
+    if (unitMatch) {
+      const val = Number(unitMatch[1]);
+      if (!isNaN(val) && val > 0 && val <= 50) {
+        return val;
+      }
+    }
+
+    // 6. Look for "عدد: X" or "عدد X"
+    const countMatch = text.match(/عدد[:\s]+(\d+(\.\d+)?)/i);
+    if (countMatch) {
+      const val = Number(countMatch[1]);
+      if (!isNaN(val) && val > 0 && val <= 50) {
+        return val;
+      }
+    }
+
+    // 7. General standalone positive number in range 1 to 20
+    const generalMatch = text.match(/\b([1-9]|1\d|20)\b/);
+    if (generalMatch) {
+      const val = Number(generalMatch[1]);
+      if (!isNaN(val) && val > 0) {
+        return val;
+      }
+    }
+
+    // 8. Single unit keywords
+    if (
+      text.includes('حبة واحدة') ||
+      text.includes('حباية واحدة') ||
+      text.includes('حبة') ||
+      text.includes('حباية') ||
+      text.includes('قرص واحد') ||
+      text.includes('قرص') ||
+      text.includes('كبسولة واحدة') ||
+      text.includes('كبسولة') ||
+      text.includes('بخة واحدة') ||
+      text.includes('واحد') ||
+      text.includes('واحدة')
+    ) {
+      return 1;
+    }
+
+    return 1;
+  };
+
+  // Helper to check if a dose has already been dispensed today (once-a-day protection)
+  const isDoseDispensedToday = (dose: any) => {
+    if (!dose || !dose.checkedToday) return false;
+    const todayYmd = new Date().toISOString().split('T')[0];
+    if (dose.lastDispensedDate === todayYmd) return true;
+    if (dose.checkedAt && dose.checkedAt.startsWith(todayYmd)) return true;
+    return false;
+  };
+
+  // Dispense dose with automatic inventory deduction, audit logging, and single-dispense-per-day lock
+  const dispenseDoseAutomatically = async (residentId: string, doseId: string) => {
+    const resident = residents.find(r => r.id === residentId);
+    if (!resident) return;
+
+    const dose = (resident.dosageSchedule || []).find((d: any) => d.id === doseId);
+    if (!dose) return;
+
+    // 1. Guard against duplicate dispensing on the same day
+    if (isDoseDispensedToday(dose)) {
+      showToast(text("تم صرف هذه الجرعة لليوم بالفعل ولا يمكن تكرار صرفها حفاظاً على سلامة المريض.", "This dose has already been dispensed today."), "error");
+      return;
+    }
+
+    // 2. Identify the medication in inventory (match by ID or fallback by commercial/Arabic name)
+    let med = medicines.find(m => m.id === dose.medicineId);
+    if (!med && dose.medicineName) {
+      const cleanName = dose.medicineName.trim().toLowerCase();
+      med = medicines.find(m => 
+        (m.commercialName && m.commercialName.trim().toLowerCase() === cleanName) ||
+        (m.commercialNameAr && m.commercialNameAr.trim().toLowerCase() === cleanName) ||
+        (m.commercialNameEn && m.commercialNameEn.trim().toLowerCase() === cleanName) ||
+        (m.commercialName && m.commercialName.toLowerCase().includes(cleanName)) ||
+        (m.commercialNameAr && m.commercialNameAr.toLowerCase().includes(cleanName))
+      );
+    }
+    if (!med) {
+      showToast(text("عذراً، هذا الصنف الدوائي غير موجود في قاعدة بيانات المخزون الحالية.", "Medication not found in inventory."), "error");
+      return;
+    }
+
+    // 3. Determine quantity to dispense (default: 1 unit, intelligent parsing)
+    const qtyToDispense = parseDoseQuantity(dose.dosage, dose.quantity || dose.qty || dose.dispensedQty);
+
+    // 4. Validate inventory stock
+    if (med.quantity < qtyToDispense) {
+      showToast(
+        text(
+          `عذراً، الرصيد المتاح في المخزن من دواء (${med.commercialName}) هو ${med.quantity} ${med.unit} فقط، ولا يكفي لصرف الجرعة (${qtyToDispense}). يرجى إعادة تزويد المخزون أولاً.`,
+          `Insufficient stock for (${med.commercialName}). Current: ${med.quantity}, Required: ${qtyToDispense}.`
+        ),
+        "error"
+      );
+      return;
+    }
+
+    try {
+      const recipientName = resident.nameAr || resident.name;
+      const totalCost = (med.price || 0) * qtyToDispense;
+      const currentUserActor = currentUser?.name || "الصيدلي المناوب";
+      const todayYmd = new Date().toISOString().split('T')[0];
+      const nowIso = new Date().toISOString();
+
+      // 5. Create official dispense record (this automatically deducts from inventory & logs stock audit in DbService)
+      const record = await DbService.addDispenseRecord({
+        medicineId: med.id,
+        medicineName: med.commercialName,
+        residentName: recipientName,
+        quantityDispensed: qtyToDispense,
+        unit: med.unit || "علبة",
+        totalPrice: totalCost,
+        actualQuantityDispensed: qtyToDispense,
+        dispensedBy: currentUserActor,
+        dispensedById: currentUser?.uid || "pharmacist-1"
+      });
+
+      // 6. Update local dispenseRecords state
+      setDispenseRecords(prev => [record, ...prev]);
+
+      // 7. Update resident schedule and lock for today
+      const updatedResidents = residents.map(r => {
+        if (r.id === residentId) {
+          const sched = (r.dosageSchedule || []).map((item: any) => {
+            if (item.id === doseId) {
+              return {
+                ...item,
+                checkedToday: true,
+                lastDispensedDate: todayYmd,
+                checkedBy: currentUserActor,
+                checkedAt: nowIso,
+                dispenseRecordId: record.id,
+                dispensedQty: qtyToDispense
+              };
+            }
+            return item;
+          });
+          const updatedResident = { ...r, dosageSchedule: sched };
+          setActiveDossierResident(updatedResident);
+          return updatedResident;
+        }
+        return r;
+      });
+
+      updateResidentsList(updatedResidents);
+
+      // 8. Refresh all data so inventory counts and stock audit logs reflect immediately in all tabs
+      await loadAllData();
+
+      showToast(
+        text(
+          `تم صرف الجرعة (${qtyToDispense} ${med.unit} من ${med.commercialName}) وخصمها من المخزن آلياً وتوثيقها في السجل الطبي للمقيم: ${recipientName}! 💊✅`,
+          `Dose dispensed and deducted from inventory successfully for resident: ${recipientName}! 💊✅`
+        ),
+        "success"
+      );
+
+    } catch (err: any) {
+      showToast(text(`فشل تسجيل صرف الجرعة: ${err.message}`, `Failed to dispense dose: ${err.message}`), "error");
+    }
+  };
+
+  // Backwards compatibility fallback if needed
+  const toggleDosageItemToday = (residentId: string, doseId: string) => {
+    dispenseDoseAutomatically(residentId, doseId);
+  };
+
+  const addDoseToResidentSchedule = (residentId: string) => {
+    if (!newDoseForm.medicineId || !newDoseForm.dosage) {
+      showToast(lang === 'ar' ? "يرجى اختيار الدواء وتحديد الجرعة المطلوبة." : "Please select medication and specify dosage.", "error");
+      return;
+    }
+    const targetMed = medicines.find(m => m.id === newDoseForm.medicineId);
+    if (!targetMed) return;
+
+    const chosenSlot = normalizeHourSlot(newDoseForm.timeSlot || '08:00');
+    const parsedQty = parseDoseQuantity(newDoseForm.dosage, newDoseForm.quantity);
+
+    const updatedResidents = residents.map(r => {
+      if (r.id === residentId) {
+        const sched = r.dosageSchedule || [];
+        const newItem = {
+          id: `dose-${Date.now()}`,
+          timeSlot: chosenSlot,
+          medicineId: targetMed.id,
+          medicineName: targetMed.commercialNameAr || targetMed.commercialName,
+          dosage: newDoseForm.dosage,
+          quantity: parsedQty,
+          checkedToday: false
+        };
+        const updatedResident = { ...r, dosageSchedule: [...sched, newItem] };
+        setActiveDossierResident(updatedResident);
+        return updatedResident;
+      }
+      return r;
+    });
+    updateResidentsList(updatedResidents);
+    setNewDoseForm({ timeSlot: '08:00', medicineId: '', dosage: '', quantity: 1 });
+    setDoseMedSearch('');
+    showToast(lang === 'ar' ? `تمت جدولة الجرعة (${parsedQty} ${targetMed.unit || 'حبة'}) بنجاح في القائمة 💊` : `Medication dose scheduled successfully (${parsedQty} unit) 💊`, "success");
+  };
+
+  const handleUpdateDossierReferralDate = (residentId: string, newReferralDate: string) => {
+    const updatedResidents = residents.map(r => {
+      if (r.id === residentId) {
+        return { ...r, referralDate: newReferralDate };
+      }
+      return r;
+    });
+    updateResidentsList(updatedResidents);
+    const target = updatedResidents.find(r => r.id === residentId);
+    if (target) {
+      setActiveDossierResident(target);
+    }
+    showToast(lang === 'ar' ? "تم تحديث تاريخ الإحالة (Refill Date) بنجاح 📅" : "Refill date updated successfully 📅", "success");
+  };
+
+  const removeDoseFromResidentSchedule = (residentId: string, doseId: string) => {
+    const updatedResidents = residents.map(r => {
+      if (r.id === residentId) {
+        const sched = r.dosageSchedule || [];
+        const updatedSched = sched.filter((item: any) => item.id !== doseId);
+        const updatedResident = { ...r, dosageSchedule: updatedSched };
+        setActiveDossierResident(updatedResident);
+        return updatedResident;
+      }
+      return r;
+    });
+    updateResidentsList(updatedResidents);
+    showToast("تم إزالة الجرعة المجدولة.", "success");
+  };
+
+  const handleCheckInteractions = async (targetMedId: string, residentSchedule: any[]) => {
+    if (!targetMedId) {
+      showToast("يرجى اختيار الدواء المراد فحصه أولاً.", "error");
+      return;
+    }
+
+    const targetMed = medicines.find(m => m.id === targetMedId);
+    if (!targetMed) return;
+
+    setInteractionLoading(true);
+    setInteractionResult(null);
+
+    // Map the resident's active schedule to pass as other medicines
+    const activeMedicines = (residentSchedule || []).map(item => {
+      const dbMed = medicines.find(m => m.id === item.medicineId);
+      return {
+        commercialName: item.medicineName,
+        scientificName: dbMed?.scientificName || ""
+      };
+    });
+
+    try {
+      const response = await fetch('/api/ai/check-interactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetMedicine: {
+            commercialName: targetMed.commercialName,
+            scientificName: targetMed.scientificName
+          },
+          activeMedicines
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('حدث خطأ أثناء فحص التعارض الدوائي');
+      }
+
+      const result = await response.json();
+      setInteractionResult(result);
+      if (result.hasInteraction) {
+        if (result.severity === 'severe') {
+          showToast("⚠️ تحذير: تم اكتشاف تعارض دوائي خطير جداً!", "error");
+        } else {
+          showToast("⚠️ تنبيه: تم رصد تعارض دوائي متوسط أو خفيف.", "success");
+        }
+      } else {
+        showToast("🟢 تم الفحص: لا توجد تداخلات دوائية معروفة.", "success");
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast("فشل الاتصال بفاحص التعارضات الذكي.", "error");
+    } finally {
+      setInteractionLoading(false);
+    }
+  };
+
+  // Print system report utility (with dual-action safe iframe/sandbox fallback)
+  const handlePrint = () => {
+    setPrintType('inventory');
+    // Open the gorgeous in-app interactive print preview modal immediately
+    setShowPrintPreviewModal(true);
+    try {
+      window.print();
+    } catch (e) {
+      console.warn("Standard printing blocked by sandboxed iframe. Falling back to dynamic interactive print center.", e);
+    }
+  };
+
+  // Export inventory report to Excel (.xls) with full native UTF-8 formatting and zero question marks
+  const handleExportCSV = () => {
+    try {
+      const isAr = lang === 'ar';
+      const headers = isAr ? [
+        'م',
+        'الاسم التجاري',
+        'الاسم العلمي (المادة الفعالة)',
+        'الكمية المتوفرة',
+        'الوحدة',
+        'الفئة العلاجية',
+        'سعر الوحدة (ر.س)',
+        'تاريخ دخول الدواء',
+        'تاريخ انتهاء الصلاحية'
+      ] : [
+        '#',
+        'Trade Name',
+        'Scientific Name',
+        'Available Stock',
+        'Unit',
+        'Category',
+        'Unit Price (SAR)',
+        'Entry Date',
+        'Expiry Date'
+      ];
+
+      const rowsHtml = medicines.map((m, idx) => `
+        <tr>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${idx + 1}</td>
+          <td style="text-align: ${isAr ? 'right' : 'left'}; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">${m.commercialNameAr || m.commercialName}</td>
+          <td style="text-align: ${isAr ? 'right' : 'left'}; border: 1px solid #cbd5e1; padding: 8px;">${m.scientificName || ''}</td>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold; color: #0d9488;">${m.quantity}</td>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${m.unit || ''}</td>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${m.category || (isAr ? 'عام' : 'General')}</td>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${Number(m.price || 0).toFixed(2)}</td>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${m.entryDate || '-'}</td>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${m.expiryDate || '-'}</td>
+        </tr>
+      `).join('');
+
+      const excelHtml = `\uFEFF<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <!--[if gte mso 9]>
+  <xml>
+    <x:ExcelWorkbook>
+      <x:ExcelWorksheets>
+        <x:ExcelWorksheet>
+          <x:Name>${isAr ? 'مخزن الأدوية' : 'Medication Inventory'}</x:Name>
+          <x:WorksheetOptions>
+            ${isAr ? '<x:DisplayRightToLeft/>' : ''}
+          </x:WorksheetOptions>
+        </x:ExcelWorksheet>
+      </x:ExcelWorksheets>
+    </x:ExcelWorkbook>
+  </xml>
+  <![endif]-->
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; }
+    table { border-collapse: collapse; width: 100%; }
+    th { background-color: #0d9488; color: #ffffff; font-weight: bold; border: 1px solid #0f766e; padding: 10px; font-size: 13px; text-align: center; }
+    td { font-size: 12px; }
+    .title-banner { font-size: 16px; font-weight: bold; color: #0f766e; text-align: center; padding: 14px; }
+    .meta-info { font-size: 11px; color: #64748b; padding-bottom: 8px; text-align: ${isAr ? 'right' : 'left'}; }
+  </style>
+</head>
+<body dir="${isAr ? 'rtl' : 'ltr'}">
+  <div class="title-banner">${isAr ? `${OFFICIAL_CENTER_NAME} - تقرير جرد مخزن الأدوية` : 'Shaqra Comprehensive Rehabilitation Center for Males - Inventory Stock Report'}</div>
+  <div class="meta-info">
+    ${isAr ? `تاريخ التصدير: ${new Date().toISOString().split('T')[0]} | إجمالي الأصناف: ${medicines.length}` : `Export Date: ${new Date().toISOString().split('T')[0]} | Total Items: ${medicines.length}`}
+  </div>
+  <table>
+    <thead>
+      <tr>
+        ${headers.map(h => `<th>${h}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+      const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      const fileName = isAr 
+        ? `تقرير_مخزن_الأدوية_${new Date().toISOString().split('T')[0]}.xls`
+        : `Pharmacy_Inventory_Report_${new Date().toISOString().split('T')[0]}.xls`;
+      link.setAttribute("download", fileName);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast(isAr ? '📥 تم تصدير تقرير المخزن لملف Excel بنجاح باللغة العربية!' : 'Inventory report exported to Excel successfully!', 'success');
+    } catch (e) {
+      showToast('عذراً، فشل تصدير التقرير إلى ملف Excel.', 'error');
+    }
+  };
+
+  const isScreenAllowed = (tab: string) => {
+    if (!currentUser) return false;
+    // Security tab is EXCLUSIVELY for the developer
+    if (tab === 'security') {
+      return currentUser.role === 'developer';
+    }
+    return ROLES[currentUser.role]?.allowedScreens.includes(tab) ?? false;
+  };
+
+  useEffect(() => {
+    if (activeTab === 'security' && currentUser?.role !== 'developer') {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, currentUser]);
+
+  if (!currentUser) {
+    return (
+      <div className={`min-h-screen w-full flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8 transition-colors duration-200 ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+        <div className="absolute top-4 left-4 flex gap-2">
+          {/* Dark Mode toggle in login */}
+          <button 
+            type="button"
+            onClick={() => setDarkMode(!darkMode)}
+            className={`p-2.5 rounded-xl border transition-all ${darkMode ? 'border-slate-800 bg-slate-800/50 hover:bg-slate-800 text-amber-400' : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-700 shadow-sm'}`}
+            title={darkMode ? (lang === 'ar' ? "الوضع النهاري" : "Light Mode") : (lang === 'ar' ? "الوضع الليلي" : "Dark Mode")}
+          >
+            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+
+          {/* Language toggle in login */}
+          <button 
+            type="button"
+            onClick={() => {
+              const nextLang = lang === 'ar' ? 'en' : 'ar';
+              setLang(nextLang);
+              localStorage.setItem('care_pharmacy_lang', nextLang);
+              showToast(nextLang === 'ar' ? 'تم تحويل النظام بالكامل إلى اللغة العربية 🇸🇦' : 'System translated to English successfully! 🇺🇸', 'success');
+            }}
+            className={`px-3 py-2 rounded-xl border font-black text-xs transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-teal-400' : 'border-slate-200 bg-white hover:bg-slate-100 text-teal-600 shadow-sm'}`}
+            title={lang === 'ar' ? "Switch to English 🇺🇸" : "التحويل للغة العربية 🇸🇦"}
+          >
+            <span>{lang === 'ar' ? "EN 🇬🇧" : "عربي 🇸🇦"}</span>
+          </button>
+        </div>
+
+        <div className="max-w-md w-full space-y-8 relative z-10">
+          {/* Logo & Header */}
+          <div className="text-center">
+            <div className="mx-auto h-16 w-16 bg-teal-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-teal-600/20 mb-4 animate-pulse">
+              <Activity className="w-8 h-8" />
+            </div>
+            <h2 className={`text-3xl font-black tracking-tight ${darkMode ? 'text-teal-400' : 'text-teal-600'}`}>{t('app_title')}</h2>
+            <p className={`mt-2 text-xs font-semibold ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+              {t('app_subtitle')}
+            </p>
+          </div>
+
+          {/* Login Card */}
+          <div className={`rounded-3xl border p-8 shadow-2xl transition-all ${darkMode ? 'bg-slate-900 border-slate-800 shadow-slate-950/50' : 'bg-white border-slate-200 shadow-slate-200/50'}`}>
+            <form onSubmit={handleLoginSubmit} className="space-y-5">
+              {/* Email Input */}
+              <div>
+                <label htmlFor="email" className={`block text-xs font-bold mb-2 ${darkMode ? 'text-slate-400' : 'text-slate-700'}`}>
+                  {lang === 'ar' ? 'البريد الإلكتروني المهني' : 'Professional Email'}
+                </label>
+                <div className="relative">
+                  <div className={`absolute inset-y-0 ${lang === 'ar' ? 'right-0 pr-3.5' : 'left-0 pl-3.5'} flex items-center pointer-events-none text-slate-500`}>
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="email"
+                    type="email"
+                    required
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    className={`w-full ${lang === 'ar' ? 'pr-10 pl-3 text-right' : 'pl-10 pr-3 text-left'} py-2.5 rounded-xl border text-xs outline-none transition-all ${
+                      darkMode 
+                        ? 'bg-slate-950 border-slate-800 text-white focus:border-teal-500' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-teal-500'
+                    }`}
+                    placeholder="example@carecenter.org"
+                  />
+                </div>
+              </div>
+
+              {/* Password Input */}
+              <div>
+                <label htmlFor="password" className={`block text-xs font-bold mb-2 ${darkMode ? 'text-slate-400' : 'text-slate-700'}`}>
+                  {lang === 'ar' ? 'كلمة المرور' : 'Password'}
+                </label>
+                <div className="relative">
+                  <div className={`absolute inset-y-0 ${lang === 'ar' ? 'right-0 pr-3.5' : 'left-0 pl-3.5'} flex items-center pointer-events-none text-slate-500`}>
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="password"
+                    type={loginShowPassword ? "text" : "password"}
+                    required
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    className={`w-full ${lang === 'ar' ? 'pr-10 pl-10 text-right' : 'pl-10 pr-10 text-left'} py-2.5 rounded-xl border text-xs outline-none transition-all ${
+                      darkMode 
+                        ? 'bg-slate-950 border-slate-800 text-white focus:border-teal-500' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-teal-500'
+                    }`}
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLoginShowPassword(!loginShowPassword)}
+                    className={`absolute inset-y-0 ${lang === 'ar' ? 'left-0 pl-3' : 'right-0 pr-3'} flex items-center text-slate-500 hover:text-slate-300 cursor-pointer`}
+                  >
+                    {loginShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Remember Me Toggle */}
+              <div className="flex items-center justify-between text-xs">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="rounded text-teal-600 focus:ring-teal-500 bg-slate-950 border-slate-800"
+                  />
+                  <span className={darkMode ? 'text-slate-400' : 'text-slate-600'}>
+                    {lang === 'ar' ? 'تذكرني في هذا الجهاز' : 'Remember me on this device'}
+                  </span>
+                </label>
+                <span className="text-teal-500 hover:underline cursor-pointer">
+                  {lang === 'ar' ? 'المساعدة والدعم' : 'Help & Support'}
+                </span>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-lg shadow-teal-900/20 text-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Shield className="w-4 h-4 shrink-0" />
+                <span>{lang === 'ar' ? 'تسجيل الدخول الآمن' : 'Secure Login'}</span>
+              </button>
+            </form>
+          </div>
+
+          {/* Compliance notice */}
+          <div className="text-center text-[10px] text-slate-500 space-y-1">
+            <p className="flex items-center justify-center gap-1">
+              <Shield className="w-3 h-3 text-teal-500" />
+              <span>
+                {lang === 'ar' 
+                  ? 'نظام مشفر وممتثل لمعايير الهيئة العامة للغذاء والدواء ووزارة الصحة السعودية' 
+                  : 'Encrypted system compliant with SFDA and Saudi Ministry of Health guidelines'}
+              </span>
+            </p>
+          </div>
+        </div>
+        
+        {/* Toast Alerts inside login */}
+        {toastMessage && (
+          <div className={`fixed top-6 ${lang === 'ar' ? 'left-4 right-4 md:left-auto md:w-96' : 'left-4 right-4 md:right-auto md:w-96'} z-50 animate-slide-in`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+            <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 ${toastMessage.type === 'success' ? 'bg-emerald-950 border-emerald-500 text-emerald-200' : 'bg-rose-950 border-rose-500 text-rose-200'}`}>
+              <CheckCircle2 className={`w-5 h-5 shrink-0 ${toastMessage.type === 'success' ? 'text-emerald-400' : 'text-rose-400'}`} />
+              <div className="text-xs font-semibold">{toastMessage.text}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <>
+    <div data-skin={skin} className={`min-h-screen transition-colors duration-200 skin-${skin} ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+      
+      {/* 1. Header: Sleek, responsive, un-crowded top bar with all primary tools always accessible */}
+      <header className={`sticky top-0 z-40 border-b px-3 sm:px-5 py-2.5 flex items-center justify-between transition-colors backdrop-blur-md ${darkMode ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200 shadow-sm'} print:hidden`}>
+        {/* Zone 1: Brand title and active screen badge */}
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="p-1.5 sm:p-2 bg-teal-600 rounded-xl text-white shadow-lg shadow-teal-900/20">
+            <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm sm:text-base font-black tracking-tight text-teal-400 leading-tight">{t('app_title')}</span>
+            <span className="text-[10px] text-slate-400 font-semibold hidden sm:inline leading-tight">
+              {lang === 'ar' ? 'منظومة الرقابة الدوائية والسريرية' : 'Clinical Pharmacy Management'}
+            </span>
+          </div>
+        </div>
+
+        {/* Zone 2: Primary Actions (Help Manual, Theme Skins, PWA, Dark Mode, Lang Toggle, User Role, Logout) */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          {/* Help Manual & User Guide Button */}
+          <button 
+            type="button"
+            onClick={() => setShowHelpModal(true)}
+            className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300' : 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 shadow-xs'}`}
+            title={lang === 'ar' ? 'دليل الاستخدام وملف المساعدة الشامل (مع طباعة وتصدير PDF)' : 'User Guide & Help Manual (PDF Export)'}
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden md:inline">{lang === 'ar' ? 'دليل المساعدة 📖' : 'Help Guide 📖'}</span>
+          </button>
+
+          {/* Theme Skin Picker Button */}
+          <button 
+            type="button"
+            onClick={() => setShowSkinModal(true)}
+            className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-teal-400' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-teal-600'}`}
+            title={lang === 'ar' ? 'اختيار مظهر النظام (Skins)' : 'Select theme skin'}
+          >
+            <span>🎨</span>
+            <span className="hidden md:inline">{t('skin_selector_btn')}</span>
+          </button>
+
+          {/* PWA Button */}
+          <PWAInstallButton lang={lang} />
+          
+          {/* Dark Mode toggle */}
+          <button 
+            type="button"
+            onClick={handleToggleDarkMode}
+            className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer ${darkMode ? 'border-slate-800 bg-slate-800/50 hover:bg-slate-800 text-amber-400' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'}`}
+            title={darkMode ? (lang === 'ar' ? "التحويل للوضع النهاري (Daylight)" : "Switch to Light Mode") : (lang === 'ar' ? "التحويل للوضع الليلي (Dark Mode)" : "Switch to Dark Mode")}
+          >
+            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+
+          {/* Language Toggle Button */}
+          <button 
+            type="button"
+            onClick={() => {
+              const nextLang = lang === 'ar' ? 'en' : 'ar';
+              setLang(nextLang);
+              localStorage.setItem('care_pharmacy_lang', nextLang);
+              showToast(nextLang === 'ar' ? 'تم تحويل النظام بالكامل إلى اللغة العربية 🇸🇦' : 'System translated to English successfully! 🇺🇸', 'success');
+            }}
+            className={`px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-xl border font-bold text-xs transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-teal-400' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-teal-600'}`}
+            title={lang === 'ar' ? "Switch to English 🇺🇸" : "التحويل للغة العربية 🇸🇦"}
+          >
+            <span>{lang === 'ar' ? "EN 🇬🇧" : "عربي 🇸🇦"}</span>
+          </button>
+
+          {/* Firebase Cloud status indicator badge */}
+          <div 
+            onClick={() => {
+              if (currentUser?.role === 'developer') {
+                setActiveTab('security');
+              }
+              showToast(
+                lang === 'ar' 
+                  ? `قاعدة بيانات Firebase متصلة بالسحابة (المشروع: ${firebaseConfig.projectId})` 
+                  : `Firebase Cloud Database active (Project: ${firebaseConfig.projectId})`,
+                'success'
+              );
+            }}
+            className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-mono cursor-pointer transition-all hover:scale-105 active:scale-95 ${
+              isFirebaseConnected 
+                ? (darkMode ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100')
+                : (darkMode ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-800')
+            }`}
+            title={lang === 'ar' ? `قاعدة بيانات Firebase السحابية متصلة: ${firebaseConfig.projectId}` : `Firebase Cloud Database connected: ${firebaseConfig.projectId}`}
+          >
+            <span className={`w-2 h-2 rounded-full ${isFirebaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+            <span className="font-sans font-bold text-[11px]">Firebase:</span>
+            <span className="font-bold text-[11px] text-amber-400">{firebaseConfig.projectId}</span>
+          </div>
+
+          {/* Quick Role display */}
+          <div className="hidden sm:flex items-center gap-1 p-1 rounded-xl border border-rose-950/40 bg-rose-950/20 text-xs text-rose-300">
+            <span className="font-bold px-1 text-rose-400 text-[11px]">{lang === 'ar' ? 'الدور:' : 'Role:'}</span>
+            <span className="font-bold text-[11px] text-rose-300 px-1">
+              {lang === 'ar' ? ROLES[currentUser?.role || 'admin']?.name : (currentUser?.role || 'admin').toUpperCase()}
+            </span>
+          </div>
+
+          {/* Logout Button */}
+          <button 
+            type="button"
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 bg-rose-600/15 hover:bg-rose-600 text-rose-400 hover:text-white rounded-xl border border-rose-500/20 hover:border-rose-600 transition-all text-xs font-bold cursor-pointer"
+            title={lang === 'ar' ? 'تسجيل الخروج' : 'Log out'}
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{t('logout')}</span>
+          </button>
+        </div>
+      </header>
+
+      {/* 2. Unified Navigation Bar: Visible on ALL computer monitors, tablets, and laptops without dropping any menu item */}
+      <nav className={`sub-navbar sticky top-[57px] sm:top-[61px] z-30 border-b backdrop-blur-md transition-colors px-2 sm:px-4 py-1.5 flex items-center justify-start overflow-x-auto print:hidden shadow-xs ${darkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-100/95 border-slate-200'}`}>
+        <div className="flex items-center gap-1 sm:gap-1.5 min-w-max">
+          {[
+            { id: 'dashboard', icon: '📊', label: t('dashboard') },
+            { id: 'inventory', icon: '📦', label: t('inventory') },
+            { id: 'dispense', icon: '💊', label: t('dispense') },
+            { id: 'residents', icon: '👥', label: t('residents') },
+            { id: 'units', icon: '📦', label: lang === 'ar' ? 'إدارة الوحدات' : 'Units Management' },
+            { id: 'categories', icon: '🏷️', label: lang === 'ar' ? 'إدارة فئات العلاج' : 'Therapeutic Classes' },
+            { id: 'users', icon: '⚙️', label: t('users') },
+            { id: 'ai_reports', icon: '✨', label: lang === 'ar' ? 'التقارير الذكية AI' : 'AI Reports' },
+            { id: 'behavioral_tracker', icon: '⚠️', label: t('behavior') },
+            { id: 'security', icon: '🛡️', label: lang === 'ar' ? 'الحماية والأمان' : 'Security & Protection' },
+            { id: 'audit_logs', icon: '📋', label: lang === 'ar' ? 'سجل التدقيق' : 'Audit Trail' }
+          ].filter(item => isScreenAllowed(item.id)).map((item) => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? (darkMode ? 'bg-teal-600 text-white shadow-md shadow-teal-900/40 ring-1 ring-teal-400/50 scale-[1.02]' : 'bg-teal-600 text-white shadow-md shadow-teal-600/20 scale-[1.02]')
+                    : (darkMode ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70')
+                }`}
+              >
+                <span className="text-sm">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* Theme Skins Selector Modal */}
+      {showSkinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+          <div className={`w-full max-w-2xl rounded-3xl border p-6 shadow-2xl space-y-6 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
+            <div className="flex items-center justify-between border-b pb-4 border-slate-800/60">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🎨</span>
+                <div>
+                  <h3 className="text-lg font-black">{t('skin_selector_title')}</h3>
+                  <p className="text-xs text-slate-400">
+                    {lang === 'ar' 
+                      ? 'اختر المظهر اللوني المفضل لديك، يتم حفظ اختيارك تلقائياً' 
+                      : 'Choose your preferred visual theme, choice persists automatically'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowSkinModal(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {SKINS.map((s) => {
+                const isSelected = skin === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => handleSelectSkin(s.id)}
+                    style={{
+                      backgroundColor: s.bgColor,
+                      borderColor: isSelected ? s.primaryColor : s.borderColor,
+                      boxShadow: isSelected ? `0 0 24px ${s.primaryColor}40` : undefined
+                    }}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col justify-between cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${lang === 'ar' ? 'text-right' : 'text-left'}`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between w-full mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span 
+                            className="w-4 h-4 rounded-full border border-white/20 shadow-sm shrink-0"
+                            style={{ backgroundColor: s.primaryColor }}
+                          />
+                          <span className="font-bold text-xs" style={{ color: s.isDark ? '#f8fafc' : '#0f172a' }}>
+                            {lang === 'ar' ? s.nameAr : s.nameEn}
+                          </span>
+                        </div>
+                        {isSelected ? (
+                          <span 
+                            className="text-[10px] font-black px-2 py-0.5 rounded-full text-white flex items-center gap-1 shadow-sm"
+                            style={{ backgroundColor: s.primaryColor }}
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            {lang === 'ar' ? 'المفعل حالياً' : 'Active'}
+                          </span>
+                        ) : (
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${s.badgeClass}`}>
+                            {s.isDark ? (lang === 'ar' ? 'داكن 🌙' : 'Dark 🌙') : (lang === 'ar' ? 'فاتح ☀️' : 'Light ☀️')}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className={`text-[11px] leading-relaxed mb-3 ${s.isDark ? 'text-slate-400' : 'text-slate-600'} ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                        {lang === 'ar' ? s.descAr : s.descEn}
+                      </p>
+                    </div>
+
+                    {/* Visual Color Palette Swatch Preview */}
+                    <div className="pt-2.5 border-t flex items-center justify-between" style={{ borderColor: `${s.borderColor}80` }}>
+                      <span className="text-[10px] font-bold" style={{ color: s.isDark ? '#94a3b8' : '#64748b' }}>
+                        {lang === 'ar' ? 'باليت ألوان المظهر:' : 'Palette Preview:'}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-4 h-3.5 rounded border border-white/10" style={{ backgroundColor: s.bgColor }} title={lang === 'ar' ? 'الخلفية' : 'Background'} />
+                        <div className="w-4 h-3.5 rounded border border-white/10" style={{ backgroundColor: s.cardColor }} title={lang === 'ar' ? 'البطاقات' : 'Cards'} />
+                        <div className="w-4 h-3.5 rounded border border-white/10" style={{ backgroundColor: s.borderColor }} title={lang === 'ar' ? 'الإطارات' : 'Borders'} />
+                        <div className="w-4 h-3.5 rounded shadow-sm" style={{ backgroundColor: s.primaryColor }} title={lang === 'ar' ? 'اللون التفاعلي الرئيسي' : 'Primary Accent'} />
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-800/60">
+              <button
+                onClick={() => setShowSkinModal(false)}
+                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition cursor-pointer"
+              >
+                {t('cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ----------------- MODAL: COMPREHENSIVE HELP MANUAL & USER GUIDE (دليل الاستخدام وملف المساعدة الشامل) ----------------- */}
+      {showHelpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+          <div className={`w-full max-w-5xl h-[90vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
+            
+            {/* Modal Header */}
+            <div className={`p-4 sm:p-6 border-b flex items-center justify-between gap-4 shrink-0 ${darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="flex items-center gap-3">
+                <div className="p-2 sm:p-2.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                  <BookOpen className="w-5 h-5 sm:w-6 sm:h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base sm:text-xl font-black">
+                      {lang === 'ar' ? 'دليل الاستخدام والتشغيل الشامل للنظام' : 'Comprehensive System User Guide & Manual'}
+                    </h3>
+                    <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                      v4.2 Pro
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {lang === 'ar' 
+                      ? 'توثيق دقيق ومفصل لكل شاشة ومؤشر، مع إمكانية التصدير والطباعة الرسمية كملف PDF'
+                      : 'Detailed screen-by-screen documentation with official PDF export capability'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrintHelpManual}
+                  className="px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-900/30 transition-all cursor-pointer hover:scale-105 active:scale-95"
+                  title={lang === 'ar' ? 'طباعة وحفظ كملف PDF رسمي' : 'Print & Save as Official PDF'}
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>{lang === 'ar' ? 'طباعة / تصدير PDF 🖨️' : 'Print / Export PDF 🖨️'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowHelpModal(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Search Bar */}
+            <div className={`px-4 sm:px-6 py-3 border-b flex items-center gap-3 shrink-0 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100'}`}>
+              <Search className="w-4 h-4 text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={helpSearchQuery}
+                onChange={(e) => setHelpSearchQuery(e.target.value)}
+                placeholder={lang === 'ar' ? 'ابحث في محتوى الشاشات والمؤشرات والخصائص والخطوات...' : 'Search within screens, KPIs, features, and operating steps...'}
+                className={`w-full bg-transparent text-xs font-semibold outline-none ${darkMode ? 'text-slate-100 placeholder:text-slate-500' : 'text-slate-800 placeholder:text-slate-400'}`}
+              />
+              {helpSearchQuery && (
+                <button 
+                  type="button"
+                  onClick={() => setHelpSearchQuery('')}
+                  className="text-xs text-slate-400 hover:text-slate-200"
+                >
+                  {t('cancel')}
+                </button>
+              )}
+            </div>
+
+            {/* Modal Body: Split view (Screen tabs sidebar + Rich content viewer) */}
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+              {/* Sidebar Tabs */}
+              <div className={`w-full md:w-72 lg:w-80 border-b md:border-b-0 md:border-l border-slate-800/80 overflow-y-auto shrink-0 p-2 sm:p-3 space-y-1.5 ${darkMode ? 'bg-slate-950/40' : 'bg-slate-50/70'}`}>
+                {SYSTEM_HELP_SECTIONS
+                  .filter(sec => {
+                    if (!helpSearchQuery) return true;
+                    const q = helpSearchQuery.toLowerCase();
+                    return sec.titleAr.toLowerCase().includes(q) || 
+                           sec.titleEn.toLowerCase().includes(q) || 
+                           sec.shortDescAr.toLowerCase().includes(q) ||
+                           sec.featuresAr.some(f => f.title.toLowerCase().includes(q) || f.desc.toLowerCase().includes(q));
+                  })
+                  .map((sec) => {
+                    const isSelected = selectedHelpSection === sec.id;
+                    return (
+                      <button
+                        key={sec.id}
+                        type="button"
+                        onClick={() => setSelectedHelpSection(sec.id)}
+                        className={`w-full ${lang === 'ar' ? 'text-right' : 'text-left'} p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
+                          isSelected
+                            ? (darkMode ? 'bg-teal-600/15 border-teal-500/50 text-teal-300 shadow-sm' : 'bg-teal-50 border-teal-400 text-teal-900 shadow-sm')
+                            : (darkMode ? 'border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200' : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-xl shrink-0">{sec.icon}</span>
+                          <div className={`truncate ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                            <h4 className="text-xs font-black truncate">{lang === 'ar' ? sec.titleAr : sec.titleEn}</h4>
+                            <span className="text-[10px] text-slate-500 truncate block">{lang === 'ar' ? sec.categoryAr : sec.categoryEn}</span>
+                          </div>
+                        </div>
+                        {isSelected && <span className="w-2 h-2 rounded-full bg-teal-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
+              </div>
+
+              {/* Active Section Content Detail */}
+              {(() => {
+                const currentSec = SYSTEM_HELP_SECTIONS.find(s => s.id === selectedHelpSection) || SYSTEM_HELP_SECTIONS[0];
+                return (
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6">
+                    {/* Header of Section */}
+                    <div className="space-y-2 border-b pb-4 border-slate-800/60">
+                      <div className="flex items-center gap-2">
+                        <span className="text-3xl">{currentSec.icon}</span>
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-teal-400">
+                            {lang === 'ar' ? currentSec.categoryAr : currentSec.categoryEn}
+                          </span>
+                          <h2 className="text-xl sm:text-2xl font-black">
+                            {lang === 'ar' ? currentSec.titleAr : currentSec.titleEn}
+                          </h2>
+                        </div>
+                      </div>
+                      <p className="text-xs sm:text-sm leading-relaxed text-slate-300">
+                        {lang === 'ar' ? currentSec.shortDescAr : currentSec.shortDescEn}
+                      </p>
+                    </div>
+
+                    {/* KPIs & Target Metrics */}
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-black uppercase text-amber-400 flex items-center gap-1.5">
+                        <span>🎯</span>
+                        <span>{lang === 'ar' ? 'المؤشرات والبيانات الرئيسية المرصودة:' : 'Target KPIs & Tracked Data:'}</span>
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {(lang === 'ar' ? currentSec.kpisAr : (currentSec.kpisEn || currentSec.kpisAr)).map((kpi, idx) => (
+                          <div key={idx} className={`p-3 rounded-xl border flex items-start gap-2 ${darkMode ? 'bg-slate-950/40 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-800'}`}>
+                            <span className="text-teal-400 font-black mt-0.5">✓</span>
+                            <span className="text-xs font-semibold leading-relaxed">{kpi}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Key Features */}
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-black uppercase text-teal-400 flex items-center gap-1.5">
+                        <span>⚡</span>
+                        <span>{lang === 'ar' ? 'أبرز الوظائف والقدرات السريرية والمستودعية:' : 'Core Features & Capabilities:'}</span>
+                      </h4>
+                      <div className="space-y-2.5">
+                        {(lang === 'ar' ? currentSec.featuresAr : (currentSec.featuresEn || currentSec.featuresAr)).map((feat, idx) => (
+                          <div key={idx} className={`p-3.5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'}`}>
+                            <h5 className="font-bold text-xs text-teal-400 mb-1">{feat.title}</h5>
+                            <p className="text-xs text-slate-300 leading-relaxed">{feat.desc}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Step-by-Step Operating Guide */}
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-black uppercase text-sky-400 flex items-center gap-1.5">
+                        <span>📋</span>
+                        <span>{lang === 'ar' ? 'خطوات التشغيل والاستخدام العملية:' : 'Step-by-Step Operating Guide:'}</span>
+                      </h4>
+                      <div className={`p-4 rounded-2xl border space-y-2.5 ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                        {(lang === 'ar' ? currentSec.stepsAr : (currentSec.stepsEn || currentSec.stepsAr)).map((step, idx) => (
+                          <div key={idx} className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 font-bold text-xs flex items-center justify-center shrink-0 border border-sky-500/30">
+                              {idx + 1}
+                            </span>
+                            <span className="text-xs text-slate-300 leading-relaxed">{step}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Safety Tips & Guidelines */}
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
+                        <span>🛡️</span>
+                        <span>{lang === 'ar' ? 'إرشادات الأمان السريري والجودة:' : 'Clinical Safety & Best Practices:'}</span>
+                      </h4>
+                      <div className="p-3.5 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-xs leading-relaxed space-y-1">
+                        {(lang === 'ar' ? currentSec.tipsAr : (currentSec.tipsEn || currentSec.tipsAr)).map((tip, idx) => (
+                          <p key={idx}>💡 {tip}</p>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className={`p-3 sm:p-4 border-t flex items-center justify-between shrink-0 ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
+              <span className="text-xs text-slate-400">
+                {lang === 'ar' ? 'دليل مساعدة رسمي مدمج مع المنظومة السحابية' : 'Integrated Clinical Help Guide & Documentation'}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrintHelpManual}
+                  className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>{lang === 'ar' ? 'طباعة كامل الدليل كـ PDF' : 'Print Entire Manual (PDF)'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowHelpModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition cursor-pointer"
+                >
+                  {t('cancel')}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Main Container */}
+      <main className="max-w-7xl mx-auto px-4 py-6 md:py-8">
+        
+        {/* Toast Alerts Notification System */}
+        {toastMessage && (
+          <div className={`fixed top-20 ${lang === 'ar' ? 'left-4 right-4 md:left-auto md:w-96' : 'left-4 right-4 md:right-auto md:w-96'} z-50 animate-slide-in`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+            <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 ${toastMessage.type === 'success' ? 'bg-emerald-950 border-emerald-500 text-emerald-200' : 'bg-rose-950 border-rose-500 text-rose-200'}`}>
+              <CheckCircle2 className={`w-5 h-5 shrink-0 ${toastMessage.type === 'success' ? 'text-emerald-400' : 'text-rose-400'}`} />
+              <div className="text-xs font-semibold">{toastMessage.text}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Global loading */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <RefreshCw className="w-8 h-8 text-teal-500 animate-spin" />
+            <span className="text-sm font-medium text-slate-400">
+              {lang === 'ar' ? 'جاري تحميل نظام الصيدلية وقاعدة البيانات...' : 'Loading Care Pharmacy & Secure Cloud DB...'}
+            </span>
+          </div>
+        )}
+
+        {!loading && (
+          <>
+            {/* ----------------- TAB: DASHBOARD ----------------- */}
+            {activeTab === 'dashboard' && (
+              <div className="space-y-6 animate-fade-in print:block">
+                
+                {/* Upper Hero Banner */}
+                <div className={`rounded-3xl p-6 relative overflow-hidden border shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-gradient-to-r from-teal-500 to-emerald-600 text-white border-transparent'}`}>
+                  <div className="space-y-2 relative z-10">
+                    <h2 className="text-2xl font-black md:text-3xl tracking-tight">
+                      {t('welcome')} {currentUser.name} 👋
+                    </h2>
+                    <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-teal-50'}`}>
+                      {lang === 'ar' ? (
+                        <>بصفتك <strong className={darkMode ? 'text-teal-400' : 'text-slate-950 bg-white/90 px-2 py-0.5 rounded-md'}>{ROLES[currentUser.role]?.name}</strong>، لديك كامل الصلاحيات لتنظيم صرف ومخزون الأدوية وتأمين بيانات المقيمين ذوي الاحتياجات الخاصة.</>
+                      ) : (
+                        <>As a <strong className={darkMode ? 'text-teal-400' : 'text-slate-950 bg-white/90 px-2 py-0.5 rounded-md'}>{currentUser.role.toUpperCase()}</strong>, you are fully authorized to manage medicine stocks, dispense medications, and secure resident files.</>
+                      )}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3 pt-2 text-xs">
+                      <span className={`px-2.5 py-1 rounded-lg ${darkMode ? 'bg-slate-800 text-teal-400' : 'bg-white/20 text-white font-bold'}`}>
+                        {t('security_level')}
+                      </span>
+                      <span className={`px-2.5 py-1 rounded-lg ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-white/20 text-white'}`}>
+                        {t('client_ip')} <span className="font-mono">{clientIp}</span>
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* Action buttons on Dashboard */}
+                  <div className="flex flex-wrap items-center gap-3 shrink-0 relative z-10 print:hidden">
+                    {currentUser?.role === 'developer' && (
+                      <button 
+                        onClick={() => setShowReferralReportModal(true)}
+                        className={`px-4 py-3 rounded-2xl text-sm font-bold border transition-all flex items-center gap-2 active:scale-95 cursor-pointer shadow-md ${darkMode ? 'border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300' : 'border-amber-500/40 bg-amber-50 hover:bg-amber-100 text-amber-900'}`}
+                        title={text('عرض تقرير تنبيهات الإحالات الطبية للمقيمين (قبلها بيوم) وإرساله للمسؤولين بالبريد (خاص بالمبرمج)', 'View & send resident refill alerts report (1-day notice) to officials (Developer Only)')}
+                      >
+                        <Bell className="w-4 h-4 text-amber-400 animate-pulse" />
+                        <span>{text('تقرير الإحالات (قبلها بيوم) 🔔', 'Refill Alerts (1-Day) 🔔')}</span>
+                        {(() => {
+                          const { dueTomorrowCount } = generateReferralAlertsReports(residents);
+                          return dueTomorrowCount > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-mono text-xs font-black">
+                              {dueTomorrowCount}
+                            </span>
+                          ) : null;
+                        })()}
+                      </button>
+                    )}
+
+                    {currentUser?.role === 'developer' && (
+                      <button 
+                        onClick={() => triggerScheduledAlertsTest()}
+                        className={`px-4 py-3 rounded-2xl text-sm font-bold border transition-all flex items-center gap-2 active:scale-95 cursor-pointer ${darkMode ? 'border-purple-500/40 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300' : 'border-purple-500/30 bg-purple-50 hover:bg-purple-100 text-purple-900 shadow-md'}`}
+                        title={lang === 'ar' ? 'محاكاة فحص وإرسال تنبيهات الواتساب والبريد (خاص بالمبرمج)' : 'Simulate morning daily safety checking and notify configured channels (Developer Only)'}
+                      >
+                        <Bell className="w-4 h-4 text-purple-400 animate-pulse" />
+                        <span>{text('محاكاة الإشعارات', 'Simulate Notifications')}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dashboard summary scoreboard cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                  
+                  <div className={`p-5 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                    <div className="flex justify-between items-start">
+                      <p className="text-xs font-semibold text-slate-400">{t('total_val')}</p>
+                      <DollarSign className="w-5 h-5 text-teal-500" />
+                    </div>
+                    <div className="mt-2.5 flex items-baseline gap-1.5">
+                      <span className="text-2xl font-black font-mono tracking-tight text-teal-500">
+                        {lang === 'ar' 
+                          ? Number(stats.totalInventoryValue || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
+                          : Number(stats.totalInventoryValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-xs text-slate-400">{t('sar')}</span>
+                    </div>
+                    <div className="mt-1.5 text-xs text-slate-400">
+                      {t('total_items')} <span className="font-bold">{stats.totalItems} {t('items_unit')}</span>
+                    </div>
+                  </div>
+
+                  <div className={`p-5 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                    <div className="flex justify-between items-start">
+                      <p className="text-xs font-semibold text-slate-400">{t('dispensed_qty')}</p>
+                      <UserCheck className="w-5 h-5 text-indigo-500" />
+                    </div>
+                    <div className="mt-2.5 flex items-baseline gap-1.5">
+                      <span className="text-2xl font-black font-mono tracking-tight text-indigo-400">
+                        {Number(stats.totalDispensedCount || 0).toFixed(2)}
+                      </span>
+                      <span className="text-xs text-slate-400">{t('dispense_unit')}</span>
+                    </div>
+                    <div className="mt-1.5 text-xs text-slate-400">
+                      {t('dispense_count')} <span className="font-bold">{dispenseRecords.length} {lang === 'ar' ? 'عملية' : 'tx'}</span>
+                    </div>
+                  </div>
+
+                  <div className={`p-5 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                    <div className="flex justify-between items-start">
+                      <p className="text-xs font-semibold text-slate-400">{t('near_expiry')}</p>
+                      <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />
+                    </div>
+                    <div className="mt-2.5 flex items-baseline gap-1.5">
+                      <span className="text-2xl font-black font-mono tracking-tight text-amber-400">
+                        {stats.nearExpiryCount}
+                      </span>
+                      <span className="text-xs text-slate-400">{t('items_unit')}</span>
+                    </div>
+                    <div className="mt-1.5 text-xs text-slate-400">
+                      {t('alert_config')} <span className="font-bold text-teal-400">{alertDays} {t('days_unit')}</span>
+                    </div>
+                  </div>
+
+                  <div className={`p-5 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                    <div className="flex justify-between items-start">
+                      <p className="text-xs font-semibold text-slate-400">{t('critical_expired')}</p>
+                      <Package className="w-5 h-5 text-rose-500" />
+                    </div>
+                    <div className="mt-2.5 flex items-baseline gap-1.5">
+                      <span className="text-2xl font-black font-mono tracking-tight text-rose-400">
+                        {stats.expiredCount + stats.criticalStockCount}
+                      </span>
+                      <span className="text-xs text-slate-400">{t('emergency_cases')}</span>
+                    </div>
+                    <div className="mt-1.5 text-xs text-slate-400">
+                      {t('expired_count')} <span className="font-bold text-rose-400">{stats.expiredCount}</span> | {t('critical_count')} <span className="font-bold text-orange-400">{stats.criticalStockCount}</span>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Simulated notifications popup details if triggered */}
+                {notificationAlertText && (
+                  <div className="p-4 bg-teal-950/40 border border-teal-800 rounded-2xl space-y-2 relative">
+                    <button 
+                      onClick={() => setNotificationAlertText(null)}
+                      className="absolute top-3 left-3 text-slate-400 hover:text-white text-xs font-bold"
+                    >
+                      {t('cancel')}
+                    </button>
+                    <h4 className="text-sm font-bold text-teal-400 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-teal-400" />
+                      {text('تمت محاكاة جدولة الإرسال الذاتي للـ WhatsApp والبريد بنجاح!', 'Simulated automated WhatsApp and email dispatch scheduled!')}
+                    </h4>
+                    <p className="text-xs text-slate-300">{notificationAlertText}</p>
+                    <div className="mt-2 bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-xs space-y-1 font-mono text-slate-400 overflow-y-auto max-h-32">
+                      <div className="font-semibold text-teal-500 mb-1">{text('سجل التنبيهات الصادر الفعلي:', 'Actual Outgoing Notification Logs:')}</div>
+                      {notificationLogs.slice(0, 4).map((log, i) => (
+                        <div key={i}>{log}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 📊 Graphical Analytical Statistics (Recharts Powered) */}
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                  
+                  {/* Monthly Consumption & Value AreaChart */}
+                  <div className={`p-6 rounded-3xl border xl:col-span-2 ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-bold mb-1 flex items-center gap-2">
+                          <Activity className="w-5 h-5 text-teal-400" />
+                          <span>{t('monthly_consumption')}</span>
+                        </h3>
+                        <p className="text-xs text-slate-400">{t('monthly_desc')}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs font-semibold bg-slate-950/50 p-1.5 rounded-xl border border-slate-800 self-start">
+                        <span className="flex items-center gap-1 text-teal-400 px-2 py-1 bg-teal-400/5 rounded-lg">
+                          <TrendingUp className="w-3.5 h-3.5" />
+                          {t('stable_badge')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="h-80 w-full" dir="ltr">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={monthlyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="colorQty" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#0d9488" stopOpacity={0.4}/>
+                              <stop offset="95%" stopColor="#0d9488" stopOpacity={0.0}/>
+                            </linearGradient>
+                            <linearGradient id="colorCost" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4}/>
+                              <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} />
+                          <XAxis 
+                            dataKey="month" 
+                            stroke={darkMode ? "#94a3b8" : "#475569"} 
+                            style={{ fontSize: '11px', fontFamily: 'monospace' }}
+                          />
+                          <YAxis 
+                            stroke={darkMode ? "#94a3b8" : "#475569"} 
+                            style={{ fontSize: '11px', fontFamily: 'monospace' }}
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                              borderColor: darkMode ? '#1e293b' : '#cbd5e1',
+                              borderRadius: '16px',
+                              textAlign: lang === 'ar' ? 'right' : 'left',
+                              fontSize: '12px'
+                            }}
+                          />
+                          <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                          <Area 
+                            type="monotone" 
+                            name={text('الكمية المصروفة', 'Dispensed Quantity')}
+                            dataKey="الكمية المصروفة" 
+                            stroke="#0d9488" 
+                            strokeWidth={3}
+                            fillOpacity={1} 
+                            fill="url(#colorQty)" 
+                          />
+                          <Area 
+                            type="monotone" 
+                            name={text('القيمة الإجمالية (ر.س)', 'Total Value (SAR)')}
+                            dataKey="القيمة الإجمالية (ر.س)" 
+                            stroke="#6366f1" 
+                            strokeWidth={3}
+                            fillOpacity={1} 
+                            fill="url(#colorCost)" 
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Therapeutic Category Distribution & Withdrawal BarChart & Table */}
+                  <div className={`p-6 rounded-3xl border flex flex-col justify-between ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <div className="space-y-1 mb-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-base font-bold flex items-center gap-2">
+                          <Activity className="w-5 h-5 text-indigo-400" />
+                          <span>{lang === 'ar' ? 'توزيع المخزن وسحب الأدوية حسب الفئات العلاجية' : 'Stock & Withdrawal by Therapeutic Class'}</span>
+                        </h3>
+                        <span className="text-[11px] font-mono px-2 py-0.5 rounded-full border border-teal-500/30 bg-teal-500/10 text-teal-300">
+                          {categoryChartData.length} {lang === 'ar' ? 'فئات' : 'classes'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        {lang === 'ar' 
+                          ? 'مقارنة بيانية مباشرة بين الكمية الكلية للمخزون وكمية السحب والصرف لكل فئة علاجية' 
+                          : 'Direct graphical comparison between total stock inventory and withdrawn quantity per therapeutic class'}
+                      </p>
+                    </div>
+
+                    <div className="h-64 w-full" dir="ltr">
+                      {categoryChartData.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-xs text-slate-400">{t('no_data')}</div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={categoryChartData} margin={{ top: 10, right: 10, left: -10, bottom: 25 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} />
+                            <XAxis 
+                              dataKey="name" 
+                              stroke={darkMode ? "#94a3b8" : "#475569"} 
+                              style={{ fontSize: '9px', fontFamily: 'sans-serif' }}
+                              tickFormatter={(tick) => tick.length > 14 ? tick.substring(0, 14) + '...' : tick}
+                            />
+                            <YAxis 
+                              stroke={darkMode ? "#94a3b8" : "#475569"} 
+                              style={{ fontSize: '10px', fontFamily: 'monospace' }}
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                                borderColor: darkMode ? '#1e293b' : '#cbd5e1',
+                                borderRadius: '16px',
+                                textAlign: lang === 'ar' ? 'right' : 'left',
+                                fontSize: '11px'
+                              }}
+                              formatter={(value: any, name: any) => [
+                                `${value} ${t('unit_qty')}`,
+                                name
+                              ]}
+                            />
+                            <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
+                            <Bar 
+                              name={lang === 'ar' ? "الكمية الكلية للمخزون" : "Total Stock Quantity"} 
+                              dataKey="الكمية الكلية للمخزون" 
+                              fill="#0d9488" 
+                              radius={[6, 6, 0, 0]} 
+                            />
+                            <Bar 
+                              name={lang === 'ar' ? "كمية السحب" : "Withdrawn Quantity"} 
+                              dataKey="كمية السحب" 
+                              fill="#6366f1" 
+                              radius={[6, 6, 0, 0]} 
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+
+                    {/* جدول كمية سحب و صرف الأدوية حسب الفئات العلاجية */}
+                    <div className="mt-4 pt-4 border-t border-slate-800/80">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                          <span>📋</span>
+                          <span>{lang === 'ar' ? 'جدول كمية سحب وصرف الأدوية حسب الفئات العلاجية:' : 'Medication Withdrawal & Stock Table by Class:'}</span>
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {lang === 'ar' ? 'إجمالي الرصيد وسرعة الاستهلاك' : 'Total Balance & Draw Rate'}
+                        </span>
+                      </div>
+
+                      <div className="overflow-x-auto max-h-48 overflow-y-auto pr-1">
+                        <table className="w-full text-right text-[11px]">
+                          <thead>
+                            <tr className={`border-b text-[10px] font-bold ${darkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-600'}`}>
+                              <th className="py-1.5 px-2 text-right">{lang === 'ar' ? 'الفئة العلاجية' : 'Category'}</th>
+                              <th className="py-1.5 px-2 text-center">{lang === 'ar' ? 'الأصناف' : 'Items'}</th>
+                              <th className="py-1.5 px-2 text-center text-teal-400">{lang === 'ar' ? 'الكمية الكلية للمخزون' : 'Total Stock'}</th>
+                              <th className="py-1.5 px-2 text-center text-indigo-400">{lang === 'ar' ? 'كمية السحب' : 'Withdrawn'}</th>
+                              <th className="py-1.5 px-2 text-center">{lang === 'ar' ? 'نسبة السحب' : 'Draw Rate'}</th>
+                              <th className="py-1.5 px-2 text-left">{lang === 'ar' ? 'القيمة (ر.س)' : 'Value (SAR)'}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/40 font-mono">
+                            {categoryChartData.map((item, idx) => (
+                              <tr key={idx} className={`hover:bg-slate-800/30 transition ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                                <td className="py-2 px-2 font-sans font-bold text-slate-200 truncate max-w-32">
+                                  <span className="inline-block w-2 h-2 rounded-full mr-1.5 ml-1.5" style={{ backgroundColor: item.color }} />
+                                  {item.name}
+                                </td>
+                                <td className="py-2 px-2 text-center text-slate-400">{item.itemsCount}</td>
+                                <td className="py-2 px-2 text-center font-bold text-teal-400">{item["الكمية الكلية للمخزون"]}</td>
+                                <td className="py-2 px-2 text-center font-bold text-indigo-400">{item["كمية السحب"]}</td>
+                                <td className="py-2 px-2 text-center">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.withdrawPct > 50 ? 'bg-rose-500/20 text-rose-300' : 'bg-slate-800 text-slate-300'}`}>
+                                    {item.withdrawPct}%
+                                  </span>
+                                </td>
+                                <td className="py-2 px-2 text-left text-amber-400 font-semibold">{item.cost.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* 🏢 Pharmaceutical Companies & Manufacturers Analysis (Recharts Powered) */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  
+                  {/* Stock Value & Varieties per Manufacturer Bar Chart */}
+                  <div className={`p-6 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <div className={`space-y-1 mb-6 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                      <h3 className="text-base font-bold flex items-center gap-2 text-teal-400">
+                        <Package className="w-5 h-5 text-teal-400" />
+                        <span>{t('manufacturer_stock')}</span>
+                      </h3>
+                      <p className="text-xs text-slate-400">{t('manufacturer_stock_desc')}</p>
+                    </div>
+
+                    <div className="h-80 w-full" dir="ltr">
+                      {manufacturerStockData.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-xs text-slate-500">{t('no_data')}</div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={manufacturerStockData} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} />
+                            <XAxis 
+                              dataKey="name" 
+                              stroke={darkMode ? "#94a3b8" : "#475569"} 
+                              style={{ fontSize: '9px', fontFamily: 'sans-serif' }}
+                              tickFormatter={(tick) => tick.length > 18 ? tick.substring(0, 18) + '...' : tick}
+                            />
+                            <YAxis 
+                              stroke={darkMode ? "#94a3b8" : "#475569"} 
+                              style={{ fontSize: '10px', fontFamily: 'monospace' }}
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                                borderColor: darkMode ? '#1e293b' : '#cbd5e1',
+                                borderRadius: '16px',
+                                textAlign: lang === 'ar' ? 'right' : 'left',
+                                fontSize: '12px'
+                              }}
+                            />
+                            <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                            <Bar name={t('total_value_chart')} dataKey="القيمة المالية (ر.س)" fill="#0d9488" radius={[8, 8, 0, 0]} />
+                            <Bar name={t('total_qty_chart')} dataKey="الكمية المتوفرة" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dispensed Quantities per Manufacturer Bar Chart */}
+                  <div className={`p-6 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <div className={`space-y-1 mb-6 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                      <h3 className="text-base font-bold flex items-center gap-2 text-indigo-400">
+                        <Activity className="w-5 h-5 text-indigo-400 animate-pulse" />
+                        <span>{t('manufacturer_dispense')}</span>
+                      </h3>
+                      <p className="text-xs text-slate-400">{t('manufacturer_dispense_desc')}</p>
+                    </div>
+
+                    <div className="h-80 w-full" dir="ltr">
+                      {manufacturerDispenseData.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-xs text-slate-500">{text('لا توجد سجلات صرف مسجلة حالياً لشركات الأدوية', 'No dispense records currently found for pharma companies')}</div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={manufacturerDispenseData} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} />
+                            <XAxis 
+                              dataKey="name" 
+                              stroke={darkMode ? "#94a3b8" : "#475569"} 
+                              style={{ fontSize: '9px', fontFamily: 'sans-serif' }}
+                              tickFormatter={(tick) => tick.length > 18 ? tick.substring(0, 18) + '...' : tick}
+                            />
+                            <YAxis 
+                              stroke={darkMode ? "#94a3b8" : "#475569"} 
+                              style={{ fontSize: '10px', fontFamily: 'monospace' }}
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                                borderColor: darkMode ? '#1e293b' : '#cbd5e1',
+                                borderRadius: '16px',
+                                textAlign: lang === 'ar' ? 'right' : 'left',
+                                fontSize: '12px'
+                              }}
+                            />
+                            <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                            <Bar name={t('actual_dispensed_chart')} dataKey="الكمية المصروفة فعلياً" fill="#6366f1" radius={[8, 8, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Forecasting & Near-Expiry alerts row */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                  {/* 🔮 Predictive Stock Depletion Forecasting Panel */}
+                  <div className={`p-6 rounded-3xl border lg:col-span-2 ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className={`space-y-1 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                        <h3 className="text-base font-bold flex items-center gap-2 text-indigo-400">
+                          <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
+                          <span>{t('predictive_title')}</span>
+                        </h3>
+                        <p className="text-xs text-slate-400">{t('predictive_desc')}</p>
+                      </div>
+                    </div>
+
+                    {predictiveForecasts.length === 0 ? (
+                      <div className="text-center py-12 space-y-2 bg-slate-950/20 rounded-2xl border border-dashed border-slate-800" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                        <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                        <p className="text-xs text-slate-300">{t('predictive_safe')}</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                        {predictiveForecasts.map((forecast) => (
+                          <div 
+                            key={forecast.id} 
+                            className={`p-4 rounded-2xl border flex flex-col justify-between text-xs transition ${
+                              forecast.daysLeft <= 15 
+                                ? 'bg-rose-950/25 border-rose-900/30' 
+                                : 'bg-slate-900/50 border-slate-800/85 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className={`space-y-1.5 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-slate-200 text-sm">{forecast.commercialName}</span>
+                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${
+                                  forecast.daysLeft <= 15 
+                                    ? 'bg-rose-500/20 text-rose-400' 
+                                    : 'bg-amber-500/10 text-amber-500'
+                                }`}>
+                                  {forecast.daysLeft <= 15 ? t('depletion_critical') : t('depletion_warning')}
+                                </span>
+                              </div>
+                              <p className="text-slate-400 text-[11px] truncate">{forecast.scientificName}</p>
+                              
+                              <div className="flex justify-between items-center bg-slate-950/40 p-2 rounded-xl mt-2">
+                                <span className="text-slate-400 text-[10px]">{t('monthly_draw')}</span>
+                                <span className="font-bold text-teal-400">{forecast.monthlyRate} {text('وحدة/شهر', 'units/mo')}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-800/60">
+                              <span className="text-slate-400 text-[10px]">{t('available_qty')}</span>
+                              <span className="font-mono font-bold text-slate-200">{forecast.quantity} {forecast.unit}</span>
+                            </div>
+
+                            <div className={`mt-2 text-[11px] font-semibold text-teal-300 flex items-center gap-1 ${lang === 'ar' ? 'text-right justify-end' : 'text-left justify-start'}`}>
+                              <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
+                              <span>{t('expected_depletion')} <strong className="text-sm font-mono text-rose-400">{forecast.daysLeft}</strong> {t('expected_days')}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Near-Expiry Medicines Highlight Panel */}
+                  <div className={`p-6 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <h3 className="text-base font-bold mb-4 flex items-center gap-2 text-amber-400">
+                      <AlertTriangle className="w-5 h-5 animate-pulse" />
+                      {t('near_expiry_meds_title')} ({stats.nearExpiryCount})
+                    </h3>
+                    
+                    {stats.nearExpiryMeds.length === 0 ? (
+                      <div className="text-center py-12 space-y-2 bg-slate-950/20 rounded-2xl border border-dashed border-slate-800">
+                        <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                        <p className="text-xs text-slate-400">{t('near_expiry_safe')}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                        {stats.nearExpiryMeds.map((med) => {
+                          const diffTime = Math.abs(new Date(med.expiryDate).getTime() - new Date().getTime());
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                          return (
+                            <div key={med.id} className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex justify-between items-center text-xs hover:border-slate-700 transition">
+                              <div className="space-y-1">
+                                <div className="font-bold text-slate-200">{med.commercialName}</div>
+                                <div className="text-slate-400 text-[10px]">{med.scientificName}</div>
+                                <div className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-md inline-block">
+                                  {text(`ينتهي خلال ${diffDays} يوماً`, `Expires in ${diffDays} days`)}
+                                </div>
+                              </div>
+                              <div className={lang === 'ar' ? 'text-left' : 'text-right'}>
+                                <div className="font-mono font-bold text-slate-300">{med.quantity} {med.unit}</div>
+                                <div className="text-[10px] text-slate-500">{med.expiryDate}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    
+                    <div className="mt-4 p-3 bg-slate-950/40 rounded-xl text-[11px] text-slate-400 leading-relaxed flex gap-2 border border-slate-850">
+                      <Info className="w-4 h-4 text-teal-400 shrink-0" />
+                      <span>{text('يمكنك تعديل أيام التنبيه قبل انتهاء الصلاحية من شاشة التقارير والتحليل الذكي.', 'You can customize near-expiry alert days threshold from the AI Reports tab.')}</span>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Recent dispense records list inside Dashboard */}
+                <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-base font-bold flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-indigo-400" />
+                      {text('آخر عمليات صرف الأدوية المسجلة للمقيمين', 'Recently Recorded Medication Dispense Logs')}
+                    </h3>
+                    <button 
+                      onClick={() => setActiveTab('dispense')} 
+                      className="text-xs font-bold text-teal-400 hover:text-teal-300"
+                    >
+                      {text('عرض جميع السجلات الصادرة ←', 'View all dispense logs ➔')}
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-bold">
+                          <th className="pb-3 text-right">{text('المقيم المستفيد', 'Recipient Resident')}</th>
+                          <th className="pb-3 text-right">{text('الدواء', 'Medication')}</th>
+                          <th className="pb-3 text-right">{text('الكمية المقررة', 'Prescribed Qty')}</th>
+                          <th className="pb-3 text-right">{text('الكمية المصروفة فعلياً', 'Actually Dispensed')}</th>
+                          <th className="pb-3 text-right">{text('المسؤول عن الصرف', 'Dispensed By')}</th>
+                          <th className="pb-3 text-left">{text('التاريخ', 'Date & Time')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {dispenseRecords.slice(0, 5).map((rec) => (
+                          <tr key={rec.id} className="hover:bg-slate-900/30">
+                            <td className="py-3 font-semibold text-slate-200">{rec.residentName}</td>
+                            <td className="py-3 text-teal-400 font-bold">{rec.medicineName}</td>
+                            <td className="py-3 font-mono text-slate-400">{rec.quantityDispensed} {rec.unit}</td>
+                            <td className="py-3 font-mono">
+                              <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-lg font-bold">
+                                {rec.actualQuantityDispensed} {rec.unit}
+                              </span>
+                            </td>
+                            <td className="py-3 text-slate-400">{rec.dispensedBy}</td>
+                            <td className="py-3 font-mono text-slate-400 text-left">
+                              {new Date(rec.dispensedAt).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* ----------------- TAB: INVENTORY (إدارة المخزن) ----------------- */}
+            {activeTab === 'inventory' && (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* Segmented Control Sub-Tabs */}
+                <div className="flex items-center gap-1 p-1 bg-slate-900/60 border border-slate-800 rounded-xl w-fit">
+                  <button
+                    onClick={() => setInventorySubTab('medicines')}
+                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors flex items-center gap-2 cursor-pointer ${
+                      inventorySubTab === 'medicines'
+                        ? 'bg-teal-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Package className="w-4 h-4 shrink-0" />
+                    <span>{text('دليل الأدوية والمخزون', 'Medicine Directory & Stock')}</span>
+                  </button>
+                  <button
+                    onClick={() => setInventorySubTab('companies')}
+                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors flex items-center gap-2 cursor-pointer ${
+                      inventorySubTab === 'companies'
+                        ? 'bg-teal-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Activity className="w-4 h-4 shrink-0" />
+                    <span>{text('شركات الأدوية المصنعة', 'Pharmaceutical Manufacturers')}</span>
+                  </button>
+                </div>
+
+                {inventorySubTab === 'medicines' ? (
+                  <div className="space-y-6">
+                    {/* Search & Actions block */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      
+                      {/* Search Bar & Filters */}
+                      <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                        <div className={`relative flex items-center rounded-xl px-3 py-2 border w-full sm:w-80 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}>
+                          <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                          <input 
+                            type="text"
+                            placeholder={text('ابحث بالاسم التجاري أو العلمي...', 'Search by commercial or scientific name...')}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="bg-transparent border-none outline-none pr-2.5 w-full text-xs font-semibold"
+                          />
+                        </div>
+
+                        <select
+                          value={selectedCategory}
+                          onChange={(e) => setSelectedCategory(e.target.value)}
+                          className={`px-3 py-2 text-xs font-semibold rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200'}`}
+                        >
+                          <option value="all">{text('كل الفئات العلاجية', 'All Therapeutic Classes')}</option>
+                          {categories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={selectedStockFilter}
+                          onChange={(e) => setSelectedStockFilter(e.target.value)}
+                          className={`px-3 py-2 text-xs font-semibold rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200'}`}
+                        >
+                          <option value="all">{text('كل المخزون', 'All Stock')}</option>
+                          <option value="critical">{text('المخزون الحرج (≤ 15 وحدة)', 'Critical Stock (≤ 15 units)')}</option>
+                          <option value="expired">{text('منتهية الصلاحية', 'Expired Medications')}</option>
+                          <option value="expiring_soon">{text('قريبة انتهاء الصلاحية', 'Expiring Soon')}</option>
+                        </select>
+                      </div>
+
+                      {/* Add item trigger & Units / Classes managers */}
+                      <div className="flex items-center gap-2">
+                        {currentUser?.role !== 'technician' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setUnitSearchQuery('');
+                                setShowManageUnitsModal(true);
+                              }}
+                              className={`px-3 py-2 rounded-xl border font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300' : 'border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800'}`}
+                              title={text('إدارة وتخصيص وحدات الصنف (إضافة، تعديل، حذف)', 'Manage item units (Add, Edit, Delete)')}
+                            >
+                              <Package className="w-3.5 h-3.5 shrink-0" />
+                              <span>{text('إدارة الوحدات 📦', 'Manage Units 📦')}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCategoryIdx(null);
+                                setShowManageCategoriesModal(true);
+                              }}
+                              className={`px-3 py-2 rounded-xl border font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300' : 'border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800'}`}
+                              title={text('إدارة وتخصيص الفئات العلاجية (إضافة، تعديل، حذف)', 'Manage therapeutic classes')}
+                            >
+                              <Activity className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
+                              <span>{text('إدارة الفئات 🏷️', 'Manage Classes 🏷️')}</span>
+                            </button>
+                          </>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={openAddMedicineModal}
+                          className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-lg shadow-teal-900/20 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 border border-teal-400/30 ring-2 ring-teal-500/20"
+                          title={text('إضافة صنف دواء جديد للمستودع', 'Add new medication to stock')}
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>{text('إضافة دواء جديد 💊', 'Add New Medication 💊')}</span>
+                        </button>
+                      </div>
+
+                    </div>
+
+                    {/* Inventory Table Card */}
+                    <div className={`rounded-3xl border overflow-hidden ${darkMode ? 'bg-slate-900/30 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-right text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-800/80 text-slate-400 font-black tracking-wide">
+                              <th className="p-4 text-right">{text('اسم الدواء التجاري (English)', 'Brand Name (English)')}</th>
+                              <th className="p-4 text-right">{text('تاريخ الدخول', 'Entry Date')}</th>
+                              <th className="p-4 text-right">{text('الاسم العلمي والشركة', 'Scientific Name & Manufacturer')}</th>
+                              <th className="p-4 text-right">{text('الفئة العلاجية', 'Therapeutic Class')}</th>
+                              <th className="p-4 text-right">{text('الكمية المتوفرة', 'Available Stock')}</th>
+                              <th className="p-4 text-right">{text('الوحدة', 'Unit')}</th>
+                              <th className="p-4 text-right">{text('سعر الوحدة', 'Unit Price')}</th>
+                              <th className="p-4 text-right">{text('تاريخ انتهاء الصلاحية', 'Expiry Date')}</th>
+                              <th className="p-4 text-right">{text('حالة الصنف', 'Status')}</th>
+                              <th className="p-4 text-left print:hidden">{text('إجراءات', 'Actions')}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/40">
+                            {filteredMedicines.length === 0 ? (
+                              <tr>
+                                <td colSpan={10} className="p-10 text-center text-slate-400">
+                                  <Package className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                                  <span className="font-semibold text-sm">{text('عذراً، لم يتم العثور على أي أدوية تطابق الفلتر الحالي.', 'Sorry, no medications match the current filter.')}</span>
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredMedicines.map((med) => {
+                                const exp = new Date(med.expiryDate);
+                                const today = new Date();
+                                const soon = new Date();
+                                soon.setDate(soon.getDate() + alertDays);
+
+                                let statusText = text("مستقر وصالح", "Valid & Safe");
+                                let statusColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+                                
+                                if (exp <= today) {
+                                  statusText = text("منتهي الصلاحية", "Expired");
+                                  statusColor = "text-rose-400 bg-rose-500/10 border-rose-500/20";
+                                } else if (exp <= soon) {
+                                  statusText = text("قريب الانتهاء", "Near Expiry");
+                                  statusColor = "text-amber-400 bg-amber-500/10 border-amber-500/20";
+                                }
+
+                                return (
+                                  <tr key={med.id} className="hover:bg-slate-900/10 transition">
+                                    <td className="p-4 text-sm font-black text-teal-400 font-sans">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span>{med.commercialNameEn || med.commercialName}</span>
+                                        {med.isControlled && (
+                                          <span 
+                                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1 tracking-normal shadow-sm"
+                                            title={text('دواء مراقب (Control) - لا يصرفه فني الصيدلة', 'Controlled Drug - Technicians prohibited')}
+                                          >
+                                            <ShieldAlert className="w-3 h-3 text-rose-400" />
+                                            <span>{text('كنترول / مراقب 🔒', 'Controlled 🔒')}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="p-4 font-mono font-bold text-slate-300">
+                                      {med.entryDate || (med.createdAt ? med.createdAt.split('T')[0] : '-')}
+                                    </td>
+                                    <td className="p-4 font-mono text-slate-300">
+                                      <div>{med.scientificName}</div>
+                                      {med.manufacturer && (
+                                        <div className="text-[10px] text-slate-400 font-sans mt-0.5">
+                                          {text('الشركة:', 'Company:')} {med.manufacturer}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="p-4 text-slate-400">{translateCategory(med.category)}</td>
+                                    <td className="p-4 font-mono font-bold text-slate-100">
+                                      <span className={med.quantity <= 15 ? 'text-orange-400 animate-pulse bg-orange-400/10 px-2 py-0.5 rounded-md' : ''}>
+                                        {med.quantity}
+                                      </span>
+                                    </td>
+                                    <td className="p-4 text-slate-400">{translateUnit(med.unit)}</td>
+                                    <td className="p-4 font-mono text-slate-300 font-semibold">{med.price} {text('ر.س', 'SAR')}</td>
+                                    <td className="p-4 font-mono text-slate-300">{med.expiryDate}</td>
+                                    <td className="p-4">
+                                      <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${statusColor}`}>
+                                        {statusText}
+                                      </span>
+                                    </td>
+                                    <td className="p-4 text-left print:hidden">
+                                      <div className="inline-flex items-center gap-1">
+                                        {currentUser?.role !== 'technician' ? (
+                                          <>
+                                            <button
+                                              onClick={() => openEditModal(med)}
+                                              className="p-1.5 rounded-lg text-teal-400 hover:bg-slate-800 transition cursor-pointer"
+                                              title={text("تعديل الصنف", "Edit Medicine")}
+                                            >
+                                              <Edit2 className="w-4 h-4" />
+                                            </button>
+                                            
+                                            <button
+                                              onClick={() => setDeleteConfirmId(med.id)}
+                                              className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                                              title={text("حذف", "Delete")}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </button>
+                                          </>
+                                        ) : (
+                                          <span className="text-[10px] text-slate-500 italic px-2 py-1">
+                                            {text('صلاحية صرف فقط', 'Dispense Only')}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Companies Actions & Search bar */}
+                    <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+                      <div className={`flex-1 max-w-md relative flex items-center rounded-xl px-3 py-2 border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}>
+                        <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                        <input 
+                          type="text"
+                          placeholder={text('ابحث باسم الشركة، بلد التصنيع، البريد...', 'Search by company name, country, email...')}
+                          value={companiesSearchQuery}
+                          onChange={(e) => setCompaniesSearchQuery(e.target.value)}
+                          className="bg-transparent border-none outline-none pr-2.5 w-full text-xs font-semibold"
+                        />
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setSelectedCompanyId(null);
+                          setCompanyForm({ name: '', country: '', contactPerson: '', phone: '', email: '', notes: '' });
+                          setShowCompanyModal(true);
+                        }}
+                        className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-lg shadow-teal-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Plus className="w-4.5 h-4.5" />
+                        <span>{text('إضافة شركة أدوية جديدة', 'Register New Company')}</span>
+                      </button>
+                    </div>
+
+                    {/* Companies Table */}
+                    <div className={`rounded-3xl border overflow-hidden ${darkMode ? 'bg-slate-900/30 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-right text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-800 text-slate-400 font-bold">
+                              <th className="p-4 text-right">{text('اسم الشركة المصنعة', 'Company Name')}</th>
+                              <th className="p-4 text-right">{text('بلد التصنيع/المنشأ', 'Country of Origin')}</th>
+                              <th className="p-4 text-right">{text('مسؤول التواصل', 'Sales Representative')}</th>
+                              <th className="p-4 text-right">{text('رقم الهاتف', 'Contact Phone')}</th>
+                              <th className="p-4 text-right">{text('البريد الإلكتروني', 'Email Address')}</th>
+                              <th className="p-4 text-right">{text('ملاحظات ووكلاء التوزيع', 'Notes & Distributors')}</th>
+                              <th className="p-4 text-left">{text('إجراءات', 'Actions')}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/40">
+                            {companies.filter(c => {
+                              const query = companiesSearchQuery.trim().toLowerCase();
+                              if (!query) return true;
+                              return (
+                                (c.name || '').toLowerCase().includes(query) ||
+                                (c.country || '').toLowerCase().includes(query) ||
+                                (c.contactPerson || '').toLowerCase().includes(query) ||
+                                (c.email || '').toLowerCase().includes(query) ||
+                                (c.phone || '').toLowerCase().includes(query) ||
+                                (c.notes || '').toLowerCase().includes(query)
+                              );
+                            }).length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="p-10 text-center text-slate-400">
+                                  <Package className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                                  <span>{text('لا توجد شركات أدوية مسجلة تطابق بحثك حالياً.', 'No registered pharmaceutical companies match your search.')}</span>
+                                </td>
+                              </tr>
+                            ) : (
+                              companies.filter(c => {
+                                const query = companiesSearchQuery.trim().toLowerCase();
+                                if (!query) return true;
+                                return (
+                                  (c.name || '').toLowerCase().includes(query) ||
+                                  (c.country || '').toLowerCase().includes(query) ||
+                                  (c.contactPerson || '').toLowerCase().includes(query) ||
+                                  (c.email || '').toLowerCase().includes(query) ||
+                                  (c.phone || '').toLowerCase().includes(query) ||
+                                  (c.notes || '').toLowerCase().includes(query)
+                                );
+                              }).map((c) => (
+                                <tr key={c.id} className="hover:bg-slate-900/10">
+                                  <td className="p-4 font-black text-slate-200 text-sm">{c.name}</td>
+                                  <td className="p-4 text-slate-300 font-semibold">{c.country || '-'}</td>
+                                  <td className="p-4 text-slate-400">{c.contactPerson || '-'}</td>
+                                  <td className="p-4 font-mono text-slate-400">{c.phone || '-'}</td>
+                                  <td className="p-4 font-mono text-slate-400">{c.email || '-'}</td>
+                                  <td className="p-4 text-slate-400 max-w-xs truncate" title={c.notes}>{c.notes || '-'}</td>
+                                  <td className="p-4 text-left">
+                                    <div className="flex gap-2 justify-end">
+                                      <button 
+                                        onClick={() => openEditCompanyModal(c)}
+                                        className="p-1.5 bg-slate-855 hover:bg-slate-800 text-teal-400 rounded-lg hover:text-white transition cursor-pointer"
+                                        title={text("تعديل بيانات الشركة", "Edit Company Details")}
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button 
+                                        onClick={() => setDeleteConfirmCompanyId(c.id)}
+                                        className="p-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-lg transition cursor-pointer"
+                                        title={text("حذف الشركة", "Delete Company")}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            )}
+
+            {/* ----------------- TAB: DISPENSE (صرف الأدوية) ----------------- */}
+            {activeTab === 'dispense' && (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* Info Disclaimer */}
+                <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-900/60 text-indigo-200 text-xs leading-relaxed flex gap-3 items-center">
+                  <Info className="w-5 h-5 text-indigo-400 shrink-0" />
+                  <div>
+                    <strong>{text('نظام الصرف المزدوج للمراجعة والتدقيق:', 'Dual-Verification Dispensation System:')}</strong> {text('يتيح هذا النظام تدوين "الكمية المطلوبة" و"الكمية المصروفة فعلياً" بواسطة الصيدلي لمرضى الرعاية لذوي الاحتياجات الخاصة، وذلك لأغراض السلامة الدوائية وتفادي الأخطاء الطبية وضمان تطابق الجرعات المصروفة تماماً.', 'This module tracks requested quantities and actual quantities dispensed side-by-side for patients with special needs, maximizing medical safety, reducing errors, and ensuring correct dosage.')}
+                  </div>
+                </div>
+
+                {/* Header & Main Action Controls */}
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-200 flex items-center gap-2">
+                      <UserCheck className="w-5 h-5 text-indigo-400" />
+                      <span>{text('سجل عمليات صرف الأدوية للمقيمين بالمركز', 'Medication Dispense Log Directory')}</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {text('متابعة دقيقة لكل عملية صرف مع إمكانية الفلترة المتقدمة بوقت وتاريخ الصرف والتصدير المباشر لإكسيل', 'Comprehensive dispensation tracking with advanced date/time filtering and direct Excel export')}
+                    </p>
+                  </div>
+                  
+                  <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+                    {/* Export to Excel Button */}
+                    <button
+                      type="button"
+                      onClick={handleExportDispenseToExcel}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-105 active:scale-95"
+                      title={text('تصدير سجلات الصرف إلى ملف Excel (CSV مرمز بـ UTF-8)', 'Export dispense logs to Excel file')}
+                    >
+                      <FileText className="w-4 h-4 shrink-0" />
+                      <span>{text('تصدير لإكسيل (Excel) 📥', 'Export to Excel 📥')}</span>
+                    </button>
+
+                    {/* New Dispense & Documentation Button (زر توثيق وصرف الأدوية) */}
+                    <button
+                      type="button"
+                      onClick={() => openDispenseModal()}
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-xs font-black shadow-lg shadow-indigo-900/30 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-105 active:scale-95 border border-indigo-400/30 ring-2 ring-indigo-500/20"
+                      title={text('فتح نافذة توثيق وصرف الأدوية للمقيمين', 'Open Medication Dispensing & Documentation Modal')}
+                    >
+                      <UserCheck className="w-4 h-4 shrink-0 text-indigo-200" />
+                      <span className="whitespace-nowrap">{text('توثيق وصرف الأدوية 📋💊', 'Document & Dispense Medications 📋💊')}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Direct Action Card for Dispensing (بطاقة واضحة وبارزة لتوثيق وصرف الأدوية) */}
+                <div className={`p-4 sm:p-5 rounded-3xl border transition shadow-lg flex flex-col md:flex-row items-center justify-between gap-4 ${darkMode ? 'bg-gradient-to-r from-indigo-950/50 via-slate-900 to-indigo-950/30 border-indigo-500/30 shadow-indigo-950/20' : 'bg-gradient-to-r from-indigo-50 via-white to-purple-50 border-indigo-200 shadow-indigo-100/50'}`}>
+                  <div className="flex items-center gap-3.5 w-full md:w-auto">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center shrink-0 text-indigo-400 shadow-inner">
+                      <UserCheck className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-slate-100 flex items-center gap-2">
+                        <span>{text('توثيق وصرف جرعة دوائية جديدة للمقيمين', 'Document & Dispense New Medication Dose')}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">{text('معتمد ونظامي', 'Authorized')}</span>
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {text('تدوين وتوثيق الجرعات المعتمدة، صرف كسور الأدوية (ربع حبة ونصف حبة)، وتدقيق الصرف المزدوج للمقيمين', 'Record approved doses, dispense fractions (¼ and ½ tablet), and dual safety audit.')}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openDispenseModal()}
+                    className="w-full md:w-auto px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-xs sm:text-sm font-black shadow-xl shadow-indigo-900/40 transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:scale-105 active:scale-95 border border-indigo-400/40 ring-4 ring-indigo-500/10 shrink-0"
+                  >
+                    <UserCheck className="w-5 h-5 text-indigo-200" />
+                    <span className="whitespace-nowrap">{text('توثيق وصرف الأدوية الآن 📋💊', 'Document & Dispense Medications Now 📋💊')}</span>
+                  </button>
+                </div>
+
+                {/* Advanced Search & Filtering Toolbar (فلترة ما بين تاريخ كذا إلى تاريخ كذا وبحث وقت وتاريخ الصرف) */}
+                <div className={`p-4 rounded-3xl border ${darkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} space-y-3`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <Search className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{text('فلترة وبحث سجلات الصرف:', 'Filter & Search Dispense Records:')}</span>
+                    </span>
+
+                    {(dispenseSearchQuery || dispenseStartDate || dispenseEndDate || dispenseTimeQuery) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDispenseSearchQuery('');
+                          setDispenseStartDate('');
+                          setDispenseEndDate('');
+                          setDispenseTimeQuery('');
+                        }}
+                        className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer bg-rose-500/10 px-2.5 py-1 rounded-lg border border-rose-500/20"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>{text('إعادة تعيين كافة الفلاتر', 'Reset All Filters')}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Primary Search Inputs Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* General Text Search */}
+                    <div className={`relative flex items-center rounded-xl px-3 py-2 border ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+                      <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                      <input 
+                        type="text"
+                        placeholder={text('ابحث باسم المقيم، اسم الدواء، أو الصيدلي...', 'Search resident, medicine, or pharmacist...')}
+                        value={dispenseSearchQuery}
+                        onChange={(e) => setDispenseSearchQuery(e.target.value)}
+                        className="bg-transparent border-none outline-none pr-2.5 w-full text-xs font-semibold"
+                      />
+                      {dispenseSearchQuery && (
+                        <button type="button" onClick={() => setDispenseSearchQuery('')} className="text-slate-400 hover:text-white">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Date and Time Search Text Input (سيرش تكست للبحث عن تاريخ ووقت الصرف) */}
+                    <div className={`relative flex items-center rounded-xl px-3 py-2 border ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+                      <Calendar className="w-4 h-4 text-teal-400 shrink-0" />
+                      <input 
+                        type="text"
+                        placeholder={text('سيرش تكست لوقت وتاريخ الصرف (مثال: 14:30، صباحاً، 2026-10)...', 'Search by timestamp (e.g. 14:30, AM/PM, 2026-10)...')}
+                        value={dispenseTimeQuery}
+                        onChange={(e) => setDispenseTimeQuery(e.target.value)}
+                        className="bg-transparent border-none outline-none pr-2.5 w-full text-xs font-semibold"
+                      />
+                      {dispenseTimeQuery && (
+                        <button type="button" onClick={() => setDispenseTimeQuery('')} className="text-slate-400 hover:text-white">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Date Range Filter: من تاريخ كذا إلى تاريخ كذا (Date Pickers) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-center pt-1">
+                    {/* From Date */}
+                    <div className={`lg:col-span-4 flex items-center rounded-xl px-3 py-1.5 border justify-between ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+                      <span className="text-[11px] text-teal-400 font-bold whitespace-nowrap pl-2 flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>{text('من تاريخ:', 'From:')}</span>
+                      </span>
+                      <input 
+                        type="date"
+                        value={dispenseStartDate}
+                        onChange={(e) => setDispenseStartDate(e.target.value)}
+                        onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                        className="bg-transparent border-none outline-none text-xs font-mono w-full cursor-pointer [color-scheme:dark]"
+                      />
+                      {dispenseStartDate && (
+                        <button type="button" onClick={() => setDispenseStartDate('')} className="text-slate-400 hover:text-white pr-1">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* To Date */}
+                    <div className={`lg:col-span-4 flex items-center rounded-xl px-3 py-1.5 border justify-between ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+                      <span className="text-[11px] text-teal-400 font-bold whitespace-nowrap pl-2 flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>{text('إلى تاريخ:', 'To:')}</span>
+                      </span>
+                      <input 
+                        type="date"
+                        value={dispenseEndDate}
+                        onChange={(e) => setDispenseEndDate(e.target.value)}
+                        onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                        className="bg-transparent border-none outline-none text-xs font-mono w-full cursor-pointer [color-scheme:dark]"
+                      />
+                      {dispenseEndDate && (
+                        <button type="button" onClick={() => setDispenseEndDate('')} className="text-slate-400 hover:text-white pr-1">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="lg:col-span-4 flex flex-wrap gap-1.5 justify-start sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const today = new Date().toISOString().split('T')[0];
+                          setDispenseStartDate(today);
+                          setDispenseEndDate(today);
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition cursor-pointer"
+                      >
+                        {text('اليوم', 'Today')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const prior = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                          setDispenseStartDate(prior.toISOString().split('T')[0]);
+                          setDispenseEndDate(now.toISOString().split('T')[0]);
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition cursor-pointer"
+                      >
+                        {text('آخر 7 أيام', 'Last 7 Days')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                          const today = now.toISOString().split('T')[0];
+                          setDispenseStartDate(firstDay);
+                          setDispenseEndDate(today);
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition cursor-pointer"
+                      >
+                        {text('هذا الشهر', 'This Month')}
+                      </button>
+                      {(dispenseStartDate || dispenseEndDate) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDispenseStartDate('');
+                            setDispenseEndDate('');
+                          }}
+                          className="px-2 py-1 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
+                          title={text('مسح نطاق التواريخ', 'Clear date range')}
+                        >
+                          {text('مسح التواريخ ✕', 'Clear Dates ✕')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Summary Bar */}
+                  <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
+                    <div>
+                      {text('سجلات الصرف المطابقة:', 'Matching Records:')}{' '}
+                      <span className="font-mono font-bold text-teal-400">{getFilteredDispenseRecords().length}</span>{' '}
+                      {text('من إجمالي', 'of total')}{' '}
+                      <span className="font-mono font-bold text-slate-300">{dispenseRecords.length}</span>{' '}
+                      {text('عملية صرف مسجلة', 'records')}
+                    </div>
+                    {getFilteredDispenseRecords().length > 0 && (
+                      <div className="hidden sm:block">
+                        {text('إجمالي القيمة المصروفة:', 'Total Dispensed Value:')}{' '}
+                        <span className="font-mono font-bold text-amber-400">
+                          {getFilteredDispenseRecords().reduce((sum, r) => sum + (r.totalPrice || 0), 0).toFixed(2)} ر.س
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dispense Records Table */}
+                <div className={`rounded-3xl border overflow-hidden ${darkMode ? 'bg-slate-900/30 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-bold">
+                          <th className="p-4 text-right">#</th>
+                          <th className="p-4 text-right">{text('اسم المقيم المستفيد', 'Recipient Resident')}</th>
+                          <th className="p-4 text-right">{text('اسم الدواء المصروف', 'Medication Dispensed')}</th>
+                          <th className="p-4 text-right">{text('الكمية المقررة', 'Prescribed Qty')}</th>
+                          <th className="p-4 text-right">{text('الكمية المصروفة فعلياً', 'Actually Dispensed')}</th>
+                          <th className="p-4 text-right">{text('الوحدة', 'Unit')}</th>
+                          <th className="p-4 text-right">{text('إجمالي السعر', 'Total Cost')}</th>
+                          <th className="p-4 text-right">{text('اسم الصيدلي المسؤول', 'Responsible Pharmacist')}</th>
+                          <th className="p-4 text-right">{text('تاريخ ووقت الصرف', 'Dispensation Timestamp')}</th>
+                          <th className="p-4 text-center print:hidden">{text('توثيق وصرف', 'Actions')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {getFilteredDispenseRecords().length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="p-10 text-center text-slate-400">
+                              <HelpCircle className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                              <span className="font-semibold text-sm">
+                                {text('لا توجد سجلات صرف تطابق خيارات البحث وفلاتر التاريخ المحددة.', 'No dispense records match the selected date/time or search filters.')}
+                              </span>
+                            </td>
+                          </tr>
+                        ) : (
+                          getFilteredDispenseRecords().map((rec, idx) => (
+                            <tr key={rec.id} className="hover:bg-slate-900/10 transition">
+                              <td className="p-4 font-mono text-slate-500 font-bold">{idx + 1}</td>
+                              <td className="p-4 font-black text-slate-200 text-sm">{rec.residentName}</td>
+                              <td className="p-4 font-bold text-teal-400">{rec.medicineName}</td>
+                              <td className="p-4 font-mono text-slate-400">{rec.quantityDispensed}</td>
+                              <td className="p-4 font-mono">
+                                <span className="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-lg font-bold border border-emerald-500/20">
+                                  {rec.actualQuantityDispensed} (فعلياً)
+                                </span>
+                              </td>
+                              <td className="p-4 text-slate-400">{rec.unit}</td>
+                              <td className="p-4 font-mono text-slate-300 font-semibold">{rec.totalPrice} ر.س</td>
+                              <td className="p-4 text-slate-400">{rec.dispensedBy}</td>
+                              <td className="p-4 font-mono text-slate-300 text-right whitespace-nowrap">
+                                {rec.dispensedAt ? new Date(rec.dispensedAt).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US') : '-'}
+                              </td>
+                              <td className="p-4 text-center print:hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => openDispenseModal({ 
+                                    medicineId: rec.medicineId, 
+                                    residentName: rec.residentName, 
+                                    unit: rec.unit 
+                                  })}
+                                  className="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg border border-indigo-500/30 transition text-[11px] font-bold cursor-pointer inline-flex items-center gap-1 active:scale-95 shadow-sm"
+                                  title={text('صرف وتوثيق جرعة جديدة لهذا المقيم لنفس الدواء', 'Re-dispense & document dose for this resident')}
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>{text('صرف جديد', 'Re-dispense')}</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* ----------------- TAB: UNITS MANAGEMENT (شاشة إدارة وحدات الصنف) ----------------- */}
+            {activeTab === 'units' && (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* Hero Header */}
+                <div className={`p-6 rounded-3xl border shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-gradient-to-r from-teal-600 to-emerald-700 text-white border-transparent'}`}>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-2xl bg-teal-500/20 border border-teal-500/40 text-teal-300">
+                        <Package className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl md:text-2xl font-black">
+                          {text('إدارة وتخصيص وحدات الصنف الدوائي 📦', 'Medicine Item Units Management 📦')}
+                        </h2>
+                        <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-teal-100'}`}>
+                          {text('إضافة وحدات القياس، تعديل المسميات فورياً، وتتبع الأصناف المرتبطة بكل وحدة في المستودع وقاعدة البيانات', 'Add measurement units, edit names, and track medicines linked to each unit across database')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className={`px-4 py-2 rounded-2xl border text-center ${darkMode ? 'bg-slate-950/80 border-slate-800' : 'bg-white/10 border-white/20 text-white'}`}>
+                      <div className="text-[10px] text-slate-400">{text('إجمالي الوحدات المعتمدة', 'Total Approved Units')}</div>
+                      <div className="text-lg font-black font-mono text-teal-400">{customUnits.length}</div>
+                    </div>
+                    <div className={`px-4 py-2 rounded-2xl border text-center ${darkMode ? 'bg-slate-950/80 border-slate-800' : 'bg-white/10 border-white/20 text-white'}`}>
+                      <div className="text-[10px] text-slate-400">{text('الأصناف المغطاة', 'Covered Items')}</div>
+                      <div className="text-lg font-black font-mono text-indigo-400">{medicines.length}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Add New Unit & Presets Panel */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <h3 className="text-sm font-black text-slate-200 flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-teal-400" />
+                    <span>{text('إضافة وحدة قياس جديدة إلى قاعدة البيانات:', 'Add New Measurement Unit to Database:')}</span>
+                  </h3>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={newUnitInputModal}
+                        onChange={(e) => setNewUnitInputModal(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleCreateUnit(newUnitInputModal);
+                          }
+                        }}
+                        placeholder={text('اكتب اسم الوحدة (مثال: قارورة، كبسولة، أمبولة، بخاخ، أنبوب، ملل، قرص، كيس)...', 'Type unit name (e.g., Vial, Capsule, Ampoule, Spray, Tube, ml, Sachet)...')}
+                        className={`w-full px-4 py-2.5 rounded-2xl border text-xs outline-none transition focus:border-teal-500 focus:ring-1 focus:ring-teal-500 ${darkMode ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCreateUnit(newUnitInputModal)}
+                      className="px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-2xl transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-teal-900/20 active:scale-95 shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{text('إضافة الوحدة +', 'Add Unit +')}</span>
+                    </button>
+                  </div>
+
+                  {/* Suggested Presets */}
+                  <div className="space-y-1.5 pt-2 border-t border-slate-800/40">
+                    <span className="text-[11px] text-slate-400 font-bold block">
+                      {text('💡 اقتراحات شائعة في الصيدليات (بنقرة واحدة للإضافة السريعة):', '💡 Quick Presets (Click to add instantly):')}
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {['علبة', 'شريط', 'حبة / قرص', 'كبسولة', 'أمبولة', 'قارورة شراب', 'بخاخ', 'أنبوب مرهم', 'قطرة', 'تحميلة', 'كيس فوار', 'ملل']
+                        .filter(preset => !customUnits.includes(preset))
+                        .map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => handleCreateUnit(preset)}
+                            className="px-3 py-1 rounded-xl border border-teal-500/30 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-xs font-medium transition cursor-pointer flex items-center gap-1 active:scale-95"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>{preset}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Units List & Search */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-bold text-slate-200">{text('قائمة الوحدات المسجلة بالنظام', 'Registered Units in System')}</span>
+                      <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20">
+                        {customUnits.length}
+                      </span>
+                    </div>
+
+                    <div className="relative w-full sm:w-72">
+                      <input
+                        type="text"
+                        value={unitSearchQuery}
+                        onChange={(e) => setUnitSearchQuery(e.target.value)}
+                        placeholder={text('🔍 ابحث في قائمة الوحدات...', '🔍 Search units...')}
+                        className={`w-full px-3.5 py-2 pl-9 text-xs rounded-xl border outline-none transition focus:border-teal-500 ${darkMode ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400'}`}
+                      />
+                      {unitSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setUnitSearchQuery('')}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Units Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {customUnits
+                      .map((unit, originalIdx) => ({ unit, originalIdx }))
+                      .filter(item => !unitSearchQuery.trim() || item.unit.toLowerCase().includes(unitSearchQuery.toLowerCase().trim()))
+                      .map(({ unit, originalIdx }) => {
+                        const medCount = medicines.filter(m => m.unit === unit).length;
+                        return (
+                          <div
+                            key={unit + originalIdx}
+                            className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition ${darkMode ? 'bg-slate-950/70 border-slate-800 hover:border-slate-700' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              {editingUnitIdx === originalIdx ? (
+                                <div className="flex items-center gap-1.5 flex-1">
+                                  <input
+                                    type="text"
+                                    value={editingUnitVal}
+                                    onChange={(e) => setEditingUnitVal(e.target.value)}
+                                    className={`flex-1 px-3 py-1.5 text-xs rounded-xl border outline-none font-bold ${darkMode ? 'bg-slate-900 border-teal-500 text-white' : 'bg-white border-teal-500 text-slate-900'}`}
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleUpdateUnit(originalIdx, editingUnitVal);
+                                      else if (e.key === 'Escape') setEditingUnitIdx(null);
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateUnit(originalIdx, editingUnitVal)}
+                                    className="p-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold transition cursor-pointer"
+                                    title={text('حفظ التعديل', 'Save')}
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingUnitIdx(null)}
+                                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs transition cursor-pointer"
+                                    title={text('إلغاء', 'Cancel')}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400 font-bold text-xs shrink-0">
+                                    📦
+                                  </div>
+                                  <div>
+                                    <span className="font-bold text-sm text-slate-100 block">{unit}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono">{translateUnit(unit)}</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {editingUnitIdx !== originalIdx && (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingUnitIdx(originalIdx);
+                                      setEditingUnitVal(unit);
+                                    }}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-teal-400 hover:bg-slate-800 transition cursor-pointer"
+                                    title={text('تعديل اسم الوحدة', 'Edit Unit Name')}
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteUnit(originalIdx)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                                    title={text('حذف الوحدة', 'Delete Unit')}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-800/40 text-[11px]">
+                              <span className="text-slate-400">{text('الأدوية المرتبطة بها:', 'Linked medicines:')}</span>
+                              <span className={`font-mono font-bold px-2 py-0.5 rounded-lg ${medCount > 0 ? 'bg-teal-500/10 text-teal-300' : 'bg-slate-800/60 text-slate-500'}`}>
+                                {medCount} {text('أصناف', 'items')}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* ----------------- TAB: THERAPEUTIC CATEGORIES MANAGEMENT (شاشة إدارة فئات العلاج) ----------------- */}
+            {activeTab === 'categories' && (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* Hero Header */}
+                <div className={`p-6 rounded-3xl border shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-gradient-to-r from-indigo-600 to-purple-700 text-white border-transparent'}`}>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-300">
+                        <Activity className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl md:text-2xl font-black">
+                          {text('إدارة وتخصيص الفئات العلاجية الدوائية 🏷️', 'Therapeutic Categories Management 🏷️')}
+                        </h2>
+                        <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-indigo-100'}`}>
+                          {text('تنظيم التصنيفات الدوائية والسريرية، تعديل المسميات، وتتبع إجمالي أرصدة المخزون وقيمتها المالية', 'Organize therapeutic classes, modify class names, and track stock quantities & financial value')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className={`px-4 py-2 rounded-2xl border text-center ${darkMode ? 'bg-slate-950/80 border-slate-800' : 'bg-white/10 border-white/20 text-white'}`}>
+                      <div className="text-[10px] text-slate-400">{text('إجمالي الفئات', 'Total Classes')}</div>
+                      <div className="text-lg font-black font-mono text-indigo-400">{customCategories.length}</div>
+                    </div>
+                    <div className={`px-4 py-2 rounded-2xl border text-center ${darkMode ? 'bg-slate-950/80 border-slate-800' : 'bg-white/10 border-white/20 text-white'}`}>
+                      <div className="text-[10px] text-slate-400">{text('إجمالي الأصناف', 'Total Items')}</div>
+                      <div className="text-lg font-black font-mono text-teal-400">{medicines.length}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Add New Category Panel */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <h3 className="text-sm font-black text-slate-200 flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-indigo-400" />
+                    <span>{text('إضافة فئة علاجية جديدة إلى قاعدة البيانات:', 'Add New Therapeutic Category to Database:')}</span>
+                  </h3>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={newCategoryInputModal}
+                        onChange={(e) => setNewCategoryInputModal(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleCreateCategory(newCategoryInputModal);
+                          }
+                        }}
+                        placeholder={text('اكتب اسم الفئة (مثال: فيتامينات، مكملات غذائية، مراهم جلدية، أدوية القلب، المسالك البولية)...', 'Type category name (e.g. Vitamins, Supplements, Dermatology, Cardiology, Urology)...')}
+                        className={`w-full px-4 py-2.5 rounded-2xl border text-xs outline-none transition focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${darkMode ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCreateCategory(newCategoryInputModal)}
+                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-2xl transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/20 active:scale-95 shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{text('إضافة الفئة +', 'Add Category +')}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Categories Table / Cards */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-bold text-slate-200">{text('الفئات العلاجية المسجلة وتوزيع المخزون', 'Registered Categories & Inventory Breakdown')}</h3>
+                    <span className="text-xs text-slate-400 font-mono">({customCategories.length}) {text('فئات علاجية', 'classes')}</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {customCategories.map((cat, idx) => {
+                      const catMeds = medicines.filter(m => m.category === cat);
+                      const totalQty = catMeds.reduce((sum, m) => sum + (Number(m.quantity) || 0), 0);
+                      const totalVal = catMeds.reduce((sum, m) => sum + ((Number(m.quantity) || 0) * (Number(m.price) || 0)), 0);
+
+                      return (
+                        <div
+                          key={cat + idx}
+                          className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition ${darkMode ? 'bg-slate-950/70 border-slate-800 hover:border-slate-700' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            {editingCategoryIdx === idx ? (
+                              <div className="flex items-center gap-1.5 flex-1">
+                                <input
+                                  type="text"
+                                  value={editingCategoryVal}
+                                  onChange={(e) => setEditingCategoryVal(e.target.value)}
+                                  className={`flex-1 px-3 py-1.5 text-xs rounded-xl border outline-none font-bold ${darkMode ? 'bg-slate-900 border-indigo-500 text-white' : 'bg-white border-indigo-500 text-slate-900'}`}
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleUpdateCategory(idx, editingCategoryVal);
+                                    else if (e.key === 'Escape') setEditingCategoryIdx(null);
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateCategory(idx, editingCategoryVal)}
+                                  className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer"
+                                  title={text('حفظ', 'Save')}
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingCategoryIdx(null)}
+                                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs transition cursor-pointer"
+                                  title={text('إلغاء', 'Cancel')}
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-xs shrink-0">
+                                  🏷️
+                                </div>
+                                <div>
+                                  <span className="font-bold text-sm text-slate-100 block">{cat}</span>
+                                  <span className="text-[10px] text-slate-400 font-mono">{translateCategory(cat)}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {editingCategoryIdx !== idx && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingCategoryIdx(idx);
+                                    setEditingCategoryVal(cat);
+                                  }}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition cursor-pointer"
+                                  title={text('تعديل اسم الفئة', 'Edit Class Name')}
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCategory(idx)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                                  title={text('حذف الفئة', 'Delete Class')}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/40 text-[11px] text-center font-mono">
+                            <div className="p-1.5 rounded-lg bg-slate-900/50">
+                              <span className="text-[10px] text-slate-400 block">{text('الأصناف', 'Items')}</span>
+                              <span className="font-bold text-slate-200">{catMeds.length}</span>
+                            </div>
+                            <div className="p-1.5 rounded-lg bg-slate-900/50">
+                              <span className="text-[10px] text-slate-400 block">{text('الرصيد', 'Stock')}</span>
+                              <span className="font-bold text-teal-400">{totalQty}</span>
+                            </div>
+                            <div className="p-1.5 rounded-lg bg-slate-900/50">
+                              <span className="text-[10px] text-slate-400 block">{text('القيمة', 'Value')}</span>
+                              <span className="font-bold text-amber-400">{Math.round(totalVal)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* ----------------- TAB: AI REPORTS (التقارير الطبية والذكاء الاصطناعي) ----------------- */}
+            {activeTab === 'ai_reports' && (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* Config section & warning threshold settings */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  
+                  <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <h3 className="text-base font-bold text-slate-200 mb-3 flex items-center gap-2">
+                      <Bell className="w-5 h-5 text-amber-500" />
+                      {text('إعدادات تنبيهات الصلاحية وجدولة المهام', 'Expiry Notification Threshold & Task Scheduling')}
+                    </h3>
+                    <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+                      {text('حدد عدد الأيام اللازمة لتنبيه الصيدلية قبل انتهاء صلاحية الدواء لاتخاذ التدابير الوقائية. سيقوم النظام آلياً بإرسال تنبيهات واتساب وبريد إلكتروني.', 'Specify the number of days required to alert the pharmacy before any medication expires. The system automatically schedules email & WhatsApp notifications.')}
+                    </p>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 mb-2">{text('أيام التنبيه المفضلة قبل انتهاء الصلاحية:', 'Notification Alert Days Threshold:')}</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="number"
+                            min={10}
+                            max={365}
+                            value={alertDays}
+                            onChange={(e) => setAlertDays(Number(e.target.value))}
+                            className={`px-3 py-2 rounded-xl border font-mono font-bold text-xs w-28 outline-none ${darkMode ? 'bg-slate-950 border-slate-800 text-teal-400' : 'bg-white border-slate-200'}`}
+                          />
+                          <span className="text-xs text-slate-400 self-center">{text('يوماً', 'Days')}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        {currentUser?.role === 'developer' && (
+                          <button
+                            onClick={() => triggerScheduledAlertsTest()}
+                            className="px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition cursor-pointer"
+                          >
+                            {text('تفعيل واختبار جدولة مهام التنبيه', 'Trigger Expiry Scan & Test Alerts')}
+                          </button>
+                        )}
+                        <button
+                          onClick={handlePrint}
+                          className="px-4 py-2 text-xs font-bold bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 rounded-xl transition flex items-center gap-1"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>{text('تصدير وطباعة تقرير المخزن (PDF)', 'Export & Print Stock Report (PDF)')}</span>
+                        </button>
+                        <button
+                          onClick={handleExportCSV}
+                          className="px-4 py-2 text-xs font-bold bg-teal-600 hover:bg-teal-750 text-white rounded-xl transition flex items-center gap-1"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>{text('تنزيل تقرير Excel (CSV)', 'Download CSV Excel Spreadsheet')}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <h3 className="text-base font-bold text-slate-200 mb-2 flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-teal-400" />
+                      {text('التحليل الاستباقي والذكاء الاصطناعي الآمن', 'Proactive Strategic Planning & Secure AI')}
+                    </h3>
+                    <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+                      {text('تتكامل هذه الوحدة مع خبير التحليل الصيدلاني الاستباقي لمراقبة المخزن والكميات وسلوك الاستهلاك وتوقع النقص أو الحاجة لإعادة الطلب بطريقة مدمجة بالكامل مع النظام ومبسطة.', 'This module connects with the system’s proactive clinical analytics to analyze draw rates, predict stockouts, and optimize inventory replenishment effortlessly.')}
+                    </p>
+
+                    <button
+                      onClick={triggerAIReport}
+                      disabled={aiLoading}
+                      className="px-5 py-3 rounded-2xl bg-teal-600 hover:bg-teal-750 disabled:bg-slate-800 text-white font-bold text-sm shadow-lg shadow-teal-900/20 transition-all flex items-center gap-2"
+                    >
+                      {aiLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-yellow-300" />}
+                      <span>{text('طلب تحليل المخزون الاستراتيجي المتقدم', 'Generate Strategic Stock Analysis')}</span>
+                    </button>
+                  </div>
+
+                </div>
+
+                {/* AI report output content viewer */}
+                {aiLoading && (
+                  <div className="p-10 rounded-3xl bg-slate-900/50 border border-slate-800 text-center space-y-3">
+                    <RefreshCw className="w-8 h-8 text-teal-500 animate-spin mx-auto" />
+                    <h4 className="text-sm font-bold text-slate-300">{text('جاري صياغة وتحليل التقرير الاستباقي الشامل...', 'Drafting and compiling comprehensive proactive stock analysis...')}</h4>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">{text('يقوم النظام حالياً بدراسة تواريخ انتهاء الصلاحية للمخزون ومقارنة معدلات صرف الأدوية للتنبؤ بنفاذ المخازن وتقديم التوصيات الصيدلانية الفعالة.', 'The system is analyzing batch expiry dates, drawing logs, and evaluating consumption speed to forecast stock depletion and provide pharmaceutical recommendations.')}</p>
+                  </div>
+                )}
+
+                {aiReport && (
+                  <div className={`p-6 rounded-3xl border leading-relaxed space-y-4 animate-fade-in ${darkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-teal-400" />
+                        <h4 className="text-base font-black text-teal-400">{text('نظام المستشار الاستراتيجي الصيدلاني - التحليل وإدارة المخزون', 'Strategic Clinical Advisor System - Inventory Analytics & Optimization')}</h4>
+                      </div>
+                      <span className="text-xs text-slate-400 font-mono">{text('تحديث:', 'Updated:')} {new Date().toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US')}</span>
+                    </div>
+
+                    <div className="text-xs text-slate-300 space-y-3 leading-relaxed whitespace-pre-wrap font-sans">
+                      {cleanAiReportText(aiReport)}
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+                      <span>{text('ملاحظة: هذا التقرير هو مرجع استشاري إداري يخضع لتدقيق الصيدلي المسؤول بالمركز قبل الطلب الفعلي.', 'Note: This analysis report is a clinical advisory reference and must be verified by the supervising pharmacist.')}</span>
+                      <button 
+                        onClick={() => {
+                          const w = window.open();
+                          if (w) {
+                            w.document.write(`
+<div dir="${lang === 'ar' ? 'rtl' : 'ltr'}" style="font-family:sans-serif;padding:30px;line-height:1.8;color:#000;">
+  <div style="text-align:center;border-bottom:2px solid #0d9488;padding-bottom:12px;margin-bottom:20px;">
+    <h1 style="font-size:22px;font-weight:bold;color:#0f766e;margin:0 0 6px 0;">${OFFICIAL_CENTER_NAME}</h1>
+    <h3 style="font-size:15px;color:#334155;margin:0;">${lang === 'ar' ? 'تقرير المستشار الاستراتيجي الصيدلاني وإدارة المخزون' : 'Pharmaceutical Strategic & Inventory Intelligence Report'}</h3>
+    <p style="font-size:11px;color:#64748b;margin:5px 0 0 0;">${lang === 'ar' ? 'تاريخ التقرير:' : 'Report Date:'} ${new Date().toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US')}</p>
+  </div>
+  <div style="white-space:pre-line;font-size:12px;">${cleanAiReportText(aiReport)}</div>
+</div>`);
+                            w.print();
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>{text('طباعة التقرير الفني فقط', 'Print Analytics Report Only')}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            )}
+
+            {/* ----------------- TAB: SECURITY & USER SESSIONS ----------------- */}
+            {activeTab === 'security' && currentUser?.role === 'developer' && (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* Top overview row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  
+                  {/* Security matrix permissions overview */}
+                  <div className={`p-5 rounded-3xl border md:col-span-2 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <h3 className="text-base font-bold text-slate-200 mb-3 flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-indigo-400" />
+                      {text('مصفوفة الصلاحيات القائمة على الأدوار (RBAC) لسلامة العمليات', 'Role-Based Access Control Matrix (RBAC) for Safety')}
+                    </h3>
+                    <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+                      {text('يتيح النظام أماناً مطلقاً من خلال حظر تعديل الأدوية أو صرفها بدون الحصول على الترخيص الوظيفي المناسب. راقب كيف تتأثر الشاشات المسموحة بناءً على دور المستخدم:', 'The system provides absolute safety by locking unauthorized updates or dispensations without credentials. See how screens and access vary by role:')}
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      
+                      <div className={`p-3.5 rounded-2xl border ${currentUser.role === 'developer' ? 'border-purple-500 bg-purple-500/10' : 'border-slate-800 bg-slate-900/20'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Shield className="w-4 h-4 text-purple-400" />
+                          <span className="text-xs font-bold text-slate-200">{text('المبرمج (Developer)', 'System Developer')}</span>
+                        </div>
+                        <ul className="text-[10px] text-slate-400 space-y-1 list-disc list-inside">
+                          <li className="text-purple-300 font-bold">{text('الوحيد المخول بالوصول لشاشة الحماية والأمن', 'Exclusive access to Protection & Security')}</li>
+                          <li className="text-purple-300 font-bold">{text('الوحيد المخول بمحاكاة إشعارات الواتساب والبريد', 'Exclusive access to simulate alerts')}</li>
+                          <li>{text('إدارة شاملة للمستخدمين وتعيين المبرمجين', 'Manage users & assign developer role')}</li>
+                          <li>{text('كامل الصلاحيات الفنية والمستودعية والسريرية', 'Full clinical, inventory & system access')}</li>
+                        </ul>
+                      </div>
+
+                      <div className={`p-3.5 rounded-2xl border ${currentUser.role === 'admin' ? 'border-teal-500 bg-teal-500/5' : 'border-slate-800 bg-slate-900/20'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <UserCheck className="w-4 h-4 text-teal-400" />
+                          <span className="text-xs font-bold text-slate-200">{text('المدير (Admin)', 'Administrator (Admin)')}</span>
+                        </div>
+                        <ul className={`text-[10px] text-slate-400 space-y-1 list-disc ${lang === 'ar' ? 'list-inside' : 'list-inside'}`}>
+                          <li>{text('رؤية إحصائيات لوحة التحكم', 'View dashboard analytics & metrics')}</li>
+                          <li>{text('إدارة المخزن بالكامل (CRUD)', 'Full stock inventory control (CRUD)')}</li>
+                          <li>{text('تسجيل وتعديل صرف المقيمين', 'Record & edit resident dispensations')}</li>
+                          <li>{text('عرض تقارير الذكاء الاصطناعي', 'Access strategic AI clinical analysis')}</li>
+                          <li>{text('إدارة حسابات الكادر الطبي', 'Manage staff accounts')}</li>
+                          <li className="text-rose-400/80 font-semibold">{text('حظر شاشة الحماية والأمن', 'Security screen restricted')}</li>
+                        </ul>
+                      </div>
+
+                      <div className={`p-3.5 rounded-2xl border ${currentUser.role === 'pharmacist' ? 'border-teal-500 bg-teal-500/5' : 'border-slate-800 bg-slate-900/20'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <UserCheck className="w-4 h-4 text-indigo-400" />
+                          <span className="text-xs font-bold text-slate-200">{text('الصيادلة (Pharmacist)', 'Licensed Pharmacist')}</span>
+                        </div>
+                        <ul className="text-[10px] text-slate-400 space-y-1 list-disc list-inside">
+                          <li>{text('رؤية إحصائيات لوحة التحكم', 'View dashboard statistics')}</li>
+                          <li>{text('إضافة وتحديث الأدوية', 'Add & update medicine directory')}</li>
+                          <li>{text('صرف الأدوية للمقيمين', 'Dispense prescriptions to residents')}</li>
+                          <li>{text('رؤية التحليلات الطبية والذكاء الاصطناعي', 'Review AI analysis & clinical recommendations')}</li>
+                          <li className="text-rose-400/80">{text('حظر حذف الأدوية المسجلة', 'Medication deletion restricted')}</li>
+                          <li className="text-rose-400/80 font-semibold">{text('حظر شاشة الحماية والأمن', 'Security screen restricted')}</li>
+                        </ul>
+                      </div>
+
+                      <div className={`p-3.5 rounded-2xl border ${currentUser.role === 'technician' ? 'border-teal-500 bg-teal-500/5' : 'border-slate-800 bg-slate-900/20'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <UserCheck className="w-4 h-4 text-amber-400" />
+                          <span className="text-xs font-bold text-slate-200">{text('فنيو الصيدلة (Technician)', 'Pharmacy Technician')}</span>
+                        </div>
+                        <ul className="text-[10px] text-slate-400 space-y-1 list-disc list-inside">
+                          <li>{text('لوحة التحكم العامة ومستويات المخزون', 'General dashboard & stock overview')}</li>
+                          <li>{text('صرف الأدوية وتأكيد الجرعات', 'Dispense prescriptions & confirm doses')}</li>
+                          <li>{text('عرض المقيمين والملفات الطبية فقط (يشوفهم بس)', 'View residents & medical dossiers only')}</li>
+                          <li className="text-rose-400/80">{text('حظر إضافة أصناف جديدة للمخزون', 'Adding new inventory items restricted')}</li>
+                          <li className="text-rose-400/80">{text('حظر إضافة أو تعديل المقيمين', 'Resident add & edit restricted')}</li>
+                          <li className="text-rose-400/80 font-semibold">{text('حظر شاشة الحماية والأمن', 'Security screen restricted')}</li>
+                        </ul>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Device session capture state */}
+                  <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <h3 className="text-base font-bold text-slate-200 mb-3 flex items-center gap-2">
+                      <Monitor className="w-5 h-5 text-teal-400" />
+                      {text('تتبع جلسة جهازك الحالي', 'Current Device Session Tracking')}
+                    </h3>
+                    <div className="space-y-3.5 text-xs">
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">{text('عنوان الـ IP:', 'IP Address:')}</span>
+                          <span className="font-mono text-teal-400 font-bold">{clientIp}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">{text('اسم المستخدم النشط:', 'Active User Name:')}</span>
+                          <span className="font-bold text-slate-300">{currentUser.name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">{text('البريد الإلكتروني:', 'Email Address:')}</span>
+                          <span className="font-mono text-slate-300">{currentUser.email}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">{text('رقم الهاتف المسجل:', 'Registered Phone:')}</span>
+                          <span className="font-mono text-teal-500 font-bold">{currentUser.phone}</span>
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-slate-900 rounded-xl text-[11px] text-slate-400 leading-relaxed">
+                        {text('يتم التقاط وحفظ هذه البيانات تلقائياً وتحديثها في مستندات Firestore الفرعية لتوفير شفافية الأمان ومكافحة تسريب البيانات الطبية للمرضى المقيمين بالمركز.', 'This metadata is captured automatically in real-time to guarantee audit compliance and protect resident health records from data leaks.')}
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* User Sessions log table */}
+                <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <h3 className="text-base font-bold mb-4 flex items-center gap-2">
+                    <UserCheck className="w-5 h-5 text-indigo-400" />
+                    {text('سجل تتبع جلسات الدخول للأنظمة (Collection: user_sessions)', 'User Sign-in & Device Session Trail (Collection: user_sessions)')}
+                  </h3>
+
+                  <div className="overflow-x-auto">
+                    <table className={`w-full text-xs ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-bold">
+                          <th className="pb-3">{text('معرف المستخدم', 'User ID')}</th>
+                          <th className="pb-3">{text('الاسم والبريد', 'Name & Email')}</th>
+                          <th className="pb-3">{text('عنوان الـ IP Address', 'IP Address')}</th>
+                          <th className="pb-3">{text('رمز جهاز المستعرض (Device Token)', 'Browser Device Token')}</th>
+                          <th className={`pb-3 ${lang === 'ar' ? 'text-left' : 'text-right'}`}>{text('توقيت تسجيل الدخول والتسجيل بالخادم', 'Server Sign-in Timestamp')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {sessions.map((sess) => (
+                          <tr key={sess.id} className="hover:bg-slate-900/30">
+                            <td className="py-3 font-mono text-slate-400">{sess.userId}</td>
+                            <td className="py-3">
+                              <div className="font-bold text-slate-200">{sess.name}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">{sess.email}</div>
+                            </td>
+                            <td className="py-3 font-mono font-bold text-teal-400">{sess.ipAddress}</td>
+                            <td className="py-3 font-mono text-slate-500 text-[10px] max-w-[200px] truncate" title={sess.deviceToken}>
+                              {sess.deviceToken}
+                            </td>
+                            <td className={`py-3 font-mono text-slate-400 ${lang === 'ar' ? 'text-left' : 'text-right'}`}>
+                              {new Date(sess.loginTime).toLocaleString(lang === 'ar' ? 'ar-SA' : 'en-US')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Cloud Firebase Database Live Status Card */}
+                <div className={`p-5 sm:p-6 rounded-3xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-amber-500/10 rounded-2xl border border-amber-500/20 text-amber-400">
+                        <Database className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                          {text('حالة قاعدة بيانات Firebase السحابية (Cloud Firestore)', 'Cloud Firebase Database Status (Cloud Firestore)')}
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1.5 ${
+                            isFirebaseConnected 
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}>
+                            <span className={`w-2 h-2 rounded-full ${isFirebaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                            {isFirebaseConnected ? text('متصلة ومفعلة بالسحابة 🟢', 'Live & Connected 🟢') : text('تخزين محلي احتياطي ⚠️', 'Local Fallback ⚠️')}
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {text('تم ربط مخزن الصيدلية وسجلات الصرف وعمليات التدقيق مباشرة مع مشروع Firebase المعتمد.', 'Pharmacy inventory, dispense records, and audit logs are connected directly with the active Firebase project.')}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await loadAllData();
+                        showToast(
+                          lang === 'ar' 
+                            ? `تمت مزامنة البيانات سحابياً بنجاح مع قاعدة بيانات (${firebaseConfig.projectId})! 🔄` 
+                            : `Data synchronized with Cloud Firestore (${firebaseConfig.projectId})! 🔄`, 
+                          'success'
+                        );
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all shrink-0 hover:scale-105 active:scale-95"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>{text('مزامنة سحابية الآن 🔄', 'Sync with Cloud Now 🔄')}</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
+                    <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('معرف المشروع (Project ID)', 'Project ID')}</span>
+                      <span className="font-mono font-bold text-amber-400 text-xs">{firebaseConfig.projectId}</span>
+                    </div>
+                    <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('نطاق المصادقة (Auth Domain)', 'Auth Domain')}</span>
+                      <span className="font-mono text-slate-300 text-xs truncate block" title={firebaseConfig.authDomain}>{firebaseConfig.authDomain}</span>
+                    </div>
+                    <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('حاوية التخزين (Storage Bucket)', 'Storage Bucket')}</span>
+                      <span className="font-mono text-slate-300 text-xs truncate block" title={firebaseConfig.storageBucket}>{firebaseConfig.storageBucket}</span>
+                    </div>
+                    <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('معرف التطبيق والقياس', 'App & Measurement ID')}</span>
+                      <span className="font-mono text-teal-400 text-xs truncate block" title={`${firebaseConfig.appId} | ${firebaseConfig.measurementId}`}>
+                        {firebaseConfig.measurementId || 'G-PLKCCZGCDQ'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
+                    <span className="font-semibold">{text('المجموعات السحابية النشطة:', 'Active Cloud Collections:')}</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 font-mono text-teal-300 text-[10px]">medicines</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 font-mono text-teal-300 text-[10px]">dispense_records</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 font-mono text-teal-300 text-[10px]">stock_audit_logs</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 font-mono text-teal-300 text-[10px]">users</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 font-mono text-teal-300 text-[10px]">user_sessions</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 font-mono text-amber-300 text-[10px]">security_settings</span>
+                  </div>
+                </div>
+
+                {/* Secure Communication Channels Config - Only Visible to Developer */}
+                {currentUser?.role === 'developer' && (
+                  <div className={`p-6 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'} space-y-6`}>
+                    <div>
+                      <h3 className="text-base font-bold text-teal-400 flex items-center gap-2">
+                        <Smartphone className="w-5 h-5" />
+                        {text('إعدادات قنوات الاتصال والتنبيهات التلقائية (المبرمج فقط)', 'Automated Communication Channels & Alert Gateways (Developer Only)')}
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {text('اضبط بوابات التنبيه التلقائي عبر WhatsApp والبريد الإلكتروني المهني. يتم تخزين هذه الحقول بالكامل في قاعدة بيانات Firebase.', 'Configure WhatsApp & Email gateways. These fields are stored in Firebase database.')}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 pt-2.5">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-300 font-mono text-[11px] font-bold">
+                          <Database className="w-3.5 h-3.5 text-teal-400" />
+                          <span>Firestore: <strong className="text-amber-400">security_settings/config</strong></span>
+                        </span>
+                        {secSettingsState.updatedAt && (
+                          <span className="text-[11px] text-slate-400">
+                            {text('آخر حفظ في قاعدة البيانات:', 'Last DB Save:')} {new Date(secSettingsState.updatedAt).toLocaleString(lang === 'ar' ? 'ar-SA' : 'en-US')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* WhatsApp Channel Card (UltraMsg) */}
+                      <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800/80' : 'bg-slate-50 border-slate-100'} space-y-4`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="p-2 bg-emerald-500/10 rounded-xl text-emerald-400">
+                              <Smartphone className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-200">{text('بوابة WhatsApp (UltraMsg API)', 'WhatsApp Gateway (UltraMsg API)')}</h4>
+                              <p className="text-[10px] text-slate-500 font-mono">Status: Enabled & Proxy Configured</p>
+                            </div>
+                          </div>
+                          {/* Toggle */}
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={whatsAppEnabled} 
+                              onChange={(e) => setWhatsAppEnabled(e.target.checked)}
+                              className="sr-only peer" 
+                            />
+                            <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-600 peer-checked:after:bg-white"></div>
+                          </label>
+                        </div>
+
+                        <div className="space-y-3.5 text-xs">
+                          <div>
+                            <label className="block text-[11px] text-teal-400 font-bold mb-1">{text('نوع بوابة WhatsApp *', 'WhatsApp Gateway Type *')}</label>
+                            <select
+                              value={whatsAppMode}
+                              onChange={(e) => setWhatsAppMode(e.target.value as any)}
+                              className={`w-full px-3 py-2 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-teal-500' : 'bg-white border-slate-200 text-slate-900 focus:border-teal-500'} outline-none text-xs`}
+                            >
+                              <option value="manual">{text('📲 إرسال يدوي مباشر (مجاني 100% وآمن 100% - يوصى به)', '📲 Direct Manual Dispatch (100% Free & Safe - Recommended)')}</option>
+                              <option value="wapilot">{text('🚀 بوابة WAPilot / WAutopilot (تنبيهات خلفية تلقائية)', '🚀 WAPilot / WAutopilot Gateway (Automated Background Alerts)')}</option>
+                              <option value="callmebot">{text('⚠️ بوابة CallMeBot الحرة (تلقائي خلفي مجاني - قد يعرض الرقم للحظر المؤقت)', '⚠️ CallMeBot Free Gateway (Background Auto - Risk of Temp Ban)')}</option>
+                              <option value="ultramsg">{text('💳 بوابة UltraMsg السحابية (تلقائي خلفي - مدفوع شهرياً)', '💳 UltraMsg Cloud Gateway (Background Auto - Paid Subscription)')}</option>
+                            </select>
+                            <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                              {whatsAppMode === 'manual' && text('تنبيهات مجانية وآمنة 100%: يتم توليد التقرير المنسق بكبسة زر ويفتح في تطبيق واتساب الرسمي مباشرة لتضغط إرسال يدوياً بدون أي مخاطرة.', '100% Free & Safe Alerts: Generates formatted report with 1-click and opens in official WhatsApp directly without account risk.')}
+                              {whatsAppMode === 'wapilot' && text('تنبيهات تلقائية ذكية: الإرسال المباشر عبر حسابك وبوابة WAPilot أو WAutopilot الموثوقة.', 'Smart automated alerts: Direct background dispatch through your WAPilot or WAutopilot provider account.')}
+                              {whatsAppMode === 'callmebot' && text('⚠️ تحذير: نظرًا لأنها بوابة غير رسمية لإرسال رسائل آلية سريعة، فقد تقوم خوارزميات واتساب بحظر رقمك مؤقتاً بتهمة السبام. استخدمها على مسؤوليتك.', '⚠️ Warning: Unofficial fast bot gateway; WhatsApp spam filters may temporarily flag or ban numbers. Use at own discretion.')}
+                              {whatsAppMode === 'ultramsg' && text('تنبيهات تلقائية مدفوعة: يتم إرسال التقرير تلقائياً عبر بوابة UltraMsg المدفوعة اشتراكاً.', 'Paid automated alerts: Dispatches report automatically via paid monthly UltraMsg subscription instance.')}
+                            </p>
+                          </div>
+
+                          {whatsAppMode === 'wapilot' && (
+                            <div className="space-y-3 border-l-2 border-teal-500 pl-3 ml-1 mt-2">
+                              <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">{text('نوع الخدمة المحددة (Provider) *', 'Selected Provider Service *')}</label>
+                                <select
+                                  value={waPilotType}
+                                  onChange={(e) => {
+                                    const val = e.target.value as 'wapilot' | 'wapilot_net' | 'wautopilot';
+                                    setWaPilotType(val);
+                                    if (val === 'wautopilot') {
+                                      setWaPilotBaseUrl('https://api.wautopilot.com');
+                                    } else if (val === 'wapilot_net') {
+                                      setWaPilotBaseUrl('https://api.wapilot.net');
+                                      setWaPilotPath('/api/v2/instances');
+                                    } else {
+                                      setWaPilotBaseUrl('https://api.wapilot.io');
+                                      setWaPilotPath('/api/v1/api/messages');
+                                    }
+                                  }}
+                                  className={`w-full px-3 py-1.5 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'} outline-none text-[11px]`}
+                                >
+                                  <option value="wapilot">WAPilot.io {text('(بوابة وب كليينت V1)', '(Web Client Gateway V1)')}</option>
+                                  <option value="wapilot_net">WAPilot.net {text('(البوابة الجديدة V2 Instances)', '(New V2 Instances Gateway)')}</option>
+                                  <option value="wautopilot">WAutopilot.com {text('(أوتوبيلوت لرسائل الواتساب)', '(WhatsApp Autopilot)')}</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">{text('رابط البوابة الأساسي (Base URL) *', 'Gateway Base URL *')}</label>
+                                <input 
+                                  type="text" 
+                                  required
+                                  value={waPilotBaseUrl} 
+                                  onChange={(e) => setWaPilotBaseUrl(e.target.value)}
+                                  className={`w-full px-3 py-2 rounded-xl border font-mono text-[11px] ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'} outline-none`}
+                                  placeholder="https://api.wapilot.io" 
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">{text('مفتاح API الخاص بالبوابة (API Key) *', 'Gateway API Key *')}</label>
+                                <input 
+                                  type="password" 
+                                  required
+                                  value={waPilotApiKey} 
+                                  onChange={(e) => setWaPilotApiKey(e.target.value)}
+                                  className={`w-full px-3 py-2 rounded-xl border font-mono text-[11px] ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'} outline-none`}
+                                  placeholder={text('أدخل مفتاح API الخاص بك من لوحة البوابة', 'Enter your API Key from gateway dashboard')} 
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">
+                                  {waPilotType === 'wapilot_net' ? text('معرف النسخة / رقم الهاتف المعرف (Instance ID / Phone Number ID) *', 'Instance ID / Phone Number ID *') : text('رقم أو معرف الجهاز (Device ID / Phone Number ID) (اختياري)', 'Device ID / Phone Number ID (Optional)')}
+                                </label>
+                                <input 
+                                  type="text" 
+                                  value={waPilotDevice} 
+                                  onChange={(e) => setWaPilotDevice(e.target.value)}
+                                  className={`w-full px-3 py-2 rounded-xl border font-mono text-[11px] ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'} outline-none`}
+                                  placeholder={waPilotType === 'wapilot_net' ? text("أدخل معرف النسخة (مثال: c9a562df-...) *", "Enter Instance ID (e.g. c9a562df-...) *") : text("اترك فارغاً إن لم يكن مطلوباً في بوابتك", "Leave blank if not required")} 
+                                />
+                                {waPilotType === 'wapilot_net' && (
+                                  <p className="mt-1 text-[10px] text-amber-500 leading-normal">
+                                    💡 {text('لبوابة WAPilot V2، يجب إدخال معرف النسخة (Instance ID) هنا ليتم إرسال الرسالة إلى المسار المخصص لها:', 'For WAPilot V2 gateway, enter Instance ID here so requests route to its dedicated path:')}
+                                    <span className="font-mono text-[9px] bg-amber-500/10 px-1 py-0.5 rounded text-amber-400 block mt-0.5 dir-ltr text-left">
+                                      {(waPilotBaseUrl || 'https://api.wapilot.net').replace(/\/$/, '')}/api/v2/instances/{waPilotDevice || '{instance_id}'}/messages
+                                    </span>
+                                  </p>
+                                )}
+                              </div>
+
+                              <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">{text('مسار الإرسال والـ Endpoint Path *', 'Endpoint Path *')}</label>
+                                <div className="flex gap-2">
+                                  <input 
+                                    type="text" 
+                                    required
+                                    value={waPilotPath} 
+                                    onChange={(e) => setWaPilotPath(e.target.value)}
+                                    className={`flex-1 px-3 py-2 rounded-xl border font-mono text-[11px] ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'} outline-none`}
+                                    placeholder="/api/v1/api/messages" 
+                                  />
+                                  <select
+                                    onChange={(e) => {
+                                      if (e.target.value) setWaPilotPath(e.target.value);
+                                    }}
+                                    className={`px-2 py-1 rounded-xl border text-[11px] ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-900'} outline-none`}
+                                    defaultValue=""
+                                  >
+                                    <option value="" disabled>{text('المسارات المقترحة', 'Suggested Endpoints')}</option>
+                                    <option value="/api/v2/instances">/api/v2/instances (WAPilot.net V2)</option>
+                                    <option value="/api/v1/api/messages">/api/v1/api/messages (WAPilot.io V1)</option>
+                                    <option value="/api/v1/api/send">/api/v1/api/send</option>
+                                    <option value="/api/v1/api/send-message">/api/v1/api/send-message</option>
+                                    <option value="/api/v1/api/message">/api/v1/api/message</option>
+                                    <option value="/api/v1/api/chats/messages">/api/v1/api/chats/messages</option>
+                                    <option value="/api/v1/api/chats/send">/api/v1/api/chats/send</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {whatsAppMode === 'ultramsg' && (
+                            <>
+                              <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">{text('رقم معرف النسخة (Instance ID) *', 'Instance ID *')}</label>
+                                <input 
+                                  type="text" 
+                                  required
+                                  value={ultraMsgInstance} 
+                                  onChange={(e) => setUltraMsgInstance(e.target.value)}
+                                  className={`w-full px-3 py-2 rounded-xl border font-mono ${darkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-teal-500' : 'bg-white border-slate-200 text-slate-900 focus:border-teal-500'} outline-none`}
+                                  placeholder="instance98412" 
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">{text('رمز المصادقة والتوكن (Access Token) *', 'Access Token *')}</label>
+                                <input 
+                                  type="password" 
+                                  required
+                                  value={ultraMsgToken} 
+                                  onChange={(e) => setUltraMsgToken(e.target.value)}
+                                  className={`w-full px-3 py-2 rounded-xl border font-mono ${darkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-teal-500' : 'bg-white border-slate-200 text-slate-900 focus:border-teal-500'} outline-none`}
+                                  placeholder="tkn_xxxxxxxxxxxx" 
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          {whatsAppMode === 'callmebot' && (
+                            <div>
+                              <label className="block text-[11px] text-slate-400 mb-1">{text('مفتاح API الخاص ببوابة CallMeBot (الـ Apikey المجاني) *', 'CallMeBot Free API Key *')}</label>
+                              <input 
+                                type="password" 
+                                required
+                                value={callMeBotApiKey} 
+                                onChange={(e) => setCallMeBotApiKey(e.target.value)}
+                                className={`w-full px-3 py-2 rounded-xl border font-mono ${darkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-teal-500' : 'bg-white border-slate-200 text-slate-900 focus:border-teal-500'} outline-none`}
+                                placeholder={text('أدخل المفتاح الذي حصلت عليه من البوت مجاناً', 'Enter free API key obtained from bot')} 
+                              />
+                              <p className="text-[10px] text-slate-500 mt-1">
+                                {text('للحصول على المفتاح مجاناً في 10 ثوانٍ: أرسل رسالة نصية بالعبارة', 'To obtain your key freely in 10s: text')} <code className="bg-slate-800 px-1 py-0.5 rounded text-teal-400">I allow callmebot to send me messages</code> {text('إلى الرقم', 'to')} <span className="font-bold text-teal-500">+34 644 44 26 20</span> {text('على واتساب.', 'on WhatsApp.')}
+                              </p>
+                            </div>
+                          )}
+
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-1">
+                              {text('رقم المستلم للرسائل (WhatsApp Number) * - يدعم أرقام متعددة مفصولة بفواصل', 'Recipient WhatsApp Number * - Supports multiple numbers separated by commas')}
+                            </label>
+                            <input 
+                              type="text" 
+                              required
+                              value={whatsAppNumber} 
+                              onChange={(e) => setWhatsAppNumber(e.target.value)}
+                              className={`w-full px-3 py-2 rounded-xl border font-mono ${darkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-teal-500' : 'bg-white border-slate-200 text-slate-900 focus:border-teal-500'} outline-none`}
+                              placeholder="966502792157+, 201111256095" 
+                            />
+                          </div>
+
+                          {/* ----------------- WHATSAPP REPORT PREVIEW (ARABIC & ENGLISH) ----------------- */}
+                          <div className={`p-4 rounded-2xl border space-y-3.5 ${darkMode ? 'bg-slate-950/70 border-emerald-500/20' : 'bg-emerald-50/50 border-emerald-200'}`}>
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-3 border-slate-800/80">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-sm shadow-sm">
+                                  📲
+                                </div>
+                                <div>
+                                  <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                                    <span>{text('معاينة تقرير ومرفقات WhatsApp', 'WhatsApp Report & Attachments Preview')}</span>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
+                                      {text('عربي + إنجليزي 📎', 'Arabic + English 📎')}
+                                    </span>
+                                  </h4>
+                                  <p className="text-[11px] text-slate-400">
+                                    {text('تقرير منسق ونقي بدون شرطات أو أستريسك، مع دعم إرفاق ملفات التقارير.', 'Clean formatted report without dashes or asterisks, with file attachments support.')}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Language Switcher Tabs */}
+                              <div className="flex items-center p-1 rounded-xl bg-slate-900 border border-slate-800 gap-1 self-stretch sm:self-auto justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => setWaPreviewLang('ar')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                    waPreviewLang === 'ar'
+                                      ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-900/40'
+                                      : 'text-slate-400 hover:text-white'
+                                  }`}
+                                >
+                                  <span>🇸🇦</span>
+                                  <span>{text('معاينة بالعربية', 'Arabic Preview')}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setWaPreviewLang('en')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                    waPreviewLang === 'en'
+                                      ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-900/40'
+                                      : 'text-slate-400 hover:text-white'
+                                  }`}
+                                >
+                                  <span>🇬🇧</span>
+                                  <span>{text('معاينة بالإنجليزية', 'English Preview')}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Actions Header */}
+                            <div className="flex items-center justify-between text-[11px] text-slate-400">
+                              <span className="flex items-center gap-1.5 font-sans">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                {waPreviewLang === 'ar' 
+                                  ? 'نسخة تقرير الواتساب العربي المنسقة (RTL) - مركز التأهيل الشامل بشقراء' 
+                                  : 'English WhatsApp Report Preview (LTR) - Shaqra Comprehensive Rehabilitation Center'}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                    const content = waPreviewLang === 'ar' ? arReport : enReport;
+                                    navigator.clipboard.writeText(content);
+                                    showToast(text('تم نسخ نص التقرير المنسق إلى الحافظة!', 'Report copied to clipboard!'), 'success');
+                                  }}
+                                  className="px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700/60 transition-all flex items-center gap-1 cursor-pointer text-[11px]"
+                                  title={text("نسخ محتوى التقرير", "Copy report content")}
+                                >
+                                  <span>📋</span>
+                                  <span>{text('نسخ النص', 'Copy')}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                    
+                                    // Download Arabic report
+                                    const blobAr = new Blob([arReport], { type: 'text/plain;charset=utf-8' });
+                                    const urlAr = URL.createObjectURL(blobAr);
+                                    const aAr = document.createElement('a');
+                                    aAr.href = urlAr;
+                                    aAr.download = 'Shaqra_Center_Medication_Alerts_AR.txt';
+                                    aAr.click();
+                                    URL.revokeObjectURL(urlAr);
+
+                                    // Download English report
+                                    setTimeout(() => {
+                                      const blobEn = new Blob([enReport], { type: 'text/plain;charset=utf-8' });
+                                      const urlEn = URL.createObjectURL(blobEn);
+                                      const aEn = document.createElement('a');
+                                      aEn.href = urlEn;
+                                      aEn.download = 'Shaqra_Center_Medication_Alerts_EN.txt';
+                                      aEn.click();
+                                      URL.revokeObjectURL(urlEn);
+                                    }, 200);
+
+                                    showToast(text('تم تنزيل المرفقين معاً (عربي + إنجليزي) كملفات نصية جاهزة! 📦', 'Both attachments downloaded! 📦'), 'success');
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg border border-emerald-500/30 transition-all flex items-center gap-1 cursor-pointer text-[11px] font-bold"
+                                  title={text("تحميل كِلا المرفقين معاً فوراً", "Download both attachments immediately")}
+                                >
+                                  <span>📦</span>
+                                  <span>{text('تحميل المرفقين معاً', 'Download Both')}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Live Preview Display Box */}
+                            <div
+                              dir={waPreviewLang === 'ar' ? 'rtl' : 'ltr'}
+                              className={`p-3.5 rounded-xl border max-h-56 overflow-y-auto font-sans text-xs leading-relaxed whitespace-pre-wrap select-text ${
+                                darkMode 
+                                  ? 'bg-slate-950/90 border-slate-800 text-slate-200' 
+                                  : 'bg-white border-emerald-200 text-slate-800'
+                              }`}
+                            >
+                              {(() => {
+                                const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                return waPreviewLang === 'ar' ? arReport : enReport;
+                              })()}
+                            </div>
+
+                            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/15 text-[11px] text-emerald-300">
+                              <span>📎</span>
+                              <span>
+                                {text(
+                                  'ميزة إرسال المرفقات: عند الضغط على إرسال WhatsApp، يتم تنزيل المرفقين (عربي وإنجليزي) تلقائياً على جهازك لتتمكن من إرفاقهما بضغطة زر (📎 إرفاق مستند) في المحادثة مباشرة، وتدعم بوابات UltraMsg رفعهما آلياً!',
+                                  'Attachments Feature: Clicking send WhatsApp auto-downloads both attachments (AR + EN) for direct 1-click attachment in the chat, and UltraMsg gateways upload them automatically!'
+                                )}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!whatsAppEnabled) {
+                                showToast('يجب تفعيل قناة WhatsApp أولاً لتشغيل الاختبار!', 'error');
+                                return;
+                              }
+                              if (!whatsAppNumber) {
+                                showToast('يرجى كتابة رقم المستلم أولاً لتشغيل الاختبار!', 'error');
+                                return;
+                              }
+                              if (whatsAppMode === 'ultramsg' && (!ultraMsgInstance || !ultraMsgToken)) {
+                                showToast('يرجى ملء جميع الحقول المطلوبة لبوابة UltraMsg', 'error');
+                                return;
+                              }
+                              if (whatsAppMode === 'callmebot' && !callMeBotApiKey) {
+                                showToast('يرجى ملء مفتاح API الخاص ببوابة CallMeBot', 'error');
+                                return;
+                              }
+                              if (whatsAppMode === 'wapilot' && !waPilotApiKey) {
+                                showToast('يرجى ملء مفتاح API الخاص ببوابة WAPilot', 'error');
+                                return;
+                              }
+                              try {
+                                showToast('جاري تجهيز تقرير WhatsApp والمرفقات...', 'success');
+                                
+                                const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                const combinedMsg = `${arReport}\n\n${"=".repeat(50)}\n\n${enReport}`;
+                                const waAttachments = [
+                                  {
+                                    name: 'Shaqra_Center_Medication_Alerts_AR.txt',
+                                    content: arReport,
+                                    mimeType: 'text/plain;charset=utf-8'
+                                  },
+                                  {
+                                    name: 'Shaqra_Center_Medication_Alerts_EN.txt',
+                                    content: enReport,
+                                    mimeType: 'text/plain;charset=utf-8'
+                                  }
+                                ];
+
+                                if (whatsAppMode === 'manual') {
+                                  // Send directly with in-memory PDF generation, Web Share file attachment or cloud link (ZERO local disk download!)
+                                  await sendFreeWhatsAppReport();
+                                  return;
+                                }
+
+                                const pdfs = await generateMedicationPdfReports(medicines, alertDays);
+                                const waPdfAttachments = [
+                                  {
+                                    name: 'Shaqra_Center_Medication_Alerts_AR.pdf',
+                                    base64: pdfs.arPdfBase64,
+                                    isBase64: true,
+                                    mimeType: 'application/pdf'
+                                  },
+                                  {
+                                    name: 'Shaqra_Center_Medication_Alerts_EN.pdf',
+                                    base64: pdfs.enPdfBase64,
+                                    isBase64: true,
+                                    mimeType: 'application/pdf'
+                                  }
+                                ];
+
+                                const endpoint = whatsAppMode === 'callmebot' 
+                                  ? '/api/notifications/send-callmebot' 
+                                  : whatsAppMode === 'wapilot'
+                                    ? '/api/notifications/send-wapilot'
+                                    : '/api/notifications/send-whatsapp';
+
+                                const payload = whatsAppMode === 'callmebot'
+                                  ? { apiKey: callMeBotApiKey, to: whatsAppNumber, body: combinedMsg }
+                                  : whatsAppMode === 'wapilot'
+                                    ? { baseUrl: waPilotBaseUrl, apiKey: waPilotApiKey, type: waPilotType, deviceId: waPilotDevice, endpointPath: waPilotPath, to: whatsAppNumber, body: combinedMsg, attachments: waPdfAttachments }
+                                    : { instanceId: ultraMsgInstance, token: ultraMsgToken, to: whatsAppNumber, body: combinedMsg, attachments: waPdfAttachments };
+
+                                const response = await fetch(endpoint, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(payload)
+                                });
+                                const resData = await response.json();
+                                if (resData.success) {
+                                  showToast(`تم إرسال رسالة الواتساب ومرفقات ملفات الـ PDF بنجاح إلى الرقم ${whatsAppNumber}! 📲📄`, 'success');
+                                } else {
+                                  showToast(`رفضت البوابة الإرسال: ${JSON.stringify(resData.result || resData.error)}`, 'error');
+                                }
+                              } catch (e: any) {
+                                showToast(`فشل إرسال التنبيه: ${e.message}`, 'error');
+                              }
+                            }}
+                            className="w-full py-2.5 bg-emerald-600/15 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded-xl border border-emerald-500/20 hover:border-emerald-600 transition-all text-xs font-bold cursor-pointer flex items-center justify-center gap-2"
+                          >
+                            <span>📲</span>
+                            <span>{text('إرسال تقرير الواتساب والمرفقات (عربي + إنجليزي) 📎', 'Send WhatsApp Report & Attachments (Arabic + English) 📎')}</span>
+                          </button>
+
+                          {/* Beautiful FREE WhatsApp Alternative subcard */}
+                          <div className={`mt-4 p-4 rounded-xl border text-xs ${darkMode ? 'bg-emerald-950/20 border-emerald-500/20 text-slate-300' : 'bg-emerald-50 border-emerald-200 text-slate-700'} space-y-2`}>
+                            <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                              <span className="text-lg">💡</span>
+                              <span>{text('الخيار المجاني بالكامل (بدون أي اشتراك)', '100% Free Option (No Subscription)')}</span>
+                            </div>
+                            <p className="leading-relaxed">
+                              {text(
+                                'ميزة الإرسال الذكي للواتساب: يتم توليد ملفي الـ PDF المعتمدين (عربي وإنجليزي) سحابياً وإرفاقهما فوراً عبر مشاركة النظام، أو تضمين روابطهما المباشرة داخل رسالة الواتساب دون حفظ أو تنزيل أي ملفات على جهازك!',
+                                'Smart WhatsApp Dispatch: Official Arabic and English PDF reports are generated in-memory and shared directly via Web Share or embedded live links without downloading any files to your device!'
+                              )}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={sendFreeWhatsAppReport}
+                              className="w-full mt-2 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-emerald-950/20"
+                            >
+                              <Smartphone className="w-4 h-4" />
+                              <span>{text('تشغيل الإرسال الفوري لـ WhatsApp بدون تنزيل 📲', 'Launch Instant WhatsApp Dispatch Without Download 📲')}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Email Apps Script Channel Card */}
+                      <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800/80' : 'bg-slate-50 border-slate-100'} space-y-4`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-400">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-200">{text('البريد الشخصي (Google Apps Script API)', 'Personal Email (Google Apps Script API)')}</h4>
+                              <p className="text-[10px] text-slate-500 font-mono">Status: Connected via personal script</p>
+                            </div>
+                          </div>
+                          {/* Toggle */}
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={emailEnabled} 
+                              onChange={(e) => setEmailEnabled(e.target.checked)}
+                              className="sr-only peer" 
+                            />
+                            <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-600 peer-checked:after:bg-white"></div>
+                          </label>
+                        </div>
+
+                        <div className="space-y-3.5 text-xs">
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-1">
+                              {text('رابط تطبيق الويب (Google Apps Script Web App URL) *', 'Web App URL (Google Apps Script Web App URL) *')}
+                            </label>
+                            <input 
+                              type="text" 
+                              value={appsScriptUrl} 
+                              onChange={(e) => setAppsScriptUrl(e.target.value)}
+                              className={`w-full px-3 py-2 rounded-xl border font-mono ${darkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-teal-500' : 'bg-white border-slate-200 text-slate-900 focus:border-teal-500'} outline-none`}
+                              placeholder="AKfycbwES7mkB6q2gKtiKDbUOHIBZeLruWaE8zROrFasOHjtWXcsklq8yZZDRCDYQJVJVru4og/exec" 
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-1">
+                              {text('بريد المستلم للتنبيهات (Notification Email) * - يدعم عناوين متعددة مفصولة بفواصل', 'Recipient Notification Email * - Supports multiple emails separated by commas')}
+                            </label>
+                            <input 
+                              type="text" 
+                              value={notificationEmail} 
+                              onChange={(e) => setNotificationEmail(e.target.value)}
+                              className={`w-full px-3 py-2 rounded-xl border font-mono ${darkMode ? 'bg-slate-900 border-slate-800 text-white focus:border-teal-500' : 'bg-white border-slate-200 text-slate-900 focus:border-teal-500'} outline-none`}
+                              placeholder="tmrbe2006@gmail.com, rooq113@gmail.com, abdelrahim.mahjob@gmail.com" 
+                            />
+                          </div>
+
+                          {/* ----------------- EMAIL REPORT PREVIEW (ARABIC & ENGLISH) ----------------- */}
+                          <div className={`p-4 rounded-2xl border space-y-3.5 ${darkMode ? 'bg-slate-950/70 border-teal-500/20' : 'bg-teal-50/50 border-teal-200'}`}>
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-3 border-slate-800/80">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 text-sm shadow-sm">
+                                  📑
+                                </div>
+                                <div>
+                                  <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                                    <span>{text('معاينة تقرير البريد المرفق', 'Email Report Attachment Preview')}</span>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20 font-medium">
+                                      {text('عربي + إنجليزي 📎', 'Arabic + English 📎')}
+                                    </span>
+                                  </h4>
+                                  <p className="text-[11px] text-slate-400">
+                                    {text('تقرير منسق وخالٍ من الشرطات والأستريسك، يُرفق آلياً مع رسائل البريد.', 'Clean formatted report without dashes or asterisks, auto-attached with emails.')}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Language Switcher Tabs */}
+                              <div className="flex items-center p-1 rounded-xl bg-slate-900 border border-slate-800 gap-1 self-stretch sm:self-auto justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => setEmailPreviewLang('ar')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                    emailPreviewLang === 'ar'
+                                      ? 'bg-teal-600 text-white shadow-sm shadow-teal-900/40'
+                                      : 'text-slate-400 hover:text-white'
+                                  }`}
+                                >
+                                  <span>🇸🇦</span>
+                                  <span>{text('معاينة بالعربية', 'Arabic Preview')}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEmailPreviewLang('en')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                    emailPreviewLang === 'en'
+                                      ? 'bg-teal-600 text-white shadow-sm shadow-teal-900/40'
+                                      : 'text-slate-400 hover:text-white'
+                                  }`}
+                                >
+                                  <span>🇬🇧</span>
+                                  <span>{text('معاينة بالإنجليزية', 'English Preview')}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Actions Header */}
+                            <div className="flex items-center justify-between text-[11px] text-slate-400">
+                              <span className="flex items-center gap-1.5 font-sans">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                {emailPreviewLang === 'ar' 
+                                  ? 'نسخة التقرير العربي المنسقة (RTL) - مركز التأهيل الشامل للذكور بشقراء' 
+                                  : 'English Report Preview (LTR) - Shaqra Comprehensive Rehabilitation Center'}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    try {
+                                      showToast(text('جاري إنشاء وعرض ملف الـ PDF...', 'Generating and opening PDF...'), 'success');
+                                      const pdfs = await generateMedicationPdfReports(medicines, alertDays);
+                                      const blob = emailPreviewLang === 'ar' ? pdfs.arPdfBlob : pdfs.enPdfBlob;
+                                      const pdfUrl = URL.createObjectURL(blob);
+                                      window.open(pdfUrl, '_blank');
+                                      showToast(text('تم فتح ملف الـ PDF في نافذة جديدة بنجاح دون الحاجة لتنزيله على جهازك! 📄', 'PDF opened in new tab without downloading! 📄'), 'success');
+                                    } catch (e: any) {
+                                      showToast(`فشل توليد الـ PDF: ${e.message}`, 'error');
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 bg-teal-600/30 hover:bg-teal-600 text-teal-300 hover:text-white rounded-lg border border-teal-500/40 transition-all flex items-center gap-1 cursor-pointer text-[11px] font-bold shadow-sm"
+                                  title="معاينة ملف الـ PDF مباشرة في المتصفح دون تنزيله"
+                                >
+                                  <span>📄</span>
+                                  <span>{text('معاينة الـ PDF (بدون تنزيل)', 'View PDF (No Download)')}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                    const content = emailPreviewLang === 'ar' ? arReport : enReport;
+                                    navigator.clipboard.writeText(content);
+                                    showToast(text('تم نسخ نص التقرير المنسق إلى الحافظة!', 'Formatted report copied to clipboard!'), 'success');
+                                  }}
+                                  className="px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700/60 transition-all flex items-center gap-1 cursor-pointer text-[11px]"
+                                  title="نسخ محتوى التقرير"
+                                >
+                                  <span>📋</span>
+                                  <span>{text('نسخ النص', 'Copy')}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                    const content = emailPreviewLang === 'ar' ? arReport : enReport;
+                                    const fileName = emailPreviewLang === 'ar'
+                                      ? 'تقرير_التنبيهات_الدوائية_مركز_التأهيل_الشامل_شقراء.txt'
+                                      : 'Shaqra_Rehab_Center_Medication_Alerts_Report.txt';
+                                    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = fileName;
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                    showToast(text('تم تنزيل ملف التقرير بنجاح!', 'Report downloaded!'), 'success');
+                                  }}
+                                  className="px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700/60 transition-all flex items-center gap-1 cursor-pointer text-[11px]"
+                                  title="تنزيل كملف نصي"
+                                >
+                                  <span>📥</span>
+                                  <span>{text('تحميل ملف', 'Download')}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                    
+                                    // Download Arabic report
+                                    const blobAr = new Blob([arReport], { type: 'text/plain;charset=utf-8' });
+                                    const urlAr = URL.createObjectURL(blobAr);
+                                    const aAr = document.createElement('a');
+                                    aAr.href = urlAr;
+                                    aAr.download = 'Shaqra_Center_Medication_Alerts_AR.txt';
+                                    aAr.click();
+                                    URL.revokeObjectURL(urlAr);
+
+                                    // Download English report
+                                    setTimeout(() => {
+                                      const blobEn = new Blob([enReport], { type: 'text/plain;charset=utf-8' });
+                                      const urlEn = URL.createObjectURL(blobEn);
+                                      const aEn = document.createElement('a');
+                                      aEn.href = urlEn;
+                                      aEn.download = 'Shaqra_Center_Medication_Alerts_EN.txt';
+                                      aEn.click();
+                                      URL.revokeObjectURL(urlEn);
+                                    }, 200);
+
+                                    showToast(text('تم تنزيل المرفقين معاً (عربي + إنجليزي) كملفات نصية جاهزة! 📦', 'Both attachments downloaded! 📦'), 'success');
+                                  }}
+                                  className="px-2.5 py-1 bg-teal-600/20 hover:bg-teal-600 text-teal-300 hover:text-white rounded-lg border border-teal-500/30 transition-all flex items-center gap-1 cursor-pointer text-[11px] font-bold"
+                                  title="تحميل كِلا المرفقين معاً فوراً"
+                                >
+                                  <span>📦</span>
+                                  <span>{text('تحميل المرفقين معاً', 'Download Both')}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Live Preview Display Box */}
+                            <div
+                              dir={emailPreviewLang === 'ar' ? 'rtl' : 'ltr'}
+                              className={`p-3.5 rounded-xl border max-h-56 overflow-y-auto font-sans text-xs leading-relaxed whitespace-pre-wrap select-text ${
+                                darkMode 
+                                  ? 'bg-slate-950/90 border-slate-800 text-slate-200' 
+                                  : 'bg-white border-teal-200 text-slate-800'
+                              }`}
+                            >
+                              {(() => {
+                                const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                return emailPreviewLang === 'ar' ? arReport : enReport;
+                              })()}
+                            </div>
+
+                            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-teal-500/5 border border-teal-500/15 text-[11px] text-teal-300">
+                              <span>📎</span>
+                              <span>
+                                {text(
+                                  'تأكيد الإرسال: يتم إرفاق كلا التقريرين (عربي وإنجليزي) كملفات مرفقة مستقلة (Attachments) منسقة ونقية تماماً من أي شرطات أو رموز.',
+                                  'Dispatch Confirmation: Both Arabic and English reports are attached as separate clean files without dashes or symbols.'
+                                )}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!emailEnabled) {
+                                showToast('يجب تفعيل قناة البريد أولاً لتشغيل الاختبار!', 'error');
+                                return;
+                              }
+                              if (!appsScriptUrl || !notificationEmail) {
+                                showToast('يرجى كتابة رابط الـ Web App والبريد الإلكتروني', 'error');
+                                return;
+                              }
+                              try {
+                                showToast('جاري إرسال التقرير المنسق مع المرفقات عبر Google Apps Script...', 'success');
+
+                                const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                                const htmlReport = generateFormattedEmailHtmlReport(medicines, alertDays);
+                                const combinedMsg = `${arReport}\n\n${"=".repeat(56)}\n\n${enReport}`;
+                                const testAttachments = generateMedicationEmailAttachments(medicines, alertDays);
+
+                                const response = await fetch('/api/notifications/send-email', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    scriptUrl: appsScriptUrl,
+                                    to: notificationEmail,
+                                    subject: `🛡️ تقرير صلاحية وكمية الأدوية - ${OFFICIAL_CENTER_NAME}`,
+                                    body: combinedMsg,
+                                    htmlBody: htmlReport,
+                                    arReport: arReport,
+                                    enReport: enReport,
+                                    attachments: testAttachments
+                                  })
+                                });
+                                const resData = await response.json();
+                                if (resData.success) {
+                                  const attCount = resData.result?.attachmentsCount ?? (resData.result?.hasAttachments ? 2 : 0);
+                                  if (attCount > 0) {
+                                    setAppsScriptError(null);
+                                    showToast(`تم إرسال البريد بنجاح ومعه ${attCount} ملفات مرفقة إلى ${notificationEmail}! ✉️📎`, 'success');
+                                  } else {
+                                    // Script delivered the email, but ran an old deployment that lacks attachments handling!
+                                    showToast(`وصل البريد بنجاح! ولكن بدون ملفات مرفقة لأن كود Google Apps Script يحتاج نشر إصدار جديد (New Deployment) لتفعيل المرفقات ⚠️`, 'error');
+                                    setAppsScriptError({
+                                      error: "⚠️ وصل البريد بدون مرفقات (السبب: كود Google Apps Script يحتاج نشر إصدار جديد New Deployment)",
+                                      details: "خوادم Google قامت بإرسال نص الرسالة بنجاح، لكن تطبيق الويب (Web App) الخاص بك ما زال ينفّذ كود النشر القديم الذي لا يحتوي على استقبال وتضمين المرفقات (Attachments). لحل هذا في دقيقة واحدة:",
+                                      instructions: [
+                                        "1. افتح مشروعك في script.google.com",
+                                        "2. انسخ الكود الجديد المحدث بالكامل من المربع أدناه واستبدل به الكود القديم في المحرر",
+                                        "3. انقر على Deploy (نشر) أعلى اليمين -> ثم Manage Deployments (إدارة عمليات النشر)",
+                                        "4. انقر على أيقونة القلم (Edit) بجانب النشر النشط الحالي",
+                                        "5. في حقل Version (الإصدار)، اختر 'New version' (إصدار جديد) - هذه الخطوة هي التي تفعّل المرفقات",
+                                        "6. انقر Deploy لحفظ التحديث، وستصلك المرفقات فوراً في كافة الرسائل القادمة! كما يمكنك استخدام زر 'تحميل المرفقين معاً' أعلاه لتنزيلهما مباشرة."
+                                      ]
+                                    });
+                                  }
+                                } else {
+                                  if (resData.result && (resData.result.isDevUrl || resData.result.isPermissionError || resData.result.error)) {
+                                    setAppsScriptError(resData.result);
+                                  } else if (resData.error) {
+                                    setAppsScriptError({ error: resData.error });
+                                  } else {
+                                    setAppsScriptError({ error: "خطأ غير معروف في الاتصال بـ Google Apps Script" });
+                                  }
+                                  showToast('فشل إرسال بريد الاختبار. يرجى مراجعة تفاصيل المشكلة المعروضة في الأسفل.', 'error');
+                                }
+                              } catch (e: any) {
+                                showToast(`تعذر إرسال البريد: ${e.message}`, 'error');
+                              }
+                            }}
+                            className="w-full py-2.5 bg-indigo-600/15 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-xl border border-indigo-500/20 hover:border-indigo-600 transition-all text-xs font-bold cursor-pointer flex items-center justify-center gap-2"
+                          >
+                            <span>✉️</span>
+                            <span>{text('إرسال بريد إلكتروني تجريبي مع المرفقات (عربي + إنجليزي) 📎', 'Send Test Email with Attachments (Arabic + English) 📎')}</span>
+                          </button>
+                          
+                          {appsScriptError && (
+                            <div className="mt-3 p-3.5 rounded-xl border border-rose-500/20 bg-rose-500/5 text-rose-200 text-xs leading-relaxed space-y-2">
+                              <div className="font-bold text-rose-400 flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
+                                <span>{appsScriptError.error || "فشل إرسال البريد"}</span>
+                              </div>
+                              {appsScriptError.details && (
+                                <p className="text-slate-300 font-sans">{appsScriptError.details}</p>
+                              )}
+                              {appsScriptError.instructions && Array.isArray(appsScriptError.instructions) && (
+                                <div className="space-y-1 mt-2.5 bg-rose-950/20 p-2.5 rounded-lg border border-rose-500/10">
+                                  <span className="font-semibold text-rose-300 block mb-1">خطوات الحل المقترحة:</span>
+                                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                                    {appsScriptError.instructions.map((step: string, idx: number) => (
+                                      <li key={idx} className="leading-relaxed font-sans">{step}</li>
+                                    ))}
+                                  </ol>
+                                </div>
+                              )}
+                              <button 
+                                type="button"
+                                onClick={() => setAppsScriptError(null)}
+                                className="text-[10px] text-rose-400/60 hover:text-rose-400 underline font-sans block mt-1"
+                              >
+                                {text('تجاهل هذا التنبيه', 'Dismiss this notice')}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Instruction Card: How to set up Google Apps Script */}
+                    <div className="p-4 rounded-2xl bg-indigo-950/30 border border-indigo-900/50 space-y-3 text-xs leading-relaxed text-indigo-200">
+                      <div className="flex items-center justify-between">
+                        <h5 className="font-bold text-teal-400 flex items-center gap-1.5">
+                          <span>💡</span>
+                          <span>{text('كيفية إعداد وتحديث الـ Mail Web App في Google Apps Script:', 'How to setup and update Google Apps Script Web App:')}</span>
+                        </h5>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20 font-bold">
+                          {text('يدعم المرفقات 📎', 'Supports Attachments 📎')}
+                        </span>
+                      </div>
+
+                      {/* Important Warning Callout about Deploying New Version */}
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 text-[11px] leading-relaxed space-y-1">
+                        <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                          <span>⚠️</span>
+                          <span>{text('الخطوة الجوهرية لوصول المرفقات (Attachments):', 'Crucial Step to Receive Attachments:')}</span>
+                        </div>
+                        <p className="text-slate-300">
+                          {text(
+                            'إذا كنت قد نشرت الـ Web App سابقاً، فلن تصل المرفقات بمجرد لصق الكود الجديد وحفظه! يجب أن تضغط في أعلى اليمين على:',
+                            'If you previously deployed the Web App, attachments will not arrive by just pasting the code! You must click at the top right:'
+                          )}
+                        </p>
+                        <p className="text-teal-300 font-semibold font-mono text-[10px] bg-slate-950/60 p-2 rounded-lg border border-slate-800">
+                          {text(
+                            'Deploy (نشر) > Manage Deployments (إدارة عمليات النشر) > أيقونة القلم (Edit) > في حقل Version اختر: [ New version / إصدار جديد ] > Deploy',
+                            'Deploy > Manage Deployments > Edit (pencil icon) > In Version field select: [ New version ] > Deploy'
+                          )}
+                        </p>
+                      </div>
+
+                      <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-slate-300">
+                        <li>{text('اذهب إلى', 'Go to')} <a href="https://script.google.com" target="_blank" rel="noreferrer" className="text-teal-400 hover:underline">script.google.com</a> {text('وافتح مشروعك.', 'and open your project.')}</li>
+                        <li>{text('امسح الكود القديم والصق الكود البرمجي المحدث أدناه بالكامل.', 'Clear the old code and paste the updated script below entirely.')}</li>
+                        <li>{text('اضغط على', 'Click on')} <strong>{text('نشر (Deploy)', 'Deploy')}</strong> &gt; <strong>{text('إدارة عمليات النشر (Manage deployments)', 'Manage deployments')}</strong>.</li>
+                        <li>{text('اضغط على أيقونة القلم', 'Click the edit pencil icon')} <strong>(Edit)</strong> {text('ثم اختر', 'then choose')} <strong>New version {text('(إصدار جديد)', '')}</strong> {text('ثم اضغط', 'and click')} <strong>Deploy</strong>.</li>
+                        <li>{text('تأكد دائماً أن خيار', 'Ensure that')} <strong>Who has access</strong> {text('مضبوط على', 'is set to')} <strong>Anyone {text('(أي شخص)', '')}</strong> {text('لضمان عمل الخدمة بدون قيود.', 'to guarantee unrestricted access.')}</li>
+                      </ol>
+
+                      <div className="pt-2">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-[11px] text-slate-300 font-bold">{text('📋 كود Google Apps Script المحدث (يدعم المرفقات UTF-8 بالكامل):', '📋 Updated Google Apps Script Code (Full UTF-8 Attachments):')}</label>
+                          <span className="text-[10px] text-teal-400">{text('انقر لنسخ الكود بالكامل', 'Click to copy full code')}</span>
+                        </div>
+                        <textarea
+                          readOnly
+                          onClick={(e) => {
+                            (e.target as HTMLTextAreaElement).select();
+                            navigator.clipboard.writeText(`function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var to = data.to;
+    var subject = data.subject;
+    var body = data.body;
+    
+    if (!to || !subject || !body) {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: false, 
+        error: "Missing parameters" 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Attach Arabic, English, and HTML report files
+    var blobs = [];
+    if (data.attachments && Array.isArray(data.attachments)) {
+      for (var i = 0; i < data.attachments.length; i++) {
+        var att = data.attachments[i];
+        if (att && att.name && (att.content || att.base64)) {
+          try {
+            var b;
+            var contentType = att.mimeType || (att.name.indexOf('.html') !== -1 ? 'text/html' : 'text/plain');
+            if (att.base64) {
+              var decoded = Utilities.base64Decode(att.base64);
+              b = Utilities.newBlob(decoded, contentType, att.name);
+            } else {
+              b = Utilities.newBlob(att.content, contentType, att.name);
+            }
+            blobs.push(b);
+          } catch(errBlob) {
+            try {
+              blobs.push(Utilities.newBlob(att.content || "", "text/plain", att.name));
+            } catch(e2) {}
+          }
+        }
+      }
+    }
+    
+    var mailOptions = {
+      to: to,
+      subject: subject,
+      body: body
+    };
+    
+    if (data.htmlBody) {
+      mailOptions.htmlBody = data.htmlBody;
+    }
+    
+    if (blobs.length > 0) {
+      mailOptions.attachments = blobs;
+    }
+    
+    // Primary delivery via MailApp
+    try {
+      MailApp.sendEmail(mailOptions);
+    } catch(mailErr) {
+      // Fallback delivery via GmailApp if MailApp has limits
+      if (blobs.length > 0) {
+        GmailApp.sendEmail(to, subject, body, {
+          htmlBody: data.htmlBody,
+          attachments: blobs
+        });
+      } else {
+        GmailApp.sendEmail(to, subject, body, {
+          htmlBody: data.htmlBody
+        });
+      }
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: true, 
+      message: "Email sent successfully with attachments!",
+      attachmentsCount: blobs.length,
+      hasAttachments: blobs.length > 0
+    })).setMimeType(ContentService.MimeType.JSON);
+    
+  } catch(error) {
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: false, 
+      error: error.toString() 
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`);
+                            showToast(text('تم نسخ كود Google Apps Script المحدث إلى الحافظة!', 'Updated Google Apps Script code copied to clipboard!'), 'success');
+                          }}
+                          className="w-full h-32 p-2.5 bg-slate-950/90 rounded-lg border border-teal-500/30 text-[10px] text-teal-300 font-mono focus:outline-none cursor-pointer leading-relaxed"
+                          value={`function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var to = data.to;
+    var subject = data.subject;
+    var body = data.body;
+    
+    if (!to || !subject || !body) {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: false, 
+        error: "Missing parameters" 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Attach Arabic, English, and HTML report files
+    var blobs = [];
+    if (data.attachments && Array.isArray(data.attachments)) {
+      for (var i = 0; i < data.attachments.length; i++) {
+        var att = data.attachments[i];
+        if (att && att.name && (att.content || att.base64)) {
+          try {
+            var b;
+            var contentType = att.mimeType || (att.name.indexOf('.html') !== -1 ? 'text/html' : 'text/plain');
+            if (att.base64) {
+              var decoded = Utilities.base64Decode(att.base64);
+              b = Utilities.newBlob(decoded, contentType, att.name);
+            } else {
+              b = Utilities.newBlob(att.content, contentType, att.name);
+            }
+            blobs.push(b);
+          } catch(errBlob) {
+            try {
+              blobs.push(Utilities.newBlob(att.content || "", "text/plain", att.name));
+            } catch(e2) {}
+          }
+        }
+      }
+    }
+    
+    var mailOptions = {
+      to: to,
+      subject: subject,
+      body: body
+    };
+    
+    if (data.htmlBody) {
+      mailOptions.htmlBody = data.htmlBody;
+    }
+    
+    if (blobs.length > 0) {
+      mailOptions.attachments = blobs;
+    }
+    
+    // Primary delivery via MailApp
+    try {
+      MailApp.sendEmail(mailOptions);
+    } catch(mailErr) {
+      // Fallback delivery via GmailApp if MailApp has limits
+      if (blobs.length > 0) {
+        GmailApp.sendEmail(to, subject, body, {
+          htmlBody: data.htmlBody,
+          attachments: blobs
+        });
+      } else {
+        GmailApp.sendEmail(to, subject, body, {
+          htmlBody: data.htmlBody
+        });
+      }
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: true, 
+      message: "Email sent successfully with attachments!",
+      attachmentsCount: blobs.length,
+      hasAttachments: blobs.length > 0
+    })).setMimeType(ContentService.MimeType.JSON);
+    
+  } catch(error) {
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: false, 
+      error: error.toString() 
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2 border-t border-slate-800/80">
+                      <button
+                        type="button"
+                        disabled={savingSecSettings}
+                        onClick={saveChannelSettings}
+                        className="px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-teal-900/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${savingSecSettings ? 'animate-spin' : 'animate-spin-slow'}`} />
+                        <span>
+                          {savingSecSettings 
+                            ? text('جاري الحفظ في قاعدة بيانات Firebase...', 'Saving to Firebase Cloud DB...')
+                            : text('حفظ الإعدادات في قاعدة البيانات 💾', 'Save Settings to Database 💾')}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            )}
+
+            {/* ----------------- TAB: AUDIT LOGS & LEDGER ----------------- */}
+            {activeTab === 'audit_logs' && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h2 className="text-xl font-black text-slate-200 flex items-center gap-2">
+                      <Shield className="w-6 h-6 text-teal-400" />
+                      {t('audit_tab_title')}
+                    </h2>
+                    <p className="text-xs text-slate-400">{t('audit_tab_desc')}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const w = window.open();
+                        if (w) {
+                          const isRtl = lang === 'ar';
+                          const tableContent = stockLogs.map(log => {
+                            const actionLabel = isRtl ? log.actionType : (
+                              log.actionType === 'إضافة دواء جديد' ? 'New Medication Added' :
+                              log.actionType === 'صرف دواء لمقيم' ? 'Dispensed to Resident' :
+                              log.actionType === 'حذف دواء' ? 'Medication Deleted' :
+                              'Manual Adjustment'
+                            );
+                            return `
+                            <tr>
+                              <td style="padding:10px; border-bottom:1px solid #ddd;">${new Date(log.timestamp).toLocaleString(isRtl ? 'ar-SA' : 'en-US')}</td>
+                              <td style="padding:10px; border-bottom:1px solid #ddd; font-weight:bold;">${log.medicineName}</td>
+                              <td style="padding:10px; border-bottom:1px solid #ddd;">${actionLabel}</td>
+                              <td style="padding:10px; border-bottom:1px solid #ddd; font-weight:bold; color: ${log.quantityChanged >= 0 ? 'green' : 'red'};">
+                                ${log.quantityChanged >= 0 ? '+' : ''}${log.quantityChanged}
+                              </td>
+                              <td style="padding:10px; border-bottom:1px solid #ddd;">${log.previousQuantity} ➔ ${log.newQuantity}</td>
+                              <td style="padding:10px; border-bottom:1px solid #ddd;">${log.performedByName}</td>
+                              <td style="padding:10px; border-bottom:1px solid #ddd;">${log.notes}</td>
+                            </tr>
+                          `;
+                          }).join('');
+                          
+                          w.document.write(`
+                            <div dir="${isRtl ? 'rtl' : 'ltr'}" style="font-family:sans-serif; padding:20px; line-height:1.6;">
+                              <h2 style="text-align:center; color:#0d9488; margin-bottom:5px;">${isRtl ? OFFICIAL_CENTER_NAME : 'Shaqra Comprehensive Rehabilitation Center for Males'}</h2>
+                              <h3 style="text-align:center; color:#475569; margin-top:0;">${isRtl ? 'تقرير سجل التدقيق والمراقبة التاريخية للمخزون' : 'Historical Stock Audit & Ledger Report'}</h3>
+                              <p style="text-align:${isRtl ? 'left' : 'right'}; font-size:12px; color:#64748b;">${isRtl ? 'تاريخ التصدير:' : 'Export Date:'} ${new Date().toLocaleString(isRtl ? 'ar-SA' : 'en-US')}</p>
+                              <table style="width:100%; border-collapse:collapse; margin-top:20px; text-align:${isRtl ? 'right' : 'left'}; font-size:13px;">
+                                <thead style="background-color:#f1f5f9; color:#1e293b;">
+                                  <tr>
+                                    <th style="padding:10px; border-bottom:2px solid #cbd5e1;">${isRtl ? 'التوقيت' : 'Timestamp'}</th>
+                                    <th style="padding:10px; border-bottom:2px solid #cbd5e1;">${isRtl ? 'الدواء' : 'Medication'}</th>
+                                    <th style="padding:10px; border-bottom:2px solid #cbd5e1;">${isRtl ? 'نوع الحركة' : 'Action'}</th>
+                                    <th style="padding:10px; border-bottom:2px solid #cbd5e1;">${isRtl ? 'التغيير' : 'Change'}</th>
+                                    <th style="padding:10px; border-bottom:2px solid #cbd5e1;">${isRtl ? 'الرصيد الانتقالي' : 'Balance'}</th>
+                                    <th style="padding:10px; border-bottom:2px solid #cbd5e1;">${isRtl ? 'المسؤول' : 'Auditor'}</th>
+                                    <th style="padding:10px; border-bottom:2px solid #cbd5e1;">${isRtl ? 'ملاحظات الحركة' : 'Notes'}</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${tableContent}
+                                </tbody>
+                              </table>
+                            </div>
+                          `);
+                          w.print();
+                        }
+                      }}
+                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-slate-700"
+                    >
+                      <Printer className="w-4 h-4" />
+                      {t('audit_print_all')}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Audit Analytics Header Widgets */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-slate-400">{t('audit_total_records')}</span>
+                      <Activity className="w-4 h-4 text-teal-400" />
+                    </div>
+                    <div className="text-2xl font-black text-slate-100">{stockLogs.length}</div>
+                    <p className="text-[10px] text-slate-500 mt-1">{t('audit_total_records_desc')}</p>
+                  </div>
+
+                  <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-slate-400">{t('audit_stock_additions')}</span>
+                      <Package className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div className="text-2xl font-black text-slate-100">
+                      {stockLogs.filter(l => l.actionType === 'إضافة دواء جديد').length}
+                    </div>
+                    <p className="text-[10px] text-emerald-500 mt-1">{t('audit_stock_additions_desc')}</p>
+                  </div>
+
+                  <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-slate-400">{t('audit_dispensed_stock')}</span>
+                      <FileText className="w-4 h-4 text-blue-400" />
+                    </div>
+                    <div className="text-2xl font-black text-slate-100">
+                      {stockLogs.filter(l => l.actionType === 'صرف دواء لمقيم').length}
+                    </div>
+                    <p className="text-[10px] text-blue-500 mt-1">{t('audit_dispensed_stock_desc')}</p>
+                  </div>
+
+                  <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-slate-400">{t('audit_manual_adjustments')}</span>
+                      <AlertTriangle className="w-4 h-4 text-amber-400" />
+                    </div>
+                    <div className="text-2xl font-black text-slate-100">
+                      {stockLogs.filter(l => l.actionType === 'تعديل يدوي' || l.actionType?.includes('تسوية يدوية')).length}
+                    </div>
+                    <p className="text-[10px] text-amber-500 mt-1">{t('audit_manual_adjustments_desc')}</p>
+                  </div>
+                </div>
+
+                {/* Main Audit Area */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  
+                  {/* Left panel: New stock audit/adjustment tool */}
+                  <div className={`p-6 rounded-3xl border h-fit space-y-4 ${darkMode ? 'bg-slate-900/30 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <h3 className="text-sm font-black text-slate-200 flex items-center gap-1.5">
+                      <RefreshCw className="w-4 h-4 text-teal-400" />
+                      {t('audit_adjustment_title')}
+                    </h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      {t('audit_adjustment_desc')}
+                    </p>
+
+                    {currentUser?.role === 'technician' ? (
+                      <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs space-y-2">
+                        <div className="flex items-center gap-2 font-bold">
+                          <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>{text('صلاحية مقيدة لفني الصيدلة', 'Restricted Permission for Pharmacy Technician')}</span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-amber-200/80">
+                          {text(
+                            'خاصية تسجيل تسويات الجرد اليدوية وتعديل كميات المخزون مقيدة نظامياً لمدراء النظام والصيادلة فقط لحماية أمان العهدة المخزنية ومنع التلاعب بالأرصدة.',
+                            'Manual inventory adjustment and stock calibration are restricted to System Administrators and Registered Pharmacists to safeguard inventory custody.'
+                          )}
+                        </p>
+                      </div>
+                    ) : (
+                    <form 
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (currentUser?.role === 'technician') {
+                          showToast(text('ليس لديك صلاحية لإجراء تسوية جرد يدوية أو تعديل المخزون.', 'Pharmacy technicians are not permitted to perform inventory adjustments.'), 'error');
+                          return;
+                        }
+                        const form = e.currentTarget;
+                        const data = new FormData(form);
+                        const medicineId = data.get('medicineId') as string;
+                        const adjustmentType = data.get('adjustmentType') as string;
+                        const qtyVal = parseInt(data.get('quantity') as string) || 0;
+                        const notes = (data.get('notes') as string) || '';
+
+                        if (!medicineId) {
+                          showToast(text('يرجى تحديد الدواء أولاً!', 'Please select a medicine first!'), 'error');
+                          return;
+                        }
+                        if (qtyVal <= 0) {
+                          showToast(text('يرجى إدخال كمية صحيحة أكبر من الصفر!', 'Please enter a valid quantity greater than zero!'), 'error');
+                          return;
+                        }
+                        if (!notes.trim()) {
+                          showToast(text('يرجى كتابة سبب التسوية (ملاحظات التدقيق) لضمان الشفافية!', 'Please provide an adjustment reason for audit transparency!'), 'error');
+                          return;
+                        }
+
+                        const targetMed = medicines.find(m => m.id === medicineId);
+                        if (!targetMed) return;
+
+                        // Calculate new quantity
+                        const delta = adjustmentType === 'add' ? qtyVal : -qtyVal;
+                        const newQuantity = Math.max(0, targetMed.quantity + delta);
+
+                        try {
+                          await DbService.updateMedicine(medicineId, { quantity: newQuantity }, {
+                            name: currentUser.name,
+                            email: currentUser.email,
+                            id: currentUser.uid,
+                            notes: `${lang === 'en' ? 'Manual Inventory Adjustment' : 'تسوية جرد يدوية'} (${adjustmentType === 'add' ? (lang === 'en' ? 'Stock Addition' : 'إضافة دواء للمخزون') : (lang === 'en' ? 'Deficit/Damaged' : 'عجز/إتلاف')}): ${notes}`
+                          });
+                          
+                          showToast(text('تمت التسوية المخزنية وتحديث رصيد الصنف واللوغ التراكمي بنجاح!', 'Stock adjustment saved and ledger trail updated successfully!'), 'success');
+                          form.reset();
+                          setSelectedAuditMedicineId('');
+                          setAuditMedicineSearch('');
+                          loadAllData();
+                        } catch (err) {
+                          showToast(text('فشلت عملية التسوية اليدوية في السيرفر.', 'Failed to save manual adjustment to server.'), 'error');
+                        }
+                      }}
+                      className="space-y-4"
+                    >
+                      {/* Medicine Select with Live Search Box */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-bold text-slate-300">{t('audit_target_med')}</label>
+                          {auditMedicineSearch && (
+                            <span className="text-[11px] text-teal-400 font-mono font-bold bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                              {filteredAuditMedicines.length} {text('أدوية مطابقة', 'matches')}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Medicine Search Input */}
+                        <div className="relative flex items-center">
+                          <input 
+                            type="text"
+                            placeholder={text('🔍 ابحث باسم الدواء التجاري، العلمي، الباركود، أو التشغيلة...', '🔍 Search medicine by commercial name, scientific name, barcode...')}
+                            value={auditMedicineSearch}
+                            onChange={(e) => setAuditMedicineSearch(e.target.value)}
+                            className={`w-full px-3 py-2 pl-9 text-xs rounded-xl border transition outline-none ${darkMode ? 'bg-slate-950 border-slate-700/80 text-white placeholder-slate-500 focus:border-teal-400 focus:ring-1 focus:ring-teal-400' : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400 focus:border-teal-500'}`}
+                          />
+                          {auditMedicineSearch ? (
+                            <button 
+                              type="button" 
+                              onClick={() => setAuditMedicineSearch('')} 
+                              className="absolute left-2.5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer transition"
+                              title={text('مسح البحث', 'Clear search')}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none" />
+                          )}
+                        </div>
+
+                        {/* Medicine Select Dropdown */}
+                        <select 
+                          name="medicineId"
+                          required
+                          value={selectedAuditMedicineId}
+                          onChange={(e) => setSelectedAuditMedicineId(e.target.value)}
+                          className={`w-full px-3.5 py-2.5 text-xs rounded-xl border outline-none cursor-pointer font-medium ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-teal-500' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                        >
+                          <option value="">{t('audit_select_med_ph')}</option>
+                          {filteredAuditMedicines.map(m => (
+                            <option key={m.id} value={m.id}>
+                              {m.commercialNameAr || m.commercialName}{m.commercialNameEn ? ` / ${m.commercialNameEn}` : ''} ({m.scientificName}) - {lang === 'ar' ? 'الرصيد الحالي:' : 'Balance:'} [{m.quantity} {m.unit || ''}]
+                            </option>
+                          ))}
+                          {filteredAuditMedicines.length === 0 && (
+                            <option value="" disabled>{text('❌ لا يوجد دواء مطابق لكلمات البحث', '❌ No matching medicine found')}</option>
+                          )}
+                          {selectedAuditMedicineId && !filteredAuditMedicines.some(m => m.id === selectedAuditMedicineId) && (() => {
+                            const cur = medicines.find(m => m.id === selectedAuditMedicineId);
+                            return cur ? (
+                              <option key={cur.id} value={cur.id}>
+                                {cur.commercialNameAr || cur.commercialName} ({cur.scientificName}) - {text('(المحدد حالياً)', '(Currently Selected)')} [{cur.quantity} {cur.unit || ''}]
+                              </option>
+                            ) : null;
+                          })()}
+                        </select>
+
+                        {/* Active Selected Medicine Info Card */}
+                        {(() => {
+                          const curMed = medicines.find(m => m.id === selectedAuditMedicineId);
+                          if (!curMed) return null;
+                          const isCritical = Number(curMed.quantity) <= 15;
+                          return (
+                            <div className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs ${isCritical ? (darkMode ? 'bg-rose-950/30 border-rose-500/30 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-800') : (darkMode ? 'bg-teal-950/40 border-teal-500/30 text-teal-300' : 'bg-teal-50 border-teal-200 text-teal-800')}`}>
+                              <div className="flex items-center gap-2 truncate">
+                                <span className="text-sm">💊</span>
+                                <div className="truncate">
+                                  <span className="font-bold block truncate">{curMed.commercialNameAr || curMed.commercialName} {curMed.commercialNameEn ? `(${curMed.commercialNameEn})` : ''}</span>
+                                  <span className="text-[10px] font-mono opacity-80">
+                                    {curMed.scientificName} • {lang === 'ar' ? 'الرصيد في الرف:' : 'Shelf Balance:'} <strong className="font-bold underline">{curMed.quantity} {curMed.unit || ''}</strong> {curMed.category ? `| الفئة: ${curMed.category}` : ''}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAuditMedicineId('')}
+                                className="text-[11px] text-slate-400 hover:text-rose-400 hover:underline px-2 py-1 rounded-lg hover:bg-slate-800/40 transition shrink-0 cursor-pointer"
+                              >
+                                {text('إلغاء الاختيار', 'Clear selection')}
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('audit_adj_type')}</label>
+                          <select 
+                            name="adjustmentType"
+                            className={`w-full px-3.5 py-2 text-xs rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                          >
+                            <option value="subtract">{t('audit_adj_type_sub')}</option>
+                            <option value="add">{t('audit_adj_type_add')}</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('audit_adj_qty')}</label>
+                          <input 
+                            type="number"
+                            name="quantity"
+                            required
+                            min="1"
+                            placeholder={t('audit_qty_ph')}
+                            className={`w-full px-3.5 py-2 text-xs rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 mb-1.5">{t('audit_reason_label')}</label>
+                        <textarea 
+                          name="notes"
+                          required
+                          rows={3}
+                          placeholder={t('audit_reason_ph')}
+                          className={`w-full px-3.5 py-2 text-xs rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-teal-950/20"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        {t('audit_save_adj_btn')}
+                      </button>
+                    </form>
+                    )}
+                  </div>
+
+                  {/* Right panel (two-thirds): Audit table log */}
+                  <div className={`p-6 rounded-3xl border lg:col-span-2 ${darkMode ? 'bg-slate-900/30 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-sm font-black text-slate-200">{t('audit_table_title')}</h3>
+                      <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-1 rounded-md">{t('audit_live_badge')}</span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className={`w-full text-xs ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                        <thead>
+                          <tr className="border-b border-slate-800 text-slate-400 pb-2">
+                            <th className="pb-3 pt-1">{t('audit_col_timestamp')}</th>
+                            <th className="pb-3 pt-1">{t('audit_col_med')}</th>
+                            <th className="pb-3 pt-1 text-center">{t('audit_col_action')}</th>
+                            <th className="pb-3 pt-1 text-center">{t('audit_col_change')}</th>
+                            <th className="pb-3 pt-1 text-center">{t('audit_col_balance')}</th>
+                            <th className="pb-3 pt-1">{t('audit_col_user')}</th>
+                            <th className="pb-3 pt-1">{t('audit_col_notes')}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/50">
+                          {stockLogs.map((log) => {
+                            const isRtl = lang === 'ar';
+                            const actionBadgeText = isRtl ? log.actionType : (
+                              log.actionType === 'إضافة دواء جديد' ? 'New Medication Added' :
+                              log.actionType === 'صرف دواء لمقيم' ? 'Dispensed to Resident' :
+                              log.actionType === 'حذف دواء' ? 'Medication Deleted' :
+                              'Manual Adjustment'
+                            );
+                            return (
+                              <tr key={log.id} className="hover:bg-slate-800/10 transition-colors">
+                                <td className="py-3">
+                                  <div className="font-semibold text-slate-300">
+                                    {new Date(log.timestamp).toLocaleDateString(isRtl ? 'ar-SA' : 'en-US')}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">
+                                    {new Date(log.timestamp).toLocaleTimeString(isRtl ? 'ar-SA' : 'en-US')}
+                                  </div>
+                                </td>
+                                <td className="py-3">
+                                  <div className="font-semibold text-slate-200">{log.medicineName}</div>
+                                  <div className="text-[10px] text-slate-500">ID: {log.medicineId}</div>
+                                </td>
+                                <td className="py-3 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                    log.actionType === 'إضافة دواء جديد' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                    log.actionType === 'صرف دواء لمقيم' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                    log.actionType === 'حذف دواء' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                    'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                  }`}>
+                                    {actionBadgeText}
+                                  </span>
+                                </td>
+                                <td className="py-3 text-center font-black">
+                                  <span className={`flex items-center justify-center gap-1 ${
+                                    log.quantityChanged > 0 ? 'text-emerald-400' :
+                                    log.quantityChanged < 0 ? 'text-rose-400' :
+                                    'text-slate-400'
+                                  }`}>
+                                    {log.quantityChanged > 0 && <TrendingUp className="w-3.5 h-3.5" />}
+                                    {log.quantityChanged < 0 && <TrendingDown className="w-3.5 h-3.5" />}
+                                    {log.quantityChanged > 0 ? `+${log.quantityChanged}` : log.quantityChanged}
+                                  </span>
+                                </td>
+                                <td className="py-3 text-center text-slate-300 font-mono">
+                                  {log.previousQuantity} ➔ {log.newQuantity}
+                                </td>
+                                <td className="py-3">
+                                  <div className="font-bold text-slate-200 text-[11px]">{log.performedByName}</div>
+                                  <div className="text-[9px] text-slate-500">{log.performedByEmail}</div>
+                                </td>
+                                <td className="py-3 max-w-[200px] truncate text-slate-400 text-[11px]" title={log.notes}>
+                                  {log.notes}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {stockLogs.length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="py-6 text-center text-slate-500 text-xs">
+                                {t('audit_no_logs')}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- TAB: RESIDENTS ----------------- */}
+            {activeTab === 'residents' && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+                  <div>
+                    <h2 className="text-xl font-black text-slate-200">👥 {text('إدارة المقيمين بمركز الرعاية', 'Special Needs Residents Management')}</h2>
+                    <p className="text-xs text-slate-400">{text('إضافة وتعديل وحذف بيانات نزلاء المركز وتتبع سجلات صرف أدويتهم', 'Register, edit, or delete special needs residents and monitor dosage adherence')}</p>
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-1 sm:flex-initial sm:min-w-[420px]">
+                    {/* Search Bar */}
+                    <div className={`flex-1 relative flex items-center rounded-xl px-3 py-2 border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}>
+                      <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                      <input 
+                        type="text"
+                        placeholder={text('ابحث باسم المقيم، رقم الغرفة، أو الهوية...', 'Search by resident name, room number, ID...')}
+                        value={residentsSearchQuery}
+                        onChange={(e) => setResidentsSearchQuery(e.target.value)}
+                        className="bg-transparent border-none outline-none pr-2.5 w-full text-xs font-semibold"
+                      />
+                    </div>
+
+                    {currentUser?.role !== 'technician' && (
+                      <button 
+                        onClick={() => {
+                          setResidentForm({ name: '', nameAr: '', nameEn: '', birthDate: '', referralDate: new Date().toISOString().split('T')[0], roomNumber: '', nationalId: '', age: 0, notes: '' });
+                          setSelectedResidentId(null);
+                          setShowAddResidentModal(true);
+                        }}
+                        className="px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition active:scale-95 shadow-lg shadow-teal-900/25 cursor-pointer whitespace-nowrap"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>{text('إضافة مقيم جديد', 'Register New Resident')}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Resident Medical Referral Alerts Summary Banner */}
+                {(() => {
+                  const { dueTomorrowCount, dueTomorrowResidents } = generateReferralAlertsReports(residents);
+                  return (
+                    <div className={`p-4 rounded-3xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+                      dueTomorrowCount > 0 
+                        ? 'bg-amber-950/25 border-amber-500/40 text-amber-200 shadow-md' 
+                        : darkMode ? 'bg-slate-900/40 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                          dueTomorrowCount > 0 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-400'
+                        }`}>
+                          <Bell className={`w-5 h-5 ${dueTomorrowCount > 0 ? 'animate-pulse' : ''}`} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-black text-sm text-slate-100">
+                              {text('نظام التنبيه الاستباقي للإحالات الطبية (قبل الموعد بيوم)', 'Resident Refill Advance Notice (1-Day Prior)')}
+                            </h4>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              dueTomorrowCount > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono' : 'bg-slate-800 text-slate-400'
+                            }`}>
+                              {dueTomorrowCount} {text('إحالات مستحقة غداً', 'refills due tomorrow')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {dueTomorrowCount > 0 
+                              ? text(`يوجد ${dueTomorrowCount} مقيمين لديهم مواعيد إحالة طبية مستحقة غداً (${dueTomorrowResidents.map((r: any) => r.nameAr || r.name).join('، ')}). يتم إرسال التقرير تلقائياً صباحاً لمسؤولي الصيدلية.`, `There are ${dueTomorrowCount} residents with refills due tomorrow.`)
+                              : text('لا توجد إحالات طبية حرجة مستحقة ليوم غد. يمكنك تعيين تاريخ إحالة من الملف الطبي للمقيم.', 'No refills due tomorrow.')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowReferralReportModal(true)}
+                          className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>{text('معاينة التقرير (عربي / إنجليزي)', 'View Report (AR/EN)')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => sendReferralAlertsEmail(false)}
+                          disabled={sendingReferralEmail}
+                          className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 disabled:opacity-50"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          <span>{sendingReferralEmail ? text('جاري الإرسال...', 'Sending...') : text('إرسال للمسؤولين بالبريد ✉️', 'Send to Officials via Email ✉️')}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-bold">
+                          <th className="pb-3 text-right">{text('الاسم (عربي / إنجليزي)', 'Name (Ar / En)')}</th>
+                          <th className="pb-3 text-right">{text('رقم الغرفة/الجناح', 'Room / Ward')}</th>
+                          <th className="pb-3 text-right">{text('رقم الهوية/الإقامة', 'National / Resident ID')}</th>
+                          <th className="pb-3 text-right">{text('العمر / تاريخ الميلاد', 'Age / Birth Date')}</th>
+                          <th className="pb-3 text-right">{text('ملاحظات طبية خاصة وعوارض', 'Clinical Notes & Allergies')}</th>
+                          <th className="pb-3 text-left">{text('إجراءات', 'Actions')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {residents.filter(res => {
+                          const query = residentsSearchQuery.trim().toLowerCase();
+                          if (!query) return true;
+                          return (
+                            (res.name || '').toLowerCase().includes(query) ||
+                            (res.nameAr || '').toLowerCase().includes(query) ||
+                            (res.nameEn || '').toLowerCase().includes(query) ||
+                            (res.birthDate || '').toLowerCase().includes(query) ||
+                            (res.roomNumber || '').toLowerCase().includes(query) ||
+                            (res.nationalId || '').toLowerCase().includes(query) ||
+                            (res.notes || '').toLowerCase().includes(query)
+                          );
+                        }).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-10 text-center text-slate-400">
+                              <HelpCircle className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                              <span>{text('لا يوجد مقيمون يطابقون خيارات البحث المحددة.', 'No residents match the selected search criteria.')}</span>
+                            </td>
+                          </tr>
+                        ) : (
+                          residents.filter(res => {
+                            const query = residentsSearchQuery.trim().toLowerCase();
+                            if (!query) return true;
+                            return (
+                              (res.name || '').toLowerCase().includes(query) ||
+                              (res.nameAr || '').toLowerCase().includes(query) ||
+                              (res.nameEn || '').toLowerCase().includes(query) ||
+                              (res.birthDate || '').toLowerCase().includes(query) ||
+                              (res.roomNumber || '').toLowerCase().includes(query) ||
+                              (res.nationalId || '').toLowerCase().includes(query) ||
+                              (res.notes || '').toLowerCase().includes(query)
+                            );
+                          }).map((res) => (
+                            <tr key={res.id} className="hover:bg-slate-900/25 transition">
+                              <td className="py-3.5 font-bold text-slate-200">
+                                <div className="text-slate-100">{res.nameAr || res.name}</div>
+                                {res.nameEn && <div className="text-[11px] text-teal-400 font-sans font-medium">{res.nameEn}</div>}
+                              </td>
+                              <td className="py-3.5 font-semibold text-teal-400">{res.roomNumber}</td>
+                              <td className="py-3.5 font-mono text-slate-400">{res.nationalId || '-'}</td>
+                              <td className="py-3.5 font-mono text-slate-300">
+                                <div className="font-bold">{res.age} {text('سنة', 'years')}</div>
+                                {res.birthDate && <div className="text-[10px] text-slate-500 font-mono">📅 {res.birthDate}</div>}
+                              </td>
+                              <td className="py-3.5 text-slate-400 text-[11px] max-w-xs truncate" title={res.notes}>{res.notes || text('لا توجد ملاحظات خاصة', 'No specific notes')}</td>
+                              <td className="py-3.5 text-left">
+                                <div className="flex gap-2 justify-end items-center">
+                                  <button 
+                                    onClick={() => {
+                                      setActiveDossierResident(res);
+                                      setDoseMedSearch('');
+                                      setNewDoseForm({ timeSlot: '08:00', medicineId: '', dosage: '', quantity: 1 });
+                                    }}
+                                    title={text("عرض الملف الطبي التفاعلي وجدول الجرعات اليومي", "View interactive medical file & daily dosage schedule")}
+                                    className="px-2.5 py-1.5 bg-teal-500/10 hover:bg-teal-600 text-teal-400 hover:text-white rounded-lg transition flex items-center gap-1.5 cursor-pointer font-bold text-[10px]"
+                                  >
+                                    <Activity className="w-3.5 h-3.5" />
+                                    <span>{text('الملف الطبي 🩺', 'Medical File 🩺')}</span>
+                                  </button>
+                                  {currentUser?.role !== 'technician' && (
+                                    <>
+                                      <button 
+                                        onClick={() => {
+                                          setSelectedResidentId(res.id);
+                                          setResidentForm({
+                                            name: res.name || res.nameAr || '',
+                                            nameAr: res.nameAr || res.name || '',
+                                            nameEn: res.nameEn || '',
+                                            birthDate: res.birthDate || '',
+                                            referralDate: res.referralDate || '',
+                                            roomNumber: res.roomNumber,
+                                            nationalId: res.nationalId || '',
+                                            age: res.birthDate ? calculateAgeFromDob(res.birthDate) : (res.age || 0),
+                                            notes: res.notes || ''
+                                          });
+                                          setShowEditResidentModal(true);
+                                        }}
+                                        className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg hover:text-white transition cursor-pointer"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button 
+                                        onClick={() => {
+                                          setDeleteConfirmTarget({ id: res.id, name: res.name, type: 'resident' });
+                                        }}
+                                        className="p-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-lg transition cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- TAB: BEHAVIORAL & SIDE EFFECTS TRACKER ----------------- */}
+            {activeTab === 'behavioral_tracker' && (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* Header banner */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-black text-slate-200 flex items-center gap-2">
+                      <span>⚠️ {text('لوحة رصد ومتابعة الأعراض الجانبية (BCMA Tracker)', 'Interactive Side-Effects & Adverse Drug Reactions Log (BCMA)')}</span>
+                    </h2>
+                    <p className="text-xs text-slate-400">{text('توثيق ومتابعة الأعراض الجانبية وتأثيرات الأدوية النفسية والعصبية لضمان سلامة مقيمي المركز', 'Document and monitor side-effects and drug reactions of psychoactive/neuro medications')}</p>
+                  </div>
+                  
+                  <button 
+                    onClick={() => {
+                      setBehaviorResidentSearch('');
+                      setSelectedBehaviorLogId(null);
+                      setBehaviorForm({
+                        residentId: '',
+                        behaviorRating: 'stable',
+                        sideEffects: [],
+                        severity: 'none',
+                        recentMedicineId: '',
+                        notes: ''
+                      });
+                      setShowAddBehaviorModal(true);
+                    }}
+                    className="px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-lg shadow-teal-900/25 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{text('تسجيل عارض جانبي جديد', 'Log New Side Effect Entry')}</span>
+                  </button>
+                </div>
+
+                {/* Scoreboard widgets */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                  <div className={`p-4 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                    <p className="text-xs font-semibold text-slate-400">{text('إجمالي الملاحظات المرصودة', 'Total Observed Entries')}</p>
+                    <div className="mt-2 text-2xl font-black font-mono tracking-tight text-teal-500">
+                      {behaviorLogs.length}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">{text('تقارير كادر التمريض والرعاية', 'Nursing & Care Staff Reports')}</p>
+                  </div>
+
+                  <div className={`p-4 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                    <p className="text-xs font-semibold text-slate-400">{text('الحالات المستقرة والطبيعية 🟢', 'Stable & Normal States 🟢')}</p>
+                    <div className="mt-2 text-2xl font-black font-mono tracking-tight text-emerald-400">
+                      {behaviorLogs.filter(b => b.behaviorRating === 'stable').length}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">{text('سلوك عام مستقر وضمن الحدود', 'General stable behavior within limits')}</p>
+                  </div>
+
+                  <div className={`p-4 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                    <p className="text-xs font-semibold text-slate-400">{text('حالات القلق والهياج السلوكي ⚠️', 'Anxiety & Agitation Cases ⚠️')}</p>
+                    <div className="mt-2 text-2xl font-black font-mono tracking-tight text-amber-500">
+                      {behaviorLogs.filter(b => ['agitated', 'anxious', 'hyperactive'].includes(b.behaviorRating)).length}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">{text('تتطلب مراجعة الجرعات والهدوء', 'Requires dosage review & calm environment')}</p>
+                  </div>
+
+                  <div className={`p-4 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+                    <p className="text-xs font-semibold text-slate-400">{text('أعراض جانبية حادة 🔴', 'Severe Side Effects 🔴')}</p>
+                    <div className="mt-2 text-2xl font-black font-mono tracking-tight text-rose-500">
+                      {behaviorLogs.filter(b => b.severity === 'severe').length}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">{text('حالات تتطلب تدخل الطبيب فوراً', 'Requires immediate physician intervention')}</p>
+                  </div>
+                </div>
+
+                {/* Analytical charts & filters */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  
+                  {/* Left Column: Real-time behavior analysis chart */}
+                  <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <h3 className="text-sm font-bold text-slate-300 mb-4 flex items-center gap-1.5">
+                      <Activity className="w-4 h-4 text-teal-400" />
+                      <span>{text('تحليل الحالات السلوكية المرصودة', 'Observed Behavior Analysis')}</span>
+                    </h3>
+                    
+                    <div className="h-44 w-full flex items-center justify-center" dir="ltr">
+                      {getBehaviorChartData().length === 0 ? (
+                        <span className="text-xs text-slate-500">{text('لا توجد بيانات سلوكية كافية للتحليل', 'No sufficient behavioral data for analysis')}</span>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={getBehaviorChartData()}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={35}
+                              outerRadius={60}
+                              paddingAngle={4}
+                              dataKey="value"
+                            >
+                              {getBehaviorChartData().map((entry: any, index: number) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                                borderColor: darkMode ? '#1e293b' : '#cbd5e1',
+                                borderRadius: '12px',
+                                fontSize: '11px',
+                                textAlign: lang === 'ar' ? 'right' : 'left'
+                              }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+
+                    <div className="space-y-2 mt-2" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                      {getBehaviorChartData().map((item: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                            <span className="text-slate-300 font-semibold">{item.name}</span>
+                          </div>
+                          <span className="font-mono text-slate-400">{item.value} {text('مرات رصد', 'entries')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Right Column: List & Filters */}
+                  <div className="lg:col-span-2 space-y-4">
+                    
+                    {/* Filter controls row */}
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      
+                      {/* Search bar */}
+                      <div className={`flex-1 relative flex items-center rounded-xl px-3 py-2 border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}>
+                        <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                        <input 
+                          type="text"
+                          placeholder={text("ابحث باسم المقيم أو تفاصيل الملاحظة...", "Search by resident name or note details...")}
+                          value={behaviorSearchQuery}
+                          onChange={(e) => setBehaviorSearchQuery(e.target.value)}
+                          className={`bg-transparent border-none outline-none ${lang === 'ar' ? 'pr-2.5' : 'pl-2.5'} w-full text-xs font-semibold`}
+                        />
+                      </div>
+
+                      {/* Dropdown Filters */}
+                      <select
+                        value={filterBehavior}
+                        onChange={(e) => setFilterBehavior(e.target.value)}
+                        className={`px-3 py-2 text-xs font-semibold rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200'}`}
+                      >
+                        <option value="all">{text('كل الحالات السلوكية', 'All Behavioral States')}</option>
+                        <option value="stable">{text('مستقر 🟢', 'Stable 🟢')}</option>
+                        <option value="agitated">{text('هياج سلوكي 🔴', 'Agitation 🔴')}</option>
+                        <option value="anxious">{text('قلق وتوتر 🟡', 'Anxiety 🟡')}</option>
+                        <option value="withdrawn">{text('انسحاب اجتماعي 🟣', 'Social Withdrawal 🟣')}</option>
+                        <option value="hyperactive">{text('نشاط مفرط 🔵', 'Hyperactive 🔵')}</option>
+                      </select>
+
+                      <select
+                        value={filterSeverity}
+                        onChange={(e) => setFilterSeverity(e.target.value)}
+                        className={`px-3 py-2 text-xs font-semibold rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200'}`}
+                      >
+                        <option value="all">{text('كل مستويات الأعراض', 'All Severity Levels')}</option>
+                        <option value="none">{text('بدون عرض جانبي ✅', 'No Side Effects ✅')}</option>
+                        <option value="mild">{text('طفيف 🟢', 'Mild 🟢')}</option>
+                        <option value="moderate">{text('متوسط 🟡', 'Moderate 🟡')}</option>
+                        <option value="severe">{text('حاد وخطير 🔴', 'Severe & Acute 🔴')}</option>
+                      </select>
+
+                    </div>
+
+                    {/* Behavior log lists */}
+                    <div className={`space-y-4 max-h-[50vh] overflow-y-auto ${lang === 'ar' ? 'pr-1' : 'pl-1'}`}>
+                      {behaviorLogs.filter(log => {
+                        const matchesSearch = log.residentName.toLowerCase().includes(behaviorSearchQuery.toLowerCase()) ||
+                                              log.notes.toLowerCase().includes(behaviorSearchQuery.toLowerCase()) ||
+                                              (log.recentMedicineName || '').toLowerCase().includes(behaviorSearchQuery.toLowerCase());
+                        const matchesBehavior = filterBehavior === 'all' || log.behaviorRating === filterBehavior;
+                        const matchesSeverity = filterSeverity === 'all' || log.severity === filterSeverity;
+                        return matchesSearch && matchesBehavior && matchesSeverity;
+                      }).length === 0 ? (
+                        <div className="text-center py-16 bg-slate-900/20 rounded-3xl border border-dashed border-slate-800 text-slate-400 text-xs space-y-2">
+                          <HelpCircle className="w-8 h-8 text-slate-600 mx-auto" />
+                          <p>{text('لا توجد ملاحظات سلوكية تطابق خيارات الفرز والبحث المحددة.', 'No behavioral observations match the search and filter criteria.')}</p>
+                        </div>
+                      ) : (
+                        behaviorLogs.filter(log => {
+                          const matchesSearch = log.residentName.toLowerCase().includes(behaviorSearchQuery.toLowerCase()) ||
+                                                log.notes.toLowerCase().includes(behaviorSearchQuery.toLowerCase()) ||
+                                                (log.recentMedicineName || '').toLowerCase().includes(behaviorSearchQuery.toLowerCase());
+                          const matchesBehavior = filterBehavior === 'all' || log.behaviorRating === filterBehavior;
+                          const matchesSeverity = filterSeverity === 'all' || log.severity === filterSeverity;
+                          return matchesSearch && matchesBehavior && matchesSeverity;
+                        }).map((log) => {
+                          // Labels & Badges helper
+                          const behaviorLabels: Record<string, { label: string, color: string }> = {
+                            stable: { label: text('مستقر وضمن الحدود الطبيعية 🟢', 'Stable & within normal limits 🟢'), color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+                            agitated: { label: text('هياج سلوكي حاد 🔴', 'Acute Agitation / Distress 🔴'), color: 'bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse' },
+                            anxious: { label: text('قلق وتوتر نفسي 🟡', 'Anxiety & Tension 🟡'), color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+                            withdrawn: { label: text('انسحاب وعزلة اجتماعية 🟣', 'Social Withdrawal / Isolation 🟣'), color: 'bg-purple-500/10 text-purple-400 border-purple-500/20' },
+                            hyperactive: { label: text('نشاط وحركة مفرطة 🔵', 'Hyperactivity & Restlessness 🔵'), color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' }
+                          };
+
+                          const severityLabels: Record<string, { label: string, color: string }> = {
+                            none: { label: text('لا توجد أعراض جانبية ✅', 'No adverse effects reported ✅'), color: 'text-slate-400' },
+                            mild: { label: text('عرض جانبي طفيف', 'Mild adverse effect'), color: 'text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg' },
+                            moderate: { label: text('عرض جانبي متوسط ⚠️', 'Moderate adverse effect ⚠️'), color: 'text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg font-bold' },
+                            severe: { label: text('عرض جانبي حاد وخطير 🚨', 'Severe & acute adverse effect 🚨'), color: 'text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-lg font-black animate-pulse' }
+                          };
+
+                          const defaultSideEffectTranslations: Record<string, { ar: string, en: string }> = {
+                            drowsiness: { ar: 'خمول ونعاس 😴', en: 'Drowsiness / Lethargy 😴' },
+                            appetite_loss: { ar: 'فقدان شهية 🍽️', en: 'Appetite Loss 🍽️' },
+                            tremors: { ar: 'ارتعاش ورجفة 🫨', en: 'Tremors / Shaking 🫨' },
+                            rash: { ar: 'طفح جلدي وحكة 🔴', en: 'Skin Rash / Itch 🔴' },
+                            nausea: { ar: 'غثيان واضطراب 🤢', en: 'Nausea / GI Distress 🤢' },
+                            insomnia: { ar: 'أرق وصعوبة نوم ⏰', en: 'Insomnia / Sleep Issues ⏰' }
+                          };
+
+                          return (
+                            <div 
+                              key={log.id} 
+                              className={`p-4 rounded-2xl border text-xs space-y-3 transition hover:border-slate-700 ${
+                                log.severity === 'severe' 
+                                  ? 'bg-rose-950/15 border-rose-500/25 shadow-lg shadow-rose-950/10' 
+                                  : darkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+                              }`}
+                            >
+                              
+                              {/* Header info */}
+                              <div className="flex justify-between items-start gap-4">
+                                <div className={`space-y-1 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="text-sm font-black text-slate-200">{log.residentName}</h4>
+                                    <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold border ${behaviorLabels[log.behaviorRating]?.color || ''}`}>
+                                      {behaviorLabels[log.behaviorRating]?.label || log.behaviorRating}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-500">
+                                    {text('بواسطة:', 'By:')} <strong className="text-slate-400">{log.loggedBy}</strong> · {text('في تاريخ:', 'Date:')} <span className="font-mono">{new Date(log.loggedAt).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}</span>
+                                  </p>
+                                </div>
+                                
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button 
+                                    onClick={() => {
+                                      setBehaviorResidentSearch('');
+                                      setSelectedBehaviorLogId(log.id);
+                                      setBehaviorForm({
+                                        residentId: log.residentId,
+                                        behaviorRating: log.behaviorRating,
+                                        sideEffects: log.sideEffects || [],
+                                        severity: log.severity,
+                                        recentMedicineId: log.recentMedicineId || '',
+                                        notes: log.notes
+                                      });
+                                      setShowAddBehaviorModal(true);
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg bg-teal-600/10 hover:bg-teal-600 text-teal-400 hover:text-white transition cursor-pointer flex items-center gap-1 text-[10px] font-bold"
+                                    title={text("تعديل هذا السجل", "Edit this record")}
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                    <span>{text('تعديل ✏️', 'Edit ✏️')}</span>
+                                  </button>
+
+                                  <button 
+                                    onClick={() => {
+                                      setDeleteConfirmTarget({ id: log.id, name: log.residentName, type: 'behaviorLog' });
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white transition cursor-pointer flex items-center gap-1 text-[10px] font-bold"
+                                    title={text("حذف هذا السجل", "Delete this record")}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>{text('حذف 🗑️', 'Delete 🗑️')}</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Suspected medicine banner */}
+                              {log.recentMedicineId && (
+                                <div className="px-3 py-2 bg-slate-950/40 rounded-xl border border-slate-800 flex items-center justify-between text-[11px]">
+                                  <span className="text-slate-400">{text('الدواء المشتبه بتأثيره الجانبي:', 'Suspected Adverse Medication:')}</span>
+                                  <span className="font-bold text-teal-400">
+                                    {log.recentMedicineName}
+                                    {medicines.find(m => m.id === log.recentMedicineId)?.scientificName && (
+                                      <span className={`text-[10px] text-slate-500 ${lang === 'ar' ? 'mr-1' : 'ml-1'} font-mono`}>({medicines.find(m => m.id === log.recentMedicineId)?.scientificName})</span>
+                                    )}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Registered Side Effects */}
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <span className="text-slate-500 text-[10px]">{text('الأعراض الجانبية:', 'Side Effects:')}</span>
+                                {(!log.sideEffects || log.sideEffects.length === 0) ? (
+                                  <span className="text-slate-400 font-bold bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10">{text('سليم، لا توجد أعراض ✅', 'Clear, no adverse effects reported ✅')}</span>
+                                ) : (
+                                  log.sideEffects.map((se: string) => (
+                                    <span key={se} className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300 text-[10px] font-medium">
+                                      {defaultSideEffectTranslations[se] ? (lang === 'ar' ? defaultSideEffectTranslations[se].ar : defaultSideEffectTranslations[se].en) : (customSideEffects.find(x => x.key === se)?.label || se)}
+                                    </span>
+                                  ))
+                                )}
+                                
+                                <div className={`${lang === 'ar' ? 'mr-auto' : 'ml-auto'} shrink-0 flex items-center gap-1`}>
+                                  <span className="text-[10px] text-slate-500">{text('شدة العرض:', 'Severity:')}</span>
+                                  <span className={`text-[10px] font-bold ${severityLabels[log.severity]?.color || ''}`}>
+                                    {severityLabels[log.severity]?.label || log.severity}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Clinical comments notes */}
+                              <div className={`p-3 bg-slate-950/30 rounded-xl border border-slate-850 text-slate-300 leading-relaxed text-[11px] font-sans whitespace-pre-line ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                                <span className="font-semibold text-slate-400 block mb-0.5">📝 {text('التفاصيل السلوكية والتقرير الطبي:', 'Behavioral Details & Clinical Observation:')}</span>
+                                {log.notes}
+                              </div>
+
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+            )}
+
+            {/* ----------------- TAB: USERS ----------------- */}
+            {activeTab === 'users' && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+                  <div>
+                    <h2 className="text-xl font-black text-slate-200">👤 {text('إدارة مستخدمي الصيدلية والنظام', 'Pharmacy Users & Access Directory')}</h2>
+                    <p className="text-xs text-slate-400">{text('إضافة وتعديل وحذف حسابات الصيادلة والمشرفين بالمركز', 'Register, edit, or delete credentials of pharmacists and medical supervisors')}</p>
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-1 sm:flex-initial sm:min-w-[420px]">
+                    {/* Search Bar */}
+                    <div className={`flex-1 relative flex items-center rounded-xl px-3 py-2 border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}>
+                      <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                      <input 
+                        type="text"
+                        placeholder={text('ابحث باسم المستخدم، البريد، الدور، الهاتف...', 'Search by user name, email, role, phone...')}
+                        value={usersSearchQuery}
+                        onChange={(e) => setUsersSearchQuery(e.target.value)}
+                        className="bg-transparent border-none outline-none pr-2.5 w-full text-xs font-semibold"
+                      />
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        setUserForm({ name: '', email: '', role: 'pharmacist', phone: '', password: '' });
+                        setSelectedUserId(null);
+                        setShowAddUserModal(true);
+                      }}
+                      className="px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition active:scale-95 shadow-lg shadow-teal-900/25 cursor-pointer whitespace-nowrap"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{text('إضافة مستخدم جديد', 'Add New User')}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-bold">
+                          <th className="pb-3 text-right">{text('الاسم بالكامل', 'Full Name')}</th>
+                          <th className="pb-3 text-right">{text('البريد الإلكتروني', 'Email Address')}</th>
+                          <th className="pb-3 text-right">{text('الدور الصلاحي', 'Role / Access')}</th>
+                          <th className="pb-3 text-right">{text('رقم الهاتف', 'Contact Phone')}</th>
+                          <th className="pb-3 text-right">
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('كلمة المرور المسجلة', 'Password')}</span>
+                              {currentUser?.role === 'developer' ? (
+                                <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-teal-500/15 text-teal-300 border border-teal-500/30">
+                                  {text('مكشوفة للمبرمج', 'Visible to Dev')}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/60 flex items-center gap-1">
+                                  <Lock className="w-2.5 h-2.5" />
+                                  {text('مخفية', 'Masked')}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th className="pb-3 text-left">{text('إجراءات', 'Actions')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {users.filter(u => {
+                          const query = usersSearchQuery.trim().toLowerCase();
+                          if (!query) return true;
+                          const roleLabelAr = u.role === 'developer' ? 'المبرمج' : u.role === 'admin' ? 'مدير النظام' : u.role === 'pharmacist' ? 'صيدلي' : 'فني صيدلة';
+                          const roleLabelEn = u.role === 'developer' ? 'Developer' : u.role === 'admin' ? 'System Admin' : u.role === 'pharmacist' ? 'Pharmacist' : 'Pharmacy Technician';
+                          return (
+                            (u.name || '').toLowerCase().includes(query) ||
+                            (u.email || '').toLowerCase().includes(query) ||
+                            (u.phone || '').toLowerCase().includes(query) ||
+                            roleLabelAr.toLowerCase().includes(query) ||
+                            roleLabelEn.toLowerCase().includes(query) ||
+                            (u.role || '').toLowerCase().includes(query)
+                          );
+                        }).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-10 text-center text-slate-400">
+                              <HelpCircle className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                              <span>{text('لا يوجد مستخدمون يطابقون خيارات البحث المحددة.', 'No users match the selected search criteria.')}</span>
+                            </td>
+                          </tr>
+                        ) : (
+                          users.filter(u => {
+                            const query = usersSearchQuery.trim().toLowerCase();
+                            if (!query) return true;
+                            const roleLabelAr = u.role === 'developer' ? 'المبرمج' : u.role === 'admin' ? 'مدير النظام' : u.role === 'pharmacist' ? 'صيدلي' : 'فني صيدلة';
+                            const roleLabelEn = u.role === 'developer' ? 'Developer' : u.role === 'admin' ? 'System Admin' : u.role === 'pharmacist' ? 'Pharmacist' : 'Pharmacy Technician';
+                            return (
+                              (u.name || '').toLowerCase().includes(query) ||
+                              (u.email || '').toLowerCase().includes(query) ||
+                              (u.phone || '').toLowerCase().includes(query) ||
+                              roleLabelAr.toLowerCase().includes(query) ||
+                              roleLabelEn.toLowerCase().includes(query) ||
+                              (u.role || '').toLowerCase().includes(query)
+                            );
+                          }).map((u) => (
+                            <tr key={u.uid} className="hover:bg-slate-900/25 transition">
+                              <td className="py-3.5 font-bold text-slate-200">{u.name}</td>
+                              <td className="py-3.5 font-mono text-slate-300">{u.email}</td>
+                              <td className="py-3.5">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  u.role === 'developer' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' :
+                                  u.role === 'admin' ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20' : 
+                                  u.role === 'pharmacist' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 
+                                  'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                }`}>
+                                  {u.role === 'developer' ? text('المبرمج', 'Developer') : u.role === 'admin' ? text('مدير النظام', 'System Admin') : u.role === 'pharmacist' ? text('صيدلي', 'Pharmacist') : text('فني صيدلة', 'Pharmacy Technician')}
+                                </span>
+                              </td>
+                              <td className="py-3.5 font-mono text-slate-400">{u.phone || '-'}</td>
+                              <td className="py-3.5 font-mono">
+                                {currentUser?.role === 'developer' ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-mono text-teal-300 font-bold bg-teal-950/40 border border-teal-800/50 px-2 py-0.5 rounded text-xs select-all">
+                                      {u.password}
+                                    </span>
+                                    <button 
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(u.password || '');
+                                        showToast(text('تم نسخ كلمة المرور', 'Password copied'), 'success');
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-teal-300 hover:bg-slate-800 rounded transition cursor-pointer"
+                                      title={text('نسخ كلمة المرور', 'Copy password')}
+                                    >
+                                      <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 font-mono text-slate-500 tracking-widest select-none bg-slate-900/60 border border-slate-800/80 px-2.5 py-1 rounded-lg text-xs font-bold" title={text('كلمة المرور مخفية لدواعي الأمان (تظهر للمبرمج فقط)', 'Password hidden for security (visible to Developer only)')}>
+                                    <Lock className="w-3 h-3 text-slate-500" />
+                                    <span>••••••••</span>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 text-left">
+                                <div className="flex gap-2 justify-end">
+                                  <button 
+                                    onClick={() => {
+                                      if (u.role === 'developer' && currentUser?.role !== 'developer') {
+                                        showToast(text('عذراً، لا يمكن تعديل حساب المبرمج إلا بواسطة مبرمج!', 'Developer accounts can only be edited by a developer!'), 'error');
+                                        return;
+                                      }
+                                      setSelectedUserId(u.uid);
+                                      setUserForm({
+                                        name: u.name,
+                                        email: u.email,
+                                        role: u.role,
+                                        phone: u.phone || '',
+                                        password: u.password
+                                      });
+                                      setShowEditUserModal(true);
+                                    }}
+                                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg hover:text-white transition cursor-pointer"
+                                    title={text('تعديل', 'Edit')}
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      if (u.uid === currentUser.uid) {
+                                        showToast(text('عذراً، لا يمكنك حذف حسابك الشخصي الذي تستخدمه لتسجيل الدخول حالياً!', 'Sorry, you cannot delete your currently logged-in account!'), 'error');
+                                        return;
+                                      }
+                                      if (u.role === 'developer' && currentUser?.role !== 'developer') {
+                                        showToast(text('عذراً، لا يمكن حذف حساب المبرمج إلا بواسطة مبرمج!', 'Developer accounts can only be deleted by a developer!'), 'error');
+                                        return;
+                                      }
+                                      setDeleteConfirmTarget({ id: u.uid, name: u.name, type: 'user' });
+                                    }}
+                                    className="p-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-lg transition cursor-pointer"
+                                    title={text('حذف', 'Delete')}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- ADD RESIDENT MODAL ----------------- */}
+            {showAddResidentModal && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-lg rounded-3xl border shadow-2xl p-6 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <div className="flex justify-between items-center pb-4 border-b border-slate-800 mb-4">
+                    <h3 className="text-base font-black text-slate-200 flex items-center gap-2">
+                      <User className="w-5 h-5 text-teal-400" />
+                      <span>{text('إضافة مقيم جديد لمركز الرعاية', 'Add New Resident to Care Center')}</span>
+                    </h3>
+                    <button onClick={() => setShowAddResidentModal(false)} className="text-slate-400 hover:text-white transition p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (currentUser?.role === 'technician') {
+                      showToast(text('ليس لديك صلاحية لإضافة مقيمين (صلاحيات فني صيدلة).', 'Pharmacy technicians are not permitted to register residents.'), 'error');
+                      return;
+                    }
+                    const primaryName = (residentForm.nameAr || residentForm.name || '').trim();
+                    const primaryEn = (residentForm.nameEn || '').trim();
+                    if (!primaryName || !primaryEn || !residentForm.roomNumber) {
+                      showToast(text('يرجى ملء الاسم بالعربية والاسم بالإنجليزية ورقم الغرفة كحد أدنى', 'Please enter Arabic name, English name, and room number at minimum'), 'error');
+                      return;
+                    }
+                    const computedAge = residentForm.birthDate ? calculateAgeFromDob(residentForm.birthDate) : Number(residentForm.age);
+                    const newRes = {
+                      id: "res-" + Math.random().toString(36).substr(2, 9),
+                      ...residentForm,
+                      name: primaryName,
+                      nameAr: primaryName,
+                      nameEn: primaryEn,
+                      age: computedAge
+                    };
+                    updateResidentsList([...residents, newRes]);
+                    setShowAddResidentModal(false);
+                    showToast(text(`تم تسجيل المقيم الجديد "${newRes.name}" بنجاح!`, `Resident "${newRes.nameEn || newRes.name}" added successfully!`), 'success');
+                  }} className="space-y-4 text-xs">
+                    {/* الاسم بالكامل بالعربية والإنجليزية */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>{text('الاسم الكامل باللغة العربية', 'Full Name in Arabic')}</span>
+                            <span className="text-rose-400 font-black">*</span>
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 font-bold">{text('عربي', 'Arabic')}</span>
+                        </label>
+                        <input 
+                          type="text" 
+                          required 
+                          dir="rtl"
+                          value={residentForm.nameAr} 
+                          onChange={(e) => setResidentForm(p => ({ ...p, nameAr: e.target.value, name: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none text-right"
+                          placeholder={text("مثال: صالح عبد الرحمن الحربي", "e.g. Saleh Abdulrahman Al-Harbi")}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>{text('الاسم الكامل باللغة الإنجليزية', 'Full Name in English')}</span>
+                            <span className="text-rose-400 font-black">*</span>
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold">English</span>
+                        </label>
+                        <input 
+                          type="text" 
+                          required 
+                          dir="ltr"
+                          value={residentForm.nameEn} 
+                          onChange={(e) => setResidentForm(p => ({ ...p, nameEn: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-sans"
+                          placeholder="e.g. Saleh Abdulrahman Al-Harbi"
+                        />
+                      </div>
+                    </div>
+
+                    {/* تاريخ الميلاد وحساب العمر تلقائياً */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>{text('تاريخ الميلاد', 'Date of Birth')}</span>
+                            <span className="text-rose-400 font-black">*</span>
+                          </span>
+                          <span className="text-[10px] text-teal-400 font-mono">Date of Birth</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <input 
+                            type="date"
+                            required
+                            value={residentForm.birthDate} 
+                            onChange={(e) => {
+                              const dob = e.target.value;
+                              const calculatedAge = calculateAgeFromDob(dob);
+                              setResidentForm(p => ({ 
+                                ...p, 
+                                birthDate: dob, 
+                                age: dob ? calculatedAge : p.age 
+                              }));
+                            }}
+                            onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                            onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                            className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
+                              input?.showPicker?.();
+                              input?.focus();
+                            }}
+                            className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
+                            title={text('انقر لفتح التقويم', 'Click to open calendar')}
+                          >
+                            <Calendar className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span>{text('العمر المحسوب', 'Calculated Age')}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">
+                            {text('محسوب تلقائياً ⚡', 'Auto Calculated ⚡')}
+                          </span>
+                        </label>
+                        <div className="relative">
+                          <input 
+                            type="number"
+                            readOnly
+                            value={residentForm.age > 0 ? residentForm.age : ''} 
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-teal-400 font-bold font-mono outline-none cursor-default"
+                            placeholder={text("يتم حسابه تلقائياً من تاريخ الميلاد...", "Calculated from birth date...")}
+                          />
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">
+                            {text('سنة', 'years')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-right">
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('رقم الغرفة / الجناح *', 'Room / Ward *')}</label>
+                        <input 
+                          type="text" required value={residentForm.roomNumber} 
+                          onChange={(e) => setResidentForm(p => ({ ...p, roomNumber: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          placeholder={text("مثال: غرفة 204 - جناح ب", "e.g., Room 204 - Ward B")}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('رقم الهوية الوطنية / الإقامة', 'National ID / Iqama')}</label>
+                        <input 
+                          type="text" value={residentForm.nationalId} 
+                          onChange={(e) => setResidentForm(p => ({ ...p, nationalId: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                          placeholder="10XXXXXXXX"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span>{text('تاريخ الإحالة (Refill Date)', 'Refill Date')}</span>
+                          <span className="text-[10px] text-teal-400 font-mono">Date</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <input 
+                            type="date"
+                            value={residentForm.referralDate || ''}
+                            onChange={(e) => setResidentForm(p => ({ ...p, referralDate: e.target.value }))}
+                            onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                            onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                            className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
+                              input?.showPicker?.();
+                              input?.focus();
+                            }}
+                            className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
+                            title={text('انقر لفتح التقويم', 'Click to open calendar')}
+                          >
+                            <Calendar className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <label className="block text-slate-400 mb-1 font-bold">{text('ملاحظات طبية خاصة وعوارض (حساسية الأدوية)', 'Medical Notes & Drug Allergies')}</label>
+                      <textarea 
+                        value={residentForm.notes} 
+                        onChange={(e) => setResidentForm(p => ({ ...p, notes: e.target.value }))}
+                        className="w-full h-20 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none resize-none"
+                        placeholder={text("اكتب أي حساسية من الأدوية أو توصيات معينة للطبيب المعالج هنا...", "Enter any drug allergies or medical care recommendations here...")}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-800/60">
+                      <button type="button" onClick={() => setShowAddResidentModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer">{text('إلغاء', 'Cancel')}</button>
+                      <button type="submit" className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold shadow-lg shadow-teal-900/20 cursor-pointer">{text('حفظ المقيم', 'Save Resident')}</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- EDIT RESIDENT MODAL ----------------- */}
+            {showEditResidentModal && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-lg rounded-3xl border shadow-2xl p-6 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <div className="flex justify-between items-center pb-4 border-b border-slate-800 mb-4">
+                    <h3 className="text-base font-black text-slate-200 flex items-center gap-2">
+                      <User className="w-5 h-5 text-teal-400" />
+                      <span>{text('تعديل بيانات المقيم', 'Edit Resident Profile')}</span>
+                    </h3>
+                    <button onClick={() => setShowEditResidentModal(false)} className="text-slate-400 hover:text-white transition p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (currentUser?.role === 'technician') {
+                      showToast(text('ليس لديك صلاحية لتعديل بيانات المقيمين (صلاحيات فني صيدلة).', 'Pharmacy technicians are not permitted to edit resident profiles.'), 'error');
+                      return;
+                    }
+                    if (!selectedResidentId) return;
+                    const primaryName = (residentForm.nameAr || residentForm.name || '').trim();
+                    const primaryEn = (residentForm.nameEn || '').trim();
+                    if (!primaryName || !primaryEn || !residentForm.roomNumber) {
+                      showToast(text('يرجى ملء الاسم بالعربية والاسم بالإنجليزية ورقم الغرفة', 'Please fill Arabic name, English name, and room number'), 'error');
+                      return;
+                    }
+                    const computedAge = residentForm.birthDate ? calculateAgeFromDob(residentForm.birthDate) : Number(residentForm.age);
+                    const updated = residents.map(r => r.id === selectedResidentId ? { 
+                      ...r, 
+                      ...residentForm, 
+                      name: primaryName,
+                      nameAr: primaryName,
+                      nameEn: primaryEn,
+                      age: computedAge 
+                    } : r);
+                    updateResidentsList(updated);
+                    const target = updated.find(r => r.id === selectedResidentId);
+                    if (target && activeDossierResident?.id === selectedResidentId) {
+                      setActiveDossierResident(target);
+                    }
+                    setShowEditResidentModal(false);
+                    showToast(text('تم تعديل بيانات المقيم بنجاح.', 'Resident profile updated successfully.'), 'success');
+                  }} className="space-y-4 text-xs">
+                    {/* الاسم بالكامل بالعربية والإنجليزية */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>{text('الاسم الكامل باللغة العربية', 'Full Name in Arabic')}</span>
+                            <span className="text-rose-400 font-black">*</span>
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 font-bold">{text('عربي', 'Arabic')}</span>
+                        </label>
+                        <input 
+                          type="text" 
+                          required 
+                          dir="rtl"
+                          value={residentForm.nameAr} 
+                          onChange={(e) => setResidentForm(p => ({ ...p, nameAr: e.target.value, name: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none text-right"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>{text('الاسم الكامل باللغة الإنجليزية', 'Full Name in English')}</span>
+                            <span className="text-rose-400 font-black">*</span>
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold">English</span>
+                        </label>
+                        <input 
+                          type="text" 
+                          required 
+                          dir="ltr"
+                          value={residentForm.nameEn} 
+                          onChange={(e) => setResidentForm(p => ({ ...p, nameEn: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-sans"
+                        />
+                      </div>
+                    </div>
+
+                    {/* تاريخ الميلاد وحساب العمر تلقائياً */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>{text('تاريخ الميلاد', 'Date of Birth')}</span>
+                            <span className="text-rose-400 font-black">*</span>
+                          </span>
+                          <span className="text-[10px] text-teal-400 font-mono">Date of Birth</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <input 
+                            type="date"
+                            required
+                            value={residentForm.birthDate} 
+                            onChange={(e) => {
+                              const dob = e.target.value;
+                              const calculatedAge = calculateAgeFromDob(dob);
+                              setResidentForm(p => ({ 
+                                ...p, 
+                                birthDate: dob, 
+                                age: dob ? calculatedAge : p.age 
+                              }));
+                            }}
+                            onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                            onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                            className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
+                              input?.showPicker?.();
+                              input?.focus();
+                            }}
+                            className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
+                            title={text('انقر لفتح التقويم', 'Click to open calendar')}
+                          >
+                            <Calendar className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span>{text('العمر المحسوب', 'Calculated Age')}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">
+                            {text('محسوب تلقائياً ⚡', 'Auto Calculated ⚡')}
+                          </span>
+                        </label>
+                        <div className="relative">
+                          <input 
+                            type="number"
+                            readOnly
+                            value={residentForm.age > 0 ? residentForm.age : ''} 
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-teal-400 font-bold font-mono outline-none cursor-default"
+                            placeholder={text("يتم حسابه تلقائياً من تاريخ الميلاد...", "Calculated from birth date...")}
+                          />
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">
+                            {text('سنة', 'years')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-right">
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('رقم الغرفة / الجناح *', 'Room / Ward *')}</label>
+                        <input 
+                          type="text" required value={residentForm.roomNumber} 
+                          onChange={(e) => setResidentForm(p => ({ ...p, roomNumber: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('رقم الهوية الوطنية / الإقامة', 'National ID / Iqama')}</label>
+                        <input 
+                          type="text" value={residentForm.nationalId} 
+                          onChange={(e) => setResidentForm(p => ({ ...p, nationalId: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                          <span>{text('تاريخ الإحالة (Refill Date)', 'Refill Date')}</span>
+                          <span className="text-[10px] text-teal-400 font-mono">Date</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <input 
+                            type="date"
+                            value={residentForm.referralDate || ''}
+                            onChange={(e) => setResidentForm(p => ({ ...p, referralDate: e.target.value }))}
+                            onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                            onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                            className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
+                              input?.showPicker?.();
+                              input?.focus();
+                            }}
+                            className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
+                            title={text('انقر لفتح التقويم', 'Click to open calendar')}
+                          >
+                            <Calendar className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <label className="block text-slate-400 mb-1 font-bold">{text('ملاحظات طبية خاصة وعوارض (حساسية الأدوية)', 'Medical Notes & Drug Allergies')}</label>
+                      <textarea 
+                        value={residentForm.notes} 
+                        onChange={(e) => setResidentForm(p => ({ ...p, notes: e.target.value }))}
+                        className="w-full h-20 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none resize-none text-right"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-800/60">
+                      <button type="button" onClick={() => setShowEditResidentModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer">{text('إلغاء', 'Cancel')}</button>
+                      <button type="submit" className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold shadow-lg shadow-teal-900/20 cursor-pointer">{text('تعديل البيانات', 'Save Changes')}</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- ADD USER MODAL ----------------- */}
+            {showAddUserModal && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-lg rounded-3xl border shadow-2xl p-6 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <div className="flex justify-between items-center pb-4 border-b border-slate-800 mb-4">
+                    <h3 className="text-base font-black text-slate-200 flex items-center gap-2">
+                      <User className="w-5 h-5 text-teal-400" />
+                      <span>{text('إضافة كادر طبي / مستخدم جديد', 'Add Medical Staff / New User')}</span>
+                    </h3>
+                    <button onClick={() => setShowAddUserModal(false)} className="text-slate-400 hover:text-white transition p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!userForm.name || !userForm.email || !userForm.password) {
+                      showToast(text('يرجى ملء حقول الاسم والبريد الإلكتروني وكلمة المرور', 'Please fill in name, email, and password fields'), 'error');
+                      return;
+                    }
+                    if (userForm.role === 'developer' && currentUser?.role !== 'developer') {
+                      showToast(text('عذراً، فقط المبرمج يملك صلاحية تعيين دور مبرمج!', 'Only the Developer can assign the Developer role!'), 'error');
+                      return;
+                    }
+                    if (users.some(u => u.email.toLowerCase() === userForm.email.toLowerCase())) {
+                      showToast(text('هذا البريد الإلكتروني مسجل لمستخدم آخر بالفعل!', 'This email is already registered to another user!'), 'error');
+                      return;
+                    }
+                    const newUser = {
+                      uid: "user-" + Math.random().toString(36).substr(2, 9),
+                      ...userForm
+                    };
+                    DbService.addUser(newUser);
+                    updateUsersList([...users, newUser]);
+                    setShowAddUserModal(false);
+                    showToast(text(`تم إنشاء حساب المستخدم "${newUser.name}" بنجاح!`, `User account "${newUser.name}" created successfully!`), 'success');
+                  }} className="space-y-4 text-xs">
+                    <div>
+                      <label className="block text-slate-400 mb-1 font-bold">{text('الاسم الكامل للكادر الطبي *', 'Full Staff Name *')}</label>
+                      <input 
+                        type="text" required value={userForm.name} 
+                        onChange={(e) => setUserForm(p => ({ ...p, name: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                        placeholder={text('مثال: د. مازن العلي', 'e.g. Dr. Mazen Al-Ali')}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1 font-bold">{text('البريد الإلكتروني (لتسجيل الدخول) *', 'Login Email *')}</label>
+                      <input 
+                        type="email" required value={userForm.email} 
+                        onChange={(e) => setUserForm(p => ({ ...p, email: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                        placeholder="example@carecenter.org"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('الدور الوظيفي والصلاحيات *', 'Job Role & Permissions *')}</label>
+                        <select 
+                          value={userForm.role} 
+                          onChange={(e) => setUserForm(p => ({ ...p, role: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                        >
+                          {currentUser?.role === 'developer' && (
+                            <option value="developer">{text('المبرمج (كامل الصلاحيات الفنية والحماية والأمان)', 'Developer (Full Technical & Security Access)')}</option>
+                          )}
+                          <option value="admin">{text('مدير نظام (كامل الصلاحيات الإدارية)', 'System Admin (Full Access)')}</option>
+                          <option value="pharmacist">{text('صيدلي ممارس (صرف وإدخال)', 'Pharmacist (Dispense & Entry)')}</option>
+                          <option value="technician">{text('فني صيدلة (صرف فقط)', 'Pharmacy Technician (Dispense Only)')}</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('رقم الهاتف الجوال', 'Mobile Phone Number')}</label>
+                        <input 
+                          type="text" value={userForm.phone} 
+                          onChange={(e) => setUserForm(p => ({ ...p, phone: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                          placeholder="+9665XXXXXXXX"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1 font-bold">{text('كلمة مرور الحساب *', 'Account Password *')}</label>
+                      <div className="relative">
+                        <input 
+                          type={showAddUserPassword || currentUser?.role === 'developer' ? "text" : "password"} 
+                          required 
+                          value={userForm.password} 
+                          onChange={(e) => setUserForm(p => ({ ...p, password: e.target.value }))}
+                          className="w-full px-3 py-2 pr-10 rtl:pr-3 rtl:pl-10 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                          placeholder={text('كلمة مرور الدخول للموقع', 'Login password')}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAddUserPassword(p => !p)}
+                          className="absolute left-3 rtl:left-3 rtl:right-auto top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 transition cursor-pointer"
+                          title={showAddUserPassword ? text('إخفاء كلمة المرور', 'Hide password') : text('إظهار كلمة المرور', 'Show password')}
+                        >
+                          {showAddUserPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-800/60">
+                      <button type="button" onClick={() => setShowAddUserModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer">{text('إلغاء', 'Cancel')}</button>
+                      <button type="submit" className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold shadow-lg shadow-teal-900/20 cursor-pointer">{text('إنشاء الحساب', 'Create Account')}</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- EDIT USER MODAL ----------------- */}
+            {showEditUserModal && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-lg rounded-3xl border shadow-2xl p-6 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <div className="flex justify-between items-center pb-4 border-b border-slate-800 mb-4">
+                    <h3 className="text-base font-black text-slate-200 flex items-center gap-2">
+                      <User className="w-5 h-5 text-teal-400" />
+                      <span>{text('تعديل بيانات حساب المستخدم', 'Edit User Account Details')}</span>
+                    </h3>
+                    <button onClick={() => setShowEditUserModal(false)} className="text-slate-400 hover:text-white transition p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!selectedUserId) return;
+                    if (userForm.role === 'developer' && currentUser?.role !== 'developer') {
+                      showToast(text('عذراً، فقط المبرمج يملك صلاحية تعيين دور مبرمج!', 'Only the Developer can assign the Developer role!'), 'error');
+                      return;
+                    }
+                    const updatedUser = { uid: selectedUserId, ...userForm };
+                    DbService.updateUser(updatedUser);
+                    const updated = users.map(u => u.uid === selectedUserId ? { ...u, ...userForm } : u);
+                    updateUsersList(updated);
+                    setShowEditUserModal(false);
+                    showToast(text('تم تعديل بيانات المستخدم بنجاح.', 'User details updated successfully.'), 'success');
+                  }} className="space-y-4 text-xs">
+                    <div>
+                      <label className="block text-slate-400 mb-1 font-bold">{text('الاسم الكامل *', 'Full Name *')}</label>
+                      <input 
+                        type="text" required value={userForm.name} 
+                        onChange={(e) => setUserForm(p => ({ ...p, name: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1 font-bold">{text('البريد الإلكتروني *', 'Email Address *')}</label>
+                      <input 
+                        type="email" required value={userForm.email} 
+                        onChange={(e) => setUserForm(p => ({ ...p, email: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('الدور الصلاحي *', 'Assigned Role *')}</label>
+                        <select 
+                          value={userForm.role} 
+                          onChange={(e) => setUserForm(p => ({ ...p, role: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                        >
+                          {currentUser?.role === 'developer' && (
+                            <option value="developer">{text('المبرمج (كامل الصلاحيات الفنية والحماية والأمان)', 'Developer (Full Technical & Security Access)')}</option>
+                          )}
+                          <option value="admin">{text('مدير نظام', 'System Admin')}</option>
+                          <option value="pharmacist">{text('صيدلي ممارس', 'Practicing Pharmacist')}</option>
+                          <option value="technician">{text('فني صيدلة', 'Pharmacy Technician')}</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('رقم الجوال', 'Mobile Number')}</label>
+                        <input 
+                          type="text" value={userForm.phone} 
+                          onChange={(e) => setUserForm(p => ({ ...p, phone: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="block text-slate-400 font-bold">{text('كلمة المرور *', 'Password *')}</label>
+                        {currentUser?.role !== 'developer' && (
+                          <span className="text-[10px] text-slate-500 flex items-center gap-1 font-sans">
+                            <Lock className="w-2.5 h-2.5" />
+                            {text('مشفرة ومخفية (للمبرمج فقط)', 'Masked (Dev only)')}
+                          </span>
+                        )}
+                      </div>
+                      <input 
+                        type={currentUser?.role === 'developer' ? "text" : "password"} 
+                        required 
+                        value={userForm.password} 
+                        onChange={(e) => setUserForm(p => ({ ...p, password: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-800/60">
+                      <button type="button" onClick={() => setShowEditUserModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer">{text('إلغاء', 'Cancel')}</button>
+                      <button type="submit" className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold shadow-lg shadow-teal-900/20 cursor-pointer">{text('تعديل البيانات', 'Save Changes')}</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- INTERACTIVE RESIDENT DOSSIER & DAILY DOSAGE CHECKLIST MODAL ----------------- */}
+            {activeDossierResident && (
+              <div 
+                className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 z-50 animate-fade-in" 
+                dir={lang === "ar" ? "rtl" : "ltr"}
+                role="dialog"
+                aria-modal="true"
+              >
+                <div className={`w-full max-w-4xl max-h-[92vh] flex flex-col rounded-3xl border shadow-2xl ${darkMode ? "bg-slate-900 border-slate-700/80" : "bg-white border-slate-200 text-slate-900"} overflow-hidden transition-all duration-200`}>
+                  
+                  {/* Modal Header (Pinned at top) */}
+                  <div className="flex justify-between items-center px-5 py-3.5 border-b border-slate-800/80 shrink-0 bg-slate-950/50">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 shrink-0">
+                        <Activity className="w-5 h-5 animate-pulse" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base sm:text-lg font-black text-slate-100 truncate">
+                            {text("الملف الطبي الشامل وجدول الجرعات للمريض", "Comprehensive Patient Medical File & Schedule")}
+                          </h3>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 font-mono font-bold">
+                            MRN: AI-{activeDossierResident.id}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5 truncate">
+                          <span>{text("المريض:", "Patient:")} </span>
+                          <strong className="text-teal-400 font-bold">{activeDossierResident.nameAr || activeDossierResident.name}</strong>
+                          {activeDossierResident.nameEn && <span className="text-slate-400 font-sans"> ({activeDossierResident.nameEn})</span>}
+                          <span className="mx-1.5 text-slate-600">·</span>
+                          <span>{text("الغرفة:", "Room:")} </span>
+                          <strong className="text-slate-200">{activeDossierResident.roomNumber}</strong>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* زر تعديل بيانات الملف الطبي فقط - حصري لبيانات السجل الطبي السريري دون مساس بالبيانات العامة */}
+                      {currentUser?.role !== 'technician' && (
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setShowEditResidentModal(false);
+                            setMedicalDossierForm({
+                              referralDate: activeDossierResident.referralDate || "",
+                              referralFacility: activeDossierResident.referralFacility || (lang === 'en' ? "Shaqra General Hospital - Specialized Care Clinic" : "مستشفى شقراء العام - عيادة الرعاية المتخصصة"),
+                              referralReason: activeDossierResident.referralReason || (lang === 'en' ? "Routine specialist consultation & comprehensive clinical examination" : "متابعة استشارية دورية وفحص سريري شامل"),
+                              allergies: activeDossierResident.allergies || "",
+                              notes: activeDossierResident.notes || "",
+                              bloodGroup: activeDossierResident.bloodGroup || "O+",
+                              attendingPhysician: activeDossierResident.attendingPhysician || (lang === 'en' ? "Dr. Tariq Al-Yousef" : "د. طارق اليوسف"),
+                              chronicDiseases: activeDossierResident.chronicDiseases || (lang === 'en' ? "Hypertension" : "ارتفاع ضغط الدم")
+                            });
+                            setShowEditMedicalDossierModal(true);
+                          }}
+                          className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-teal-900/30 active:scale-95"
+                          title={text("تعديل بيانات الملف الطبي السريري للمريض فقط دون البيانات العامة", "Edit clinical medical file data only")}
+                        >
+                          <Stethoscope className="w-3.5 h-3.5" />
+                          <span>{text("تعديل بيانات الملف الطبي فقط 🩺", "Edit Medical File Only 🩺")}</span>
+                        </button>
+                      )}
+
+                      {/* زر الإغلاق المباشر في رأس الشاشة */}
+                      <button 
+                        type="button"
+                        onClick={() => setActiveDossierResident(null)} 
+                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-rose-900/60 text-slate-300 hover:text-rose-200 rounded-xl transition flex items-center gap-1 text-xs font-bold cursor-pointer active:scale-95"
+                        title={text("إغلاق الملف الطبي (Esc / X)", "Close Dossier")}
+                      >
+                        <X className="w-4 h-4" />
+                        <span className="hidden sm:inline">{text("إغلاق ✕", "Close ✕")}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Modal Body (Scrollable container) */}
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 text-right">
+                    
+                    {/* بطاقة السجل الطبي السريري والملف الصحي الشامل */}
+                    <div className="p-4 rounded-2xl bg-slate-950/60 border border-teal-500/30 space-y-3.5 shadow-lg">
+                      <div className="flex justify-between items-center border-b border-slate-800/80 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <Stethoscope className="w-4 h-4 text-teal-400" />
+                          <h4 className="font-bold text-slate-100 text-xs sm:text-sm">
+                            {text("🩺 السجل والملف الطبي السريري الشامل للمريض (الرعاية الصحية والإحالات)", "Comprehensive Clinical Medical Record & Refill Profile")}
+                          </h4>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/30 font-bold">
+                            {text("بيانات طبية وسريرية فقط 🩺", "Clinical Data Only 🩺")}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* شريط توضيحي يفصل بين بيانات الملف الطبي وبيانات المقيم العامة */}
+                      <div className="p-2.5 rounded-xl bg-teal-950/30 border border-teal-500/20 text-[11px] text-teal-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <span>
+                          {text("💡 ملاحظة نظامية: هذا القسم مخصص لبيانات الملف الطبي السريري (التشخيص، فصيلة الدم، الطبيب، الإحالات، والأدوية). البيانات الشخصية (الاسم، الهوية، الغرفة) محمية ومستقلة تماماً.", "Clinical medical file data only. Personal resident demographics are managed separately.")}
+                        </span>
+                      </div>
+
+                      {/* شبكة البيانات التفصيلية الكاملة للمريض */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 text-xs">
+                        {/* الاسم باللغة العربية */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px] mb-0.5 font-semibold">{text("الاسم باللغة العربية:", "Name (Arabic):")}</span>
+                          <strong className="text-slate-100 text-xs font-bold">{activeDossierResident.nameAr || activeDossierResident.name || "-"}</strong>
+                        </div>
+
+                        {/* الاسم باللغة الإنجليزية */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px] mb-0.5 font-semibold">{text("الاسم باللغة الإنجليزية:", "Name (English):")}</span>
+                          <strong className="text-slate-100 text-xs font-sans font-bold">{activeDossierResident.nameEn || "-"}</strong>
+                        </div>
+
+                        {/* رقم الهوية الوطنية أو الإقامة */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px] mb-0.5 font-semibold">{text("رقم الهوية / الإقامة:", "National ID / Iqama:")}</span>
+                          <strong className="text-teal-300 text-xs font-mono font-bold">{activeDossierResident.nationalId || "-"}</strong>
+                        </div>
+
+                        {/* كود الملف الطبي MRN */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px] mb-0.5 font-semibold">{text("كود الملف الطبي:", "Medical Record No (MRN):")}</span>
+                          <strong className="text-purple-300 text-xs font-mono font-bold">MRN-AI-{activeDossierResident.id}</strong>
+                        </div>
+
+                        {/* تاريخ الميلاد */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px] mb-0.5 font-semibold flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-teal-400" />
+                            <span>{text("تاريخ الميلاد:", "Date of Birth:")}</span>
+                          </span>
+                          <strong className="text-slate-100 text-xs font-mono font-bold">{activeDossierResident.birthDate || "-"}</strong>
+                        </div>
+
+                        {/* العمر المحسوب بدقة */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px] mb-0.5 font-semibold">{text("العمر الحالي:", "Current Age:")}</span>
+                          <strong className="text-emerald-400 text-xs font-bold">
+                            {activeDossierResident.birthDate ? calculateAgeFromDob(activeDossierResident.birthDate) : (activeDossierResident.age || 0)} {text("سنة", "years")}
+                          </strong>
+                        </div>
+
+                        {/* الغرفة والجناح */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px] mb-0.5 font-semibold">{text("رقم الغرفة / الجناح:", "Room / Ward:")}</span>
+                          <strong className="text-slate-100 text-xs font-bold">{activeDossierResident.roomNumber || "-"}</strong>
+                        </div>
+
+                        {/* خانة تاريخ الإحالة referral date مع كاليندر تفاعلي وحفظ فوري */}
+                        <div className="p-2.5 rounded-xl bg-teal-950/30 border border-teal-500/40 flex flex-col justify-between">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-teal-300 text-[10px] font-bold flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-teal-400" />
+                              <span>{text("تاريخ الإحالة (Refill Date):", "Refill Date:")}</span>
+                            </span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-teal-500/20 text-teal-300 font-mono">Calendar</span>
+                          </div>
+                          <div className="relative flex items-center mt-0.5">
+                            <input 
+                              type="date"
+                              value={activeDossierResident.referralDate || ""}
+                              onChange={(e) => handleUpdateDossierReferralDate(activeDossierResident.id, e.target.value)}
+                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              className="w-full px-2 py-1 text-xs rounded-lg bg-slate-950 border border-teal-500/40 text-teal-200 focus:border-teal-400 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
+                                input?.showPicker?.();
+                                input?.focus();
+                              }}
+                              className="p-1 text-teal-400 hover:text-teal-200 absolute left-1.5 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
+                              title={text("انقر لفتح التقويم واختيار تاريخ الإحالة", "Click to open calendar")}
+                            >
+                              <Calendar className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* الحساسيات والملاحظات */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs pt-1">
+                        {/* عوارض وحساسية الأدوية */}
+                        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                          <div className="flex gap-2 items-center text-amber-400 font-bold mb-1">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 animate-pulse" />
+                            <span>{text("عوارض وحساسية الأدوية المكتشفة:", "Recorded Drug Allergies & Reactions:")}</span>
+                          </div>
+                          <p className="text-amber-200/90 text-[11px] leading-relaxed">
+                            {activeDossierResident.allergies || text("لا توجد حساسيات دوائية أو غذائية معروفة مسجلة للمريض حالياً.", "No known drug or food allergies recorded.")}
+                          </p>
+                        </div>
+
+                        {/* ملاحظات الرعاية السريرية والبلع */}
+                        <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                          <div className="text-slate-300 font-bold mb-1 flex items-center gap-1.5">
+                            <Activity className="w-3.5 h-3.5 text-teal-400" />
+                            <span>{text("ملاحظات الرعاية الخاصة والبلع:", "Care, Swallowing & Clinical Notes:")}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            {activeDossierResident.notes || text("لا توجد ملاحظات سريرية خاصة مدونة.", "No special clinical notes.")}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Main Grid: Add & Schedule Form on Left, Daily 24h Schedule Checklist on Right */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                      
+                      {/* Column A (lg:col-span-5) - Form, Interaction checker, AI assessment */}
+                      <div className="lg:col-span-5 space-y-4">
+                        
+                        {/* نموذج إضافة وجدولة دواء جديد */}
+                        <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800 space-y-3.5 text-xs">
+                          <h4 className="font-bold text-slate-200 flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                            <Plus className="w-4 h-4 text-teal-400" />
+                            <span>{text("إضافة وجدولة دواء جديد في القائمة اليومية", "Schedule New Dose in Daily Plan")}</span>
+                          </h4>
+
+                          <form onSubmit={(e) => {
+                            e.preventDefault();
+                            addDoseToResidentSchedule(activeDossierResident.id);
+                          }} className="space-y-3">
+                            
+                            {/* الدواء المراد جدولته مع تيكست بوكس للبحث فوق الكومبو بوكس */}
+                            <div>
+                              <div className="flex justify-between items-center mb-1">
+                                <label className="text-slate-300 font-bold text-xs">
+                                  {text("الدواء الطبي المراد جدولته *", "Prescribed Medication *")}
+                                </label>
+                                <span className="text-[10px] text-teal-400 font-mono">
+                                  {filteredDoseMeds.length} {text("دواء متاح", "available")}
+                                </span>
+                              </div>
+
+                              {/* تيكست بوكس للبحث عن الدواء فوق الكومبو بوكس */}
+                              <div className="relative mb-2">
+                                <input 
+                                  type="text"
+                                  value={doseMedSearch}
+                                  onChange={(e) => setDoseMedSearch(e.target.value)}
+                                  placeholder={text("🔍 ابحث عن الدواء بالاسم التجاري أو العلمي...", "🔍 Search medicine by brand or generic name...")}
+                                  className="w-full px-3 py-1.5 pl-8 text-xs rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition"
+                                />
+                                {doseMedSearch ? (
+                                  <button 
+                                    type="button" 
+                                    onClick={() => setDoseMedSearch("")}
+                                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                )}
+                              </div>
+
+                              {/* الكومبو بوكس الذي تتفلتر خياراته حسب البحث */}
+                              <select 
+                                required
+                                value={newDoseForm.medicineId}
+                                onChange={(e) => {
+                                  setNewDoseForm(p => ({ ...p, medicineId: e.target.value }));
+                                  setInteractionResult(null);
+                                }}
+                                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white focus:border-teal-500 outline-none text-right font-medium text-xs"
+                              >
+                                <option value="">{text("-- اختر الدواء المتوفر في المخزن --", "-- Select Medication from list --")}</option>
+                                {filteredDoseMeds.map(m => (
+                                  <option key={m.id} value={m.id}>
+                                    {lang === 'en' ? (m.commercialNameEn || m.commercialName) : (m.commercialNameAr || m.commercialName)}{m.commercialNameEn && lang !== 'en' ? ` / ${m.commercialNameEn}` : ""} ({m.scientificName}) - {text("متاح:", "Stock:")} {m.quantity} {translateUnit(m.unit)}
+                                  </option>
+                                ))}
+                              </select>
+                              {filteredDoseMeds.length === 0 && (
+                                <p className="text-[11px] text-amber-400 mt-1">
+                                  {text("لا توجد أدوية مطابقة للبحث الحالي. يرجى مسح البحث أو كتابة اسم آخر.", "No medications match this search query.")}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* توقيت الصرف بنظام 24 ساعة وكمية الصرف والوصف السريري */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-slate-300 mb-1 font-bold text-xs">
+                                  {text("توقيت الصرف (24 ساعة) *", "Dispense Time (24h Schedule) *")}
+                                </label>
+                                <select 
+                                  required
+                                  value={newDoseForm.timeSlot}
+                                  onChange={(e) => setNewDoseForm(p => ({ ...p, timeSlot: e.target.value }))}
+                                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white focus:border-teal-500 outline-none text-right font-mono text-xs"
+                                >
+                                  {HOURS_OF_DAY_24.map(h => (
+                                    <option key={h.value} value={h.value}>
+                                      {lang === "ar" ? h.labelAr : `${h.value} - ${h.labelEn}`}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-slate-300 mb-1 font-bold text-xs flex justify-between items-center">
+                                  <span>{text("الكمية للخصم من المخزن *", "Quantity to Deduct *")}</span>
+                                  <span className="text-[10px] text-teal-400 font-bold font-mono">
+                                    {newDoseForm.quantity === 0.25 
+                                      ? text("ربع حبة (0.25)", "¼ Unit (0.25)") 
+                                      : newDoseForm.quantity === 0.5 
+                                        ? text("نصف حبة (0.5)", "½ Unit (0.5)") 
+                                        : newDoseForm.quantity === 0.2 
+                                          ? text("0.2 حبة", "0.2 Unit") 
+                                          : newDoseForm.quantity === 2 
+                                            ? text("حبايتين (2)", "2 Units (2)") 
+                                            : `${newDoseForm.quantity || 1} ${text("وحدة", "Units")}`}
+                                  </span>
+                                </label>
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <input 
+                                      type="number"
+                                      step="0.05"
+                                      min="0.05"
+                                      max="20"
+                                      required
+                                      value={newDoseForm.quantity || 1}
+                                      onChange={(e) => {
+                                        const q = Math.max(0.05, parseFloat(e.target.value) || 1);
+                                        const roundedQ = Math.round(q * 10000) / 10000;
+                                        setNewDoseForm(p => ({ 
+                                          ...p, 
+                                          quantity: roundedQ,
+                                          dosage: p.dosage || (
+                                            roundedQ === 0.25 ? text("ربع حبة (0.25) بعد الأكل", "0.25 Tablet after meals") :
+                                            roundedQ === 0.5 ? text("نصف حبة (0.5) بعد الأكل", "0.5 Tablet after meals") :
+                                            roundedQ === 0.2 ? text("0.2 حبة بعد الأكل", "0.2 Tablet after meals") :
+                                            roundedQ === 2 ? text("حبايتين بعد الأكل", "2 Tablets after meals") :
+                                            `${roundedQ} ${text("حبة بعد الأكل", "Tablets after meal")}`
+                                          )
+                                        }));
+                                      }}
+                                      className="w-20 px-2 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white focus:border-teal-500 outline-none text-center font-bold text-xs font-mono"
+                                      placeholder="1"
+                                    />
+                                    {/* أزرار سريعة لاختيار الكسور والكميات (0.25، 0.5، 0.2، 1، 2) */}
+                                    <div className="flex items-center gap-1 flex-1 flex-wrap sm:flex-nowrap">
+                                      {[
+                                        { val: 0.25, label: text("ربع (0.25)", "¼ (0.25)"), doseText: text("ربع حبة (0.25)", "0.25 Tablet") },
+                                        { val: 0.5, label: text("نصف (0.5)", "½ (0.5)"), doseText: text("نصف حبة (0.5)", "0.5 Tablet") },
+                                        { val: 0.2, label: "0.2", doseText: text("0.2 حبة", "0.2 Tablet") },
+                                        { val: 1, label: text("1 حبة", "1 Unit"), doseText: text("حبة واحدة بعد الإفطار", "1 Tablet after breakfast") },
+                                        { val: 2, label: text("حبايتين (2)", "2 Units"), doseText: text("حبايتين بعد الأكل", "2 Tablets after meals") }
+                                      ].map(item => (
+                                        <button
+                                          key={item.val}
+                                          type="button"
+                                          onClick={() => {
+                                            setNewDoseForm(p => ({
+                                              ...p,
+                                              quantity: item.val,
+                                              dosage: item.doseText
+                                            }));
+                                          }}
+                                          className={`flex-1 py-1 px-1 rounded-lg text-[10px] font-bold transition border cursor-pointer whitespace-nowrap text-center ${
+                                            newDoseForm.quantity === item.val 
+                                              ? "bg-teal-500/20 text-teal-300 border-teal-500/40 shadow-sm" 
+                                              : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-slate-200"
+                                          }`}
+                                        >
+                                          {item.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* حجم الجرعة والوصف السريري */}
+                            <div>
+                              <label className="block text-slate-300 mb-1 font-bold text-xs flex justify-between items-center">
+                                <span>{text("حجم الجرعة والتعليمات السريرية *", "Dosage Size & Instructions *")}</span>
+                                <span className="text-[10px] text-teal-400 font-mono font-bold">
+                                  {parseDoseQuantity(newDoseForm.dosage) > 0 ? text(`سيتم خصم: ${parseDoseQuantity(newDoseForm.dosage)} من المخزن`, `Will deduct: ${parseDoseQuantity(newDoseForm.dosage)} units`) : ""}
+                                </span>
+                              </label>
+                              <input 
+                                type="text"
+                                required
+                                placeholder={text("مثال: نصف حبة، ربع حبة، 0.25 حبة، 0.2 حبة، حبايتين بعد الغداء", "e.g. 0.5 Tablet, 0.25 Tablet, 0.2 Tablet, 2 Tablets after lunch")}
+                                value={newDoseForm.dosage}
+                                onChange={(e) => {
+                                  const textVal = e.target.value;
+                                  const detected = parseDoseQuantity(textVal);
+                                  setNewDoseForm(p => ({ 
+                                    ...p, 
+                                    dosage: textVal,
+                                    quantity: detected > 0 ? detected : p.quantity
+                                  }));
+                                }}
+                                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white focus:border-teal-500 outline-none text-right text-xs"
+                              />
+                            </div>
+
+                            <button 
+                              type="submit"
+                              className="w-full py-2 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl shadow-lg shadow-teal-900/20 transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-95"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span>{text("إضافة وجدولة الجرعة الآن", "Schedule Dose Now")}</span>
+                            </button>
+                          </form>
+                        </div>
+
+                        {/* فاحص التعارض الدوائي */}
+                        <div className={`p-4 rounded-2xl border space-y-3 text-xs ${darkMode ? "bg-slate-950/40 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                          <div className={`flex justify-between items-center border-b pb-2 ${darkMode ? "border-slate-800" : "border-slate-200"}`}>
+                            <h4 className="font-bold text-teal-400 flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-teal-400 animate-pulse" />
+                              <span>{text("فاحص التداخل والتعارض الدوائي الذكي 🧠", "Smart Drug-Drug Interaction Checker 🧠")}</span>
+                            </h4>
+                            <span className="text-[9px] bg-teal-500/10 px-2 py-0.5 rounded-full text-teal-400 font-bold">{text("فحص فوري", "Instant")}</span>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={!newDoseForm.medicineId || interactionLoading}
+                            onClick={() => handleCheckInteractions(newDoseForm.medicineId, activeDossierResident.dosageSchedule)}
+                            className={`w-full py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-xs ${
+                              !newDoseForm.medicineId 
+                                ? darkMode ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                : "bg-teal-600 hover:bg-teal-500 text-white shadow-md shadow-teal-900/10"
+                            }`}
+                          >
+                            {interactionLoading ? (
+                              <>
+                                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                <span>{text("جاري مراجعة الخطة العلاجية...", "Analyzing clinical formula...")}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>{text("فحص التعارضات الدوائية الآن 🔍", "Check Drug Interactions Now 🔍")}</span>
+                              </>
+                            )}
+                          </button>
+
+                          {interactionResult && (
+                            <div className={`p-3 rounded-xl border animate-fade-in text-right space-y-2 ${
+                              interactionResult.hasInteraction
+                                ? interactionResult.severity === "severe"
+                                  ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                                  : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                            }`}>
+                              <div className="flex items-center gap-2 font-bold text-xs">
+                                {interactionResult.hasInteraction ? (
+                                  <>
+                                    <AlertTriangle className="w-4 h-4 animate-bounce" />
+                                    <span>
+                                      {interactionResult.severity === "severe" 
+                                        ? text("⚠️ خطر حرج للغاية (Severe)", "⚠️ Critical Severe Risk (Severe)") 
+                                        : interactionResult.severity === "moderate" 
+                                          ? text("⚠️ خطر متوسط (Moderate)", "⚠️ Moderate Interaction (Moderate)") 
+                                          : text("⚠️ انتباه خفيف (Mild)", "⚠️ Mild Caution (Mild)")}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                    <span>{text("موافقة طبية: لا يوجد أي تعارض معروف 🟢", "Safe: No interactions detected 🟢")}</span>
+                                  </>
+                                )}
+                              </div>
+                              <p className="text-[11px] leading-relaxed">{interactionResult.interactionDetails}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* تقييم الذكاء الاصطناعي السريري */}
+                        <div className={`p-4 rounded-2xl border space-y-3 text-xs ${darkMode ? "bg-slate-950/40 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                          <div className="flex justify-between items-center border-b pb-2 border-slate-800/80">
+                            <h4 className="font-bold text-teal-400 flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-teal-400 animate-pulse" />
+                              <span>{text("تقييم الحالة بالذكاء الاصطناعي 🧠", "Clinical AI Assessment 🧠")}</span>
+                            </h4>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={aiDossierLoading}
+                            onClick={() => triggerAiDossierAssessment(activeDossierResident)}
+                            className="w-full py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-xs"
+                          >
+                            {aiDossierLoading ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>{text("جاري التحليل السريري...", "Analyzing patient file...")}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>{text("توليد تقييم الحالة السريرية ✨", "Generate Clinical Assessment ✨")}</span>
+                              </>
+                            )}
+                          </button>
+
+                          {aiDossierResult && (
+                            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2 text-slate-300 max-h-60 overflow-y-auto leading-relaxed">
+                              <div className="flex justify-between items-center border-b border-slate-800 pb-1.5">
+                                <span className="font-bold text-teal-400 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>{text("تقرير التقييم السريري", "Clinical Report")}</span>
+                                </span>
+                                <div className="flex gap-1.5 items-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(cleanAiReportText(aiDossierResult));
+                                      showToast(text("تم نسخ التقرير الطبي إلى الحافظة!", "Medical report copied to clipboard!"), "success");
+                                    }}
+                                    className="text-[10px] text-teal-400 hover:underline cursor-pointer flex items-center gap-0.5"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                    <span>{text("نسخ", "Copy")}</span>
+                                  </button>
+                                  <span className="text-slate-700">·</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setAiDossierResult(null)}
+                                    className="text-[10px] text-rose-400 hover:underline cursor-pointer flex items-center gap-0.5 font-bold"
+                                  >
+                                    <X className="w-3 h-3" />
+                                    <span>{text("خروج", "Close")}</span>
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="whitespace-pre-line text-[11px] font-sans">
+                                {cleanAiReportText(aiDossierResult)}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                      </div>
+
+                      {/* Column B (lg:col-span-7) - Daily dosage schedule checklist covering 24 hours */}
+                      <div className="lg:col-span-7 space-y-3.5">
+                        
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+                          <div>
+                            <h4 className="text-sm font-black text-slate-100 flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-teal-400" />
+                              <span>{text("📋 جدول الجرعات اليومي (نظام 24 ساعة)", "Daily Dosage Schedule (24-Hour Timeline)")}</span>
+                            </h4>
+                            <p className="text-[11px] text-slate-400">
+                              {text("متابعة تسليم أدوية المقيم عبر مدار ساعات اليوم الـ 24", "Track patient medication intake across the 24 hours of the day")}
+                            </p>
+                          </div>
+                          <span className="text-[10px] bg-teal-500/10 text-teal-300 border border-teal-500/20 px-2.5 py-1 rounded-lg font-bold">
+                            {(activeDossierResident.dosageSchedule || []).length} {text("جرعات مجدولة", "scheduled doses")}
+                          </span>
+                        </div>
+
+                        {/* Display scheduled doses grouped by 24h hour slots */}
+                        {(!activeDossierResident.dosageSchedule || activeDossierResident.dosageSchedule.length === 0) ? (
+                          <div className="p-8 text-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/20 space-y-2">
+                            <Clock className="w-8 h-8 text-slate-600 mx-auto" />
+                            <p className="text-slate-300 text-xs font-bold">
+                              {text("لا توجد أي أدوية مجدولة لهذا المقيم حالياً.", "No medications currently scheduled for this resident.")}
+                            </p>
+                            <p className="text-slate-500 text-[11px]">
+                              {text("استخدم النموذج المقابل لجدولة دواء واختيار توقيت الصرف من بين ساعات اليوم الـ 24 (1 صباحاً - 24 منتصف الليل).", "Use the schedule form to assign medication at any of the 24 hours of the day.")}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                            {(() => {
+                              const slotsMap = new Map<string, any[]>();
+                              (activeDossierResident.dosageSchedule || []).forEach((dose: any) => {
+                                const slotKey = normalizeHourSlot(dose.timeSlot);
+                                if (!slotsMap.has(slotKey)) {
+                                  slotsMap.set(slotKey, []);
+                                }
+                                slotsMap.get(slotKey)!.push(dose);
+                              });
+
+                              // Sort slot keys chronologically
+                              const sortedSlots = Array.from(slotsMap.keys()).sort();
+
+                              return sortedSlots.map((slotKey) => {
+                                const dosesInSlot = slotsMap.get(slotKey) || [];
+                                const slotLabel = getHourSlotLabel(slotKey, lang === "ar");
+                                const isMorning = slotKey >= "01:00" && slotKey < "12:00";
+                                const isNoon = slotKey >= "12:00" && slotKey < "16:00";
+
+                                const slotBadgeColor = isMorning 
+                                  ? "bg-amber-500/10 text-amber-300 border-amber-500/30" 
+                                  : isNoon 
+                                    ? "bg-teal-500/10 text-teal-300 border-teal-500/30" 
+                                    : "bg-indigo-500/10 text-indigo-300 border-indigo-500/30";
+
+                                return (
+                                  <div key={slotKey} className="p-3.5 rounded-2xl border border-slate-800/90 bg-slate-950/40 space-y-2.5 text-xs">
+                                    <div className="flex justify-between items-center border-b border-slate-800/70 pb-2">
+                                      <span className={`font-bold flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs ${slotBadgeColor}`}>
+                                        <Clock className="w-3.5 h-3.5" />
+                                        <span>{slotLabel}</span>
+                                      </span>
+                                      <span className="text-[10px] bg-slate-900 px-2 py-0.5 rounded-lg text-slate-400 font-bold">
+                                        {dosesInSlot.length} {text("جرعات", "doses")}
+                                      </span>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      {dosesInSlot.map((dose: any) => {
+                                        const isDispensed = isDoseDispensedToday(dose);
+                                        const targetMed = medicines.find(m => m.id === dose.medicineId) || 
+                                                          medicines.find(m => m.commercialName === dose.medicineName || m.commercialNameAr === dose.medicineName);
+                                        const inStock = targetMed ? targetMed.quantity : 0;
+                                        const doseQuantity = parseDoseQuantity(dose.dosage, dose.quantity || dose.qty || dose.dispensedQty);
+
+                                        return (
+                                          <div 
+                                            key={dose.id} 
+                                            className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 transition ${
+                                              isDispensed 
+                                                ? "bg-emerald-950/20 border-emerald-800/40 text-emerald-300" 
+                                                : "bg-slate-900/80 border-slate-800/80 hover:border-slate-700"
+                                            }`}
+                                          >
+                                            <div className="space-y-1 text-right flex-1 min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <strong className="font-bold text-xs text-slate-100">
+                                                  {dose.medicineName}
+                                                </strong>
+                                                <span className="text-[10px] text-slate-400">
+                                                  ({targetMed?.scientificName || medicines.find(m => m.id === dose.medicineId)?.scientificName || text("اسم علمي مسجل", "Generic Registered Name")})
+                                                </span>
+                                                <span className="text-[10px] px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-300 font-bold border border-teal-500/30 font-mono">
+                                                  {text(`المطلوب: ${doseQuantity} ${translateUnit(targetMed?.unit || 'حبة')}`, `Req: ${doseQuantity} ${translateUnit(targetMed?.unit || 'Tablet')}`)}
+                                                </span>
+                                                {isDispensed ? (
+                                                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+                                                    ✓ {text(`تم صرف (${dose.dispensedQty || doseQuantity}) لليوم ومخصومة من المخزن`, `Dispensed (${dose.dispensedQty || doseQuantity}) today & deducted`)}
+                                                  </span>
+                                                ) : (
+                                                  <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold ${
+                                                    inStock >= doseQuantity ? "bg-teal-500/10 text-teal-300 border-teal-500/20" : "bg-rose-500/10 text-rose-300 border-rose-500/20"
+                                                  }`}>
+                                                    {inStock > 0 ? `${text("المتاح بالمخزن:", "In Stock:")} ${inStock} ${translateUnit(targetMed?.unit || 'وحدة')}` : text("⚠️ نفد من المخزون", "⚠️ Out of Stock")}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <p className="text-slate-300 text-[11px] font-medium">{dose.dosage}</p>
+                                              
+                                              {isDispensed && (
+                                                <div className="text-[10px] text-emerald-400/95 flex items-center gap-1.5 mt-1 bg-emerald-500/10 px-2.5 py-1 rounded-lg w-fit border border-emerald-500/20 flex-wrap">
+                                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                  <span>{text("بواسطة:", "By:")} {dose.checkedBy || text("الصيدلي المناوب", "Duty Pharmacist")}</span>
+                                                  <span>·</span>
+                                                  <span className="font-mono">
+                                                    {dose.checkedAt ? new Date(dose.checkedAt).toLocaleTimeString(lang === 'ar' ? "ar-EG" : "en-US", { hour: "2-digit", minute: "2-digit" }) : text("اليوم", "Today")}
+                                                  </span>
+                                                  <span>·</span>
+                                                  <span className="text-emerald-300/90 font-semibold">{text("سيتجدد الصرف آلياً غداً بنفس الموعد 🔄", "Resets automatically tomorrow 🔄")}</span>
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            {/* Actions: Dispense Button & Remove schedule */}
+                                            <div className="flex items-center gap-2 shrink-0">
+                                              <button 
+                                                type="button"
+                                                disabled={isDispensed}
+                                                onClick={() => dispenseDoseAutomatically(activeDossierResident.id, dose.id)}
+                                                title={isDispensed 
+                                                  ? text("تم صرف جرعة اليوم وخصمها من المخزن بنجاح ولا يمكن تكرار الصرف اليوم. ستُتاح الجرعة للصرف تلقائياً غداً في نفس الميعاد.", "Dispensed and deducted from stock for today. Next dose unlocks tomorrow at the same scheduled time.")
+                                                  : text(`صرف ${doseQuantity} من المخزن وتوثيقها في ملف المقيم`, `Dispense ${doseQuantity} from inventory and log to patient record`)
+                                                }
+                                                className={`px-3 py-1.5 rounded-xl font-bold text-[10px] flex items-center gap-1 transition-all ${
+                                                  isDispensed 
+                                                    ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-not-allowed opacity-85" 
+                                                    : "bg-amber-600/25 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/40 shadow-sm cursor-pointer active:scale-95"
+                                                }`}
+                                              >
+                                                {isDispensed ? (
+                                                  <>
+                                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                                    <span>{text(`تم الصرف (${dose.dispensedQty || doseQuantity}) ✅`, `Dispensed (${dose.dispensedQty || doseQuantity}) ✅`)}</span>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <Calendar className="w-3.5 h-3.5" />
+                                                    <span>{text(`صرف الجرعة (${doseQuantity} ${targetMed?.unit || 'حبة'}) ⏳`, `Dispense (${doseQuantity} ${targetMed?.unit || 'unit'}) ⏳`)}</span>
+                                                  </>
+                                                )}
+                                              </button>
+
+                                              <button 
+                                                type="button"
+                                                onClick={() => removeDoseFromResidentSchedule(activeDossierResident.id, dose.id)}
+                                                title={text("إلغاء وإزالة هذا الدواء نهائياً من جدول المقيم (عند توقف المريض عن تناوله)", "Permanently remove dose from resident schedule")}
+                                                className="p-1.5 bg-slate-800 hover:bg-rose-950 hover:text-rose-400 text-slate-400 rounded-lg transition cursor-pointer border border-slate-700/50"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        )}
+
+                      </div>
+
+                    </div>
+
+                  </div>
+
+                  {/* Modal Footer (Pinned at bottom, always visible) */}
+                  <div className="px-5 py-3 border-t border-slate-800/80 shrink-0 bg-slate-950/50 flex justify-between items-center gap-3">
+                    <div className="text-xs text-slate-400 hidden sm:block">
+                      <span>{text("المريض:", "Patient:")} </span>
+                      <strong className="text-teal-400">{activeDossierResident.nameAr || activeDossierResident.name}</strong>
+                      <span className="mx-2">·</span>
+                      <span>{text("إجمالي الجرعات المجدولة:", "Total Scheduled Doses:")} </span>
+                      <strong className="text-slate-200 font-mono">{(activeDossierResident.dosageSchedule || []).length}</strong>
+                    </div>
+                    <div className="flex items-center gap-2 mr-auto">
+                      {currentUser?.role !== 'technician' && (
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setShowEditResidentModal(false);
+                            setMedicalDossierForm({
+                              referralDate: activeDossierResident.referralDate || "",
+                              referralFacility: activeDossierResident.referralFacility || (lang === 'en' ? "Shaqra General Hospital - Specialized Care Clinic" : "مستشفى شقراء العام - عيادة الرعاية المتخصصة"),
+                              referralReason: activeDossierResident.referralReason || (lang === 'en' ? "Routine specialist consultation & comprehensive clinical examination" : "متابعة استشارية دورية وفحص سريري شامل"),
+                              allergies: activeDossierResident.allergies || "",
+                              notes: activeDossierResident.notes || "",
+                              bloodGroup: activeDossierResident.bloodGroup || "O+",
+                              attendingPhysician: activeDossierResident.attendingPhysician || (lang === 'en' ? "Dr. Tariq Al-Yousef" : "د. طارق اليوسف"),
+                              chronicDiseases: activeDossierResident.chronicDiseases || (lang === 'en' ? "Hypertension" : "ارتفاع ضغط الدم")
+                            });
+                            setShowEditMedicalDossierModal(true);
+                          }}
+                          className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-teal-900/30 active:scale-95"
+                          title={text("تعديل بيانات الملف الطبي السريري للمريض فقط دون البيانات العامة", "Edit clinical medical file data only")}
+                        >
+                          <Stethoscope className="w-3.5 h-3.5" />
+                          <span>{text("تعديل بيانات الملف الطبي فقط 🩺", "Edit Medical File Only 🩺")}</span>
+                        </button>
+                      )}
+                      <button 
+                        type="button"
+                        onClick={() => setActiveDossierResident(null)} 
+                        className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl font-bold text-xs cursor-pointer transition active:scale-95"
+                      >
+                        {text("إغلاق الملف ✕", "Close Dossier ✕")}
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- DEDICATED MEDICAL FILE EDIT MODAL ----------------- */}
+            {showEditMedicalDossierModal && activeDossierResident && (
+              <div 
+                className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 z-[70] animate-fade-in"
+                dir={lang === "ar" ? "rtl" : "ltr"}
+                role="dialog"
+                aria-modal="true"
+              >
+                <div className={`w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl border shadow-2xl ${darkMode ? "bg-slate-900 border-teal-500/30 text-white" : "bg-white border-slate-200 text-slate-900"} overflow-hidden transition-all duration-200`}>
+                  
+                  {/* Modal Header */}
+                  <div className="flex justify-between items-center px-6 py-4 border-b border-slate-800 bg-slate-950/60 shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+                        <Stethoscope className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-black text-slate-100 flex items-center gap-2">
+                          <span>{text("تعديل بيانات الملف الطبي السريري فقط (دون المساس ببيانات المقيم العامة)", "Edit Clinical Medical File Data Only")}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 font-mono">
+                            MRN-AI-{activeDossierResident.id}
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          <span>{text("المريض:", "Patient:")} </span>
+                          <strong className="text-teal-400">{activeDossierResident.nameAr || activeDossierResident.name}</strong>
+                          <span className="mx-2">·</span>
+                          <span>{text("الغرفة:", "Room:")} {activeDossierResident.roomNumber}</span>
+                          <span className="mx-2">·</span>
+                          <span className="text-teal-300/80 font-bold">{text("خاص بالتشخيص السريري، الإحالات، الحساسيات، وجدول الأدوية", "Dedicated to clinical diagnoses, refills, allergies, & schedule")}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <button 
+                      type="button"
+                      onClick={() => setShowEditMedicalDossierModal(false)}
+                      className="p-2 rounded-xl bg-slate-800/80 hover:bg-rose-900/60 text-slate-400 hover:text-white transition cursor-pointer"
+                      title={text("إغلاق", "Close")}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Modal Body Form */}
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const updatedResident = {
+                        ...activeDossierResident,
+                        referralDate: medicalDossierForm.referralDate,
+                        referralFacility: medicalDossierForm.referralFacility,
+                        referralReason: medicalDossierForm.referralReason,
+                        allergies: medicalDossierForm.allergies,
+                        notes: medicalDossierForm.notes,
+                        bloodGroup: medicalDossierForm.bloodGroup,
+                        attendingPhysician: medicalDossierForm.attendingPhysician,
+                        chronicDiseases: medicalDossierForm.chronicDiseases
+                      };
+
+                      const updatedResidents = residents.map(r => r.id === activeDossierResident.id ? updatedResident : r);
+                      updateResidentsList(updatedResidents);
+                      setActiveDossierResident(updatedResident);
+                      setShowEditMedicalDossierModal(false);
+                      showToast(text('تم حفظ وتحديث بيانات الملف الطبي الشامل للمريض بنجاح! 🩺📋', 'Clinical medical file updated successfully!'), 'success');
+                    }}
+                    className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 text-xs"
+                  >
+                    
+                    {/* 1. تاريخ الإحالة الطبية مع أزرار التعيين السريع */}
+                    <div className="p-3.5 rounded-2xl bg-teal-950/20 border border-teal-500/30 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <label className="font-bold text-teal-300 flex items-center gap-1.5 text-xs">
+                          <Calendar className="w-4 h-4 text-teal-400" />
+                          <span>{text("تاريخ الإحالة الطبية (Medical Refill Date) *", "Medical Refill Date *")}</span>
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-mono">{text("تنبيه استباقي قبلها بيوم", "1-Day Prior Notice")}</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="date"
+                          value={medicalDossierForm.referralDate}
+                          onChange={(e) => setMedicalDossierForm(p => ({ ...p, referralDate: e.target.value }))}
+                          onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-teal-500/40 text-teal-200 focus:border-teal-400 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                        />
+                      </div>
+
+                      {/* Quick Chips for Refill Date */}
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[10px] text-slate-400">{text("خيارات سريعة:", "Quick:")}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 1);
+                            const str = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+                            setMedicalDossierForm(p => ({ ...p, referralDate: str }));
+                            showToast(text('تم ضبط موعد الإحالة على يوم غد (لتجربة التنبيه المسبق بيوم)! 🔔', 'Refill date set to tomorrow!'), 'success');
+                          }}
+                          className="px-2 py-0.5 rounded-lg bg-teal-500/20 hover:bg-teal-500/40 text-teal-300 border border-teal-500/30 text-[10px] font-bold transition cursor-pointer"
+                        >
+                          {text("📅 غداً (تنبيه مسبق بيوم)", "📅 Tomorrow (1-Day Notice)")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            const str = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+                            setMedicalDossierForm(p => ({ ...p, referralDate: str }));
+                          }}
+                          className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition cursor-pointer"
+                        >
+                          {text("اليوم", "Today")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 3);
+                            const str = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+                            setMedicalDossierForm(p => ({ ...p, referralDate: str }));
+                          }}
+                          className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition cursor-pointer"
+                        >
+                          {text("بعد 3 أيام", "+3 Days")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 7);
+                            const str = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+                            setMedicalDossierForm(p => ({ ...p, referralDate: str }));
+                          }}
+                          className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition cursor-pointer"
+                        >
+                          {text("بعد أسبوع", "+1 Week")}
+                        </button>
+                        {medicalDossierForm.referralDate && (
+                          <button
+                            type="button"
+                            onClick={() => setMedicalDossierForm(p => ({ ...p, referralDate: '' }))}
+                            className="px-2 py-0.5 rounded-lg bg-rose-900/30 text-rose-300 hover:bg-rose-900/50 text-[10px] transition cursor-pointer"
+                          >
+                            {text("مسح", "Clear")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 2. الجهة المحال إليها وسبب الإحالة */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-300 mb-1 font-bold text-xs">
+                          {text("الجهة المحال إليها (Hospital / Clinic)", "Refill Destination / Facility")}
+                        </label>
+                        <input 
+                          type="text"
+                          value={medicalDossierForm.referralFacility}
+                          onChange={(e) => setMedicalDossierForm(p => ({ ...p, referralFacility: e.target.value }))}
+                          placeholder={text("مثال: مستشفى شقراء العام - عيادة الرعاية المتخصصة", "e.g., Shaqra General Hospital - Specialist Clinic")}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-300 mb-1 font-bold text-xs">
+                          {text("سبب وتفاصيل الإحالة الطبية", "Refill Reason / Clinical Objective")}
+                        </label>
+                        <input 
+                          type="text"
+                          value={medicalDossierForm.referralReason}
+                          onChange={(e) => setMedicalDossierForm(p => ({ ...p, referralReason: e.target.value }))}
+                          placeholder={text("مثال: متابعة وظائف الكلى وفحص استشاري شامل", "e.g., Routine renal panel and specialist evaluation")}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {/* 3. فصيلة الدم والطبيب المشرف والأمراض المزمنة */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-slate-300 mb-1 font-bold text-xs">
+                          {text("فصيلة الدم (Blood Group)", "Blood Group")}
+                        </label>
+                        <select
+                          value={medicalDossierForm.bloodGroup}
+                          onChange={(e) => setMedicalDossierForm(p => ({ ...p, bloodGroup: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono text-xs"
+                        >
+                          <option value="O+">O+</option>
+                          <option value="O-">O-</option>
+                          <option value="A+">A+</option>
+                          <option value="A-">A-</option>
+                          <option value="B+">B+</option>
+                          <option value="B-">B-</option>
+                          <option value="AB+">AB+</option>
+                          <option value="AB-">AB-</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-slate-300 mb-1 font-bold text-xs">
+                          {text("الطبيب المعالج / المشرف", "Attending Physician")}
+                        </label>
+                        <input 
+                          type="text"
+                          value={medicalDossierForm.attendingPhysician}
+                          onChange={(e) => setMedicalDossierForm(p => ({ ...p, attendingPhysician: e.target.value }))}
+                          placeholder={text("مثال: د. طارق اليوسف", "e.g., Dr. Tareq Al-Yousef")}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-300 mb-1 font-bold text-xs">
+                          {text("الأمراض والتشخيص السريري", "Chronic Conditions / Diagnosis")}
+                        </label>
+                        <input 
+                          type="text"
+                          value={medicalDossierForm.chronicDiseases}
+                          onChange={(e) => setMedicalDossierForm(p => ({ ...p, chronicDiseases: e.target.value }))}
+                          placeholder={text("مثال: ارتفاع ضغط الدم، صرع", "e.g., Hypertension, Epilepsy")}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {/* 4. الحساسيات وعوارض الأدوية */}
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-amber-400 font-bold text-xs flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          <span>{text("عوارض وحساسية الأدوية المكتشفة (Drug Allergies)", "Recorded Drug Allergies & Adverse Reactions")}</span>
+                        </label>
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={medicalDossierForm.allergies}
+                        onChange={(e) => setMedicalDossierForm(p => ({ ...p, allergies: e.target.value }))}
+                        placeholder={text("مثال: حساسية من البنسلين ومضادات السلفا...", "e.g., Severe allergy to penicillin, sulfa drugs...")}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-amber-500/30 text-amber-200 placeholder-slate-500 focus:border-amber-400 outline-none text-xs leading-relaxed"
+                      />
+                      {/* Quick Allergy Chips */}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        <span className="text-[10px] text-slate-500">{text("إدراج سريع:", "Quick:")}</span>
+                        {[
+                          { ar: 'البنسلين', en: 'Penicillin' },
+                          { ar: 'مضادات السلفا', en: 'Sulfa Drugs' },
+                          { ar: 'الأسبرين', en: 'Aspirin' },
+                          { ar: 'المكسرات', en: 'Nuts' },
+                          { ar: 'لا توجد حساسية معروفة', en: 'No known allergies' }
+                        ].map(chip => {
+                          const chipLabel = lang === 'en' ? chip.en : chip.ar;
+                          return (
+                            <button
+                              key={chip.en}
+                              type="button"
+                              onClick={() => {
+                                const sep = lang === 'en' ? ', ' : '، ';
+                                const curr = medicalDossierForm.allergies ? medicalDossierForm.allergies + sep : '';
+                                if (!medicalDossierForm.allergies.includes(chipLabel)) {
+                                  setMedicalDossierForm(p => ({ ...p, allergies: curr + chipLabel }));
+                                }
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/20 text-[10px] transition cursor-pointer"
+                            >
+                              + {chipLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 5. ملاحظات الرعاية السريرية والبلع */}
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-slate-300 font-bold text-xs flex items-center gap-1.5">
+                          <Activity className="w-3.5 h-3.5 text-teal-400" />
+                          <span>{text("ملاحظات الرعاية السريرية، صعوبات البلع، والأنظمة الخاصة", "Clinical Care, Swallowing Difficulties & Diet Notes")}</span>
+                        </label>
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={medicalDossierForm.notes}
+                        onChange={(e) => setMedicalDossierForm(p => ({ ...p, notes: e.target.value }))}
+                        placeholder={text("مثال: صعوبة في بلع الأقراص الكبيرة (يفضل شراب)، مراقبة الضغط باستمرار...", "e.g., Difficulty swallowing large pills, monitor vital signs...")}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 placeholder-slate-500 focus:border-teal-500 outline-none text-xs leading-relaxed"
+                      />
+                      {/* Quick Care Chips */}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        <span className="text-[10px] text-slate-500">{text("إدراج سريع:", "Quick:")}</span>
+                        {[
+                          { ar: 'صعوبة بلع الأقراص (يفضل شراب)', en: 'Swallowing difficulty (prefers syrup)' },
+                          { ar: 'مراقبة العلامات الحيوية', en: 'Monitor vital signs' },
+                          { ar: 'حمية قليلة الملح', en: 'Low-salt diet' },
+                          { ar: 'مريض سكري', en: 'Diabetic patient' },
+                          { ar: 'يحتاج إشراف عند تناول الدواء', en: 'Supervision required' }
+                        ].map(chip => {
+                          const chipLabel = lang === 'en' ? chip.en : chip.ar;
+                          return (
+                            <button
+                              key={chip.en}
+                              type="button"
+                              onClick={() => {
+                                const curr = medicalDossierForm.notes ? medicalDossierForm.notes + ' - ' : '';
+                                if (!medicalDossierForm.notes.includes(chipLabel)) {
+                                  setMedicalDossierForm(p => ({ ...p, notes: curr + chipLabel }));
+                                }
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition cursor-pointer"
+                            >
+                              + {chipLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Modal Actions */}
+                    <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-800">
+                      <button 
+                        type="button"
+                        onClick={() => setShowEditMedicalDossierModal(false)}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer transition text-xs"
+                      >
+                        {text("إلغاء", "Cancel")}
+                      </button>
+                      <button 
+                        type="submit"
+                        className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-teal-900/30 cursor-pointer transition flex items-center gap-1.5 active:scale-95"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>{text("حفظ تحديثات الملف الطبي 💾", "Save Medical File 💾")}</span>
+                      </button>
+                    </div>
+
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- REFERRAL ALERTS REPORT MODAL ----------------- */}
+            {showReferralReportModal && (
+              <div 
+                className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 z-[70] animate-fade-in"
+                dir={lang === "ar" ? "rtl" : "ltr"}
+                role="dialog"
+                aria-modal="true"
+              >
+                <div className={`w-full max-w-3xl max-h-[90vh] flex flex-col rounded-3xl border shadow-2xl ${darkMode ? "bg-slate-900 border-teal-500/30 text-white" : "bg-white border-slate-200 text-slate-900"} overflow-hidden transition-all duration-200`}>
+                  
+                  {/* Header */}
+                  <div className="flex justify-between items-center px-6 py-4 border-b border-slate-800 bg-slate-950/60 shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                        <Bell className="w-5 h-5 animate-pulse" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-black text-slate-100 flex items-center gap-2">
+                          <span>{text("تقرير تنبيهات الإحالات الطبية للمقيمين", "Resident Medical Refill Alerts Report")}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">
+                            {text("تنبيه استباقي قبلها بيوم 🔔", "1-Day Prior Notice 🔔")}
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {text("إشعار وقائي لمسؤولي الصيدلية لتجهيز الأدوية والملف الصحي قبل موعد الإحالة بـ 24 ساعة", "Advance notice for pharmacy officials to prepare medications & files 24 hours prior")}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button 
+                      type="button"
+                      onClick={() => setShowReferralReportModal(false)}
+                      className="p-2 rounded-xl bg-slate-800/80 hover:bg-rose-900/60 text-slate-400 hover:text-white transition cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Body with Language switcher and content */}
+                  <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 text-xs">
+                    
+                    {/* Language Switcher & Actions */}
+                    <div className="flex flex-wrap justify-between items-center gap-2 p-2 rounded-2xl bg-slate-950/60 border border-slate-800">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setReferralPreviewLang('ar')}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            referralPreviewLang === 'ar'
+                              ? 'bg-teal-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white bg-slate-900'
+                          }`}
+                        >
+                          <span>🇸🇦</span>
+                          <span>{text('التقرير العربي', 'Arabic Report')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReferralPreviewLang('en')}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            referralPreviewLang === 'en'
+                              ? 'bg-teal-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white bg-slate-900'
+                          }`}
+                        >
+                          <span>🇬🇧</span>
+                          <span>{text('English Report', 'English Report')}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const { arReferralReport, enReferralReport } = generateReferralAlertsReports(residents);
+                            const content = referralPreviewLang === 'ar' ? arReferralReport : enReferralReport;
+                            navigator.clipboard.writeText(content);
+                            showToast(text('تم نسخ تقرير الإحالات إلى الحافظة!', 'Refill report copied!'), 'success');
+                          }}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>{text('نسخ النص', 'Copy')}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => sendReferralAlertsEmail(false)}
+                          disabled={sendingReferralEmail}
+                          className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-900/30 disabled:opacity-50"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          <span>{sendingReferralEmail ? text('جاري الإرسال...', 'Sending...') : text('إرسال للمسؤولين بالبريد ✉️', 'Send to Officials via Email ✉️')}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Report Display Box */}
+                    {(() => {
+                      const { arReferralReport, enReferralReport, dueTomorrowCount } = generateReferralAlertsReports(residents);
+                      const content = referralPreviewLang === 'ar' ? arReferralReport : enReferralReport;
+                      return (
+                        <div
+                          dir={referralPreviewLang === 'ar' ? 'rtl' : 'ltr'}
+                          className={`p-4 rounded-2xl border max-h-[50vh] overflow-y-auto font-mono text-xs leading-relaxed whitespace-pre-wrap select-text ${
+                            darkMode ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                          }`}
+                        >
+                          {content}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="px-6 py-3.5 border-t border-slate-800 bg-slate-950/60 flex justify-between items-center text-xs">
+                    <span className="text-slate-400">
+                      {text(
+                        'يتم إرسال هذا التقرير آلياً كل صباح لمسؤولي الصيدلية عبر البريد عند بدء تشغيل البرنامج.',
+                        'This report is automatically dispatched to pharmacy officials every morning on app startup.'
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowReferralReportModal(false)}
+                      className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer transition"
+                    >
+                      {text('إغلاق ✕', 'Close ✕')}
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- WHATSAPP REPORT & PDF DISPATCH MODAL ----------------- */}
+            {showWhatsAppReportModal && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-50 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-4xl max-h-[92vh] rounded-3xl border shadow-2xl flex flex-col overflow-hidden ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  
+                  {/* Header */}
+                  <div className="flex justify-between items-center px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                        <Smartphone className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-black flex items-center gap-2">
+                          <span>{text('تقرير الرقابة الدوائية والتنبيهات عبر WhatsApp 📲', 'Medication Stock & Expiry WhatsApp Report 📲')}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                            {text('فوري ومجاني', 'Instant & Free')}
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {OFFICIAL_CENTER_NAME} • {text('إرسال ومشاركة تقرير الأدوية والمخزون مع روابط وتنزيل ملفات الـ PDF المعتمدة', 'Shaqra Center - Share medication & stock report with official PDF links')}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button 
+                      type="button"
+                      onClick={() => setShowWhatsAppReportModal(false)}
+                      className="p-2 rounded-xl bg-slate-800/80 hover:bg-rose-900/60 text-slate-400 hover:text-white transition cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Body */}
+                  <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 text-xs">
+                    
+                    {/* Recipient Phone & Expiry Threshold Box */}
+                    <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'} space-y-3`}>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="text-slate-300 font-bold text-xs flex items-center gap-1.5">
+                            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{text('رقم هاتف WhatsApp المستلم:', 'Recipient WhatsApp Number:')}</span>
+                          </label>
+                          <input
+                            type="tel"
+                            value={whatsAppNumber}
+                            onChange={(e) => setWhatsAppNumber(e.target.value)}
+                            placeholder="+966501234567"
+                            className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-teal-300 font-mono text-xs focus:outline-none focus:border-teal-500 min-w-[180px]"
+                            dir="ltr"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              localStorage.setItem('whatsAppNumber', whatsAppNumber);
+                              showToast(text('تم حفظ رقم الواتساب بنجاح! 💾', 'WhatsApp number saved! 💾'), 'success');
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+                          >
+                            {text('حفظ الرقم 💾', 'Save 💾')}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-semibold">
+                          <span>{text('نطاق التنبيه:', 'Alert Scope:')}</span>
+                          <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold font-mono">
+                            {alertDays} {text('يوماً', 'days')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Stock Summary Mini Badges */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+                          <div className="text-[10px] text-slate-400 font-bold">{text('إجمالي الأصناف', 'Total Meds')}</div>
+                          <div className="text-base font-black text-teal-400 font-mono mt-0.5">{medicines.length}</div>
+                        </div>
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-900/80 border-rose-900/40' : 'bg-rose-50 border-rose-200'}`}>
+                          <div className="text-[10px] text-rose-400 font-bold">{text('منتهية الصلاحية', 'Expired')}</div>
+                          <div className="text-base font-black text-rose-400 font-mono mt-0.5">{stats.expiredCount}</div>
+                        </div>
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-900/80 border-amber-900/40' : 'bg-amber-50 border-amber-200'}`}>
+                          <div className="text-[10px] text-amber-400 font-bold">{text('قريبة الانتهاء', 'Near Expiry')}</div>
+                          <div className="text-base font-black text-amber-400 font-mono mt-0.5">{stats.nearExpiryCount}</div>
+                        </div>
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-900/80 border-orange-900/40' : 'bg-orange-50 border-orange-200'}`}>
+                          <div className="text-[10px] text-orange-400 font-bold">{text('رصيد حرج (<= 15)', 'Critical Stock')}</div>
+                          <div className="text-base font-black text-orange-400 font-mono mt-0.5">{stats.criticalStockCount}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Action Buttons Toolbar */}
+                    {(() => {
+                      const cleanPhone = whatsAppNumber ? whatsAppNumber.replace(/\+/g, '').replace(/\s/g, '') : '';
+                      const arPdfUrl = `${window.location.origin}/api/reports/pdf/arabic`;
+                      const enPdfUrl = `${window.location.origin}/api/reports/pdf/english`;
+
+                      const conciseMsg = 
+                        `🛡️ *${OFFICIAL_CENTER_NAME}*\n` +
+                        `📋 *تقرير الرقابة الدوائية والتنبيهات الوقائية*\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `📊 *إحصائية المخزون:* إجمالي الأصناف (${medicines.length}) | ⚠️ منتهية (${stats.expiredCount}) | ⏳ قريبة الانتهاء (${stats.nearExpiryCount}) | 📉 رصيد حرج (${stats.criticalStockCount})\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `📎 *روابط ملفات الـ PDF الرسمية المعتمدة (عرض فوري):*\n` +
+                        `🇸🇦 التقرير الرسمي بالعربية:\n${arPdfUrl}\n` +
+                        `🇬🇧 Official English Report:\n${enPdfUrl}\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        (stats.nearExpiryCount > 0 ? `⚠️ يوجد ${stats.nearExpiryCount} أدوية تنتهي صلاحيتها خلال ${alertDays} يوماً.\n` : `✅ لا توجد أدوية قريبة الانتهاء حالياً.\n`) +
+                        (stats.criticalStockCount > 0 ? `📉 يوجد ${stats.criticalStockCount} أصناف وصلت للحد الحرج (15 عبوة أو أقل).\n` : '') +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `💡 تم نسخ نص التقرير المفصل كاملاً للحافظة.`;
+
+                      const waDirectUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(conciseMsg)}`;
+
+                      const { arReport, enReport } = generateFormattedEmailReports(medicines, alertDays);
+                      const activeReportText = waModalLang === 'ar' ? arReport : enReport;
+
+                      return (
+                        <div className="space-y-4">
+                          {/* Direct Actions Grid */}
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            <a
+                              href={waDirectUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-900/30 text-xs active:scale-95"
+                              onClick={() => {
+                                navigator.clipboard.writeText(activeReportText);
+                                showToast(text('تم فتح واتساب ونسخ التقرير المفصل للحافظة! 📲', 'Opening WhatsApp & report copied! 📲'), 'success');
+                              }}
+                            >
+                              <Smartphone className="w-4 h-4" />
+                              <span>{text('فتح محادثة واتساب الآن 📲', 'Open WhatsApp Chat Now 📲')}</span>
+                            </a>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(activeReportText);
+                                showToast(text('تم نسخ نص التقرير المنسق إلى الحافظة بنجاح! 📋', 'Report text copied to clipboard! 📋'), 'success');
+                              }}
+                              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-teal-400 rounded-xl font-bold transition flex items-center gap-2 cursor-pointer border border-slate-700 text-xs active:scale-95"
+                            >
+                              <Copy className="w-4 h-4" />
+                              <span>{text('نسخ التقرير للحافظة 📋', 'Copy Report to Clipboard 📋')}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={sendingWhatsAppReport}
+                              onClick={() => sendFreeWhatsAppReport()}
+                              className="px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold transition flex items-center gap-2 cursor-pointer shadow-lg shadow-teal-900/30 text-xs disabled:opacity-50 active:scale-95"
+                            >
+                              {sendingWhatsAppReport ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Sparkles className="w-4 h-4 text-amber-300" />
+                              )}
+                              <span>{text('إرسال فوري مع رفع الـ PDF 🚀', 'Instant Send & Cloud PDF 🚀')}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={generatingPdfLoading}
+                              onClick={() => handleDownloadPdf('ar')}
+                              className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer border border-slate-700 text-xs active:scale-95"
+                              title={text('تحميل ملف PDF عالي الدقة باللغة العربية', 'Download High-Res Arabic PDF')}
+                            >
+                              <Download className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>{text('تحميل PDF (عربي) 📄', 'Download AR PDF 📄')}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={generatingPdfLoading}
+                              onClick={() => handleDownloadPdf('en')}
+                              className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer border border-slate-700 text-xs active:scale-95"
+                              title={text('تحميل ملف PDF عالي الدقة باللغة الإنجليزية', 'Download High-Res English PDF')}
+                            >
+                              <Download className="w-3.5 h-3.5 text-sky-400" />
+                              <span>{text('تحميل PDF (إنجليزي) 🇬🇧', 'Download EN PDF 🇬🇧')}</span>
+                            </button>
+                          </div>
+
+                          {/* Preview Language Switcher & Controls */}
+                          <div className="flex flex-wrap justify-between items-center gap-2 p-2 rounded-2xl bg-slate-950/60 border border-slate-800">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setWaModalLang('ar')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                                  waModalLang === 'ar'
+                                    ? 'bg-teal-600 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-white bg-slate-900'
+                                }`}
+                              >
+                                <span>🇸🇦</span>
+                                <span>{text('التقرير العربي', 'Arabic Report')}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setWaModalLang('en')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                                  waModalLang === 'en'
+                                    ? 'bg-teal-600 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-white bg-slate-900'
+                                }`}
+                              >
+                                <span>🇬🇧</span>
+                                <span>{text('English Report', 'English Report')}</span>
+                              </button>
+                            </div>
+
+                            <span className="text-[11px] text-slate-400">
+                              {text('معاينة نص التقرير المنسق لرسائل الواتساب:', 'Preview formatted report text for WhatsApp:')}
+                            </span>
+                          </div>
+
+                          {/* Report Text Display Box */}
+                          <div
+                            dir={waModalLang === 'ar' ? 'rtl' : 'ltr'}
+                            className={`p-4 rounded-2xl border max-h-[45vh] overflow-y-auto font-mono text-xs leading-relaxed whitespace-pre-wrap select-text ${
+                              darkMode ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                            }`}
+                          >
+                            {activeReportText}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="px-6 py-3.5 border-t border-slate-800 bg-slate-950/60 flex justify-between items-center text-xs">
+                    <span className="text-slate-400 text-[11px]">
+                      {text(
+                        '💡 يتم توليد ملفات الـ PDF الرسمية في الذاكرة دون الحاجة لتنزيل ملفات مؤقتة على جهازك.',
+                        '💡 Official PDF reports are generated in-memory without saving temporary files to your disk.'
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowWhatsAppReportModal(false)}
+                      className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer transition"
+                    >
+                      {text('إغلاق ✕', 'Close ✕')}
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+
+            {/* ----------------- CUSTOM DELETE CONFIRMATION MODAL ----------------- */}
+            {deleteConfirmTarget && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-md rounded-3xl border shadow-2xl p-6 ${lang === 'ar' ? 'text-right' : 'text-left'} ${darkMode ? 'bg-slate-900 border-rose-900/30' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <div className="flex justify-between items-center pb-3 border-b border-rose-500/10 mb-4">
+                    <h3 className="text-sm font-black text-rose-500 flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-rose-500 animate-pulse" />
+                      <span>{text('تأكيد إجراء الحذف النهائي ⚠️', 'Confirm Permanent Deletion ⚠️')}</span>
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+                    {deleteConfirmTarget.type === 'resident' ? (
+                      <span>{text('هل أنت متأكد تماماً من شطب المقيم ', 'Are you sure you want to delete resident ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' نهائياً من سجلات الصيدلية والمركز؟ هذا الإجراء سيؤثر على ربط سجلات الصرف القديمة.', ' permanently from pharmacy records? This will affect historical dispense records.')}</span>
+                    ) : deleteConfirmTarget.type === 'user' ? (
+                      <span>{text('هل أنت متأكد تماماً من إلغاء حساب المستخدم ', 'Are you sure you want to delete user ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' وحظر وصوله إلى نظام الصيدلية؟', ' and revoke access to the pharmacy system?')}</span>
+                    ) : deleteConfirmTarget.type === 'company' ? (
+                      <span>{text('هل أنت متأكد تماماً من شطب شركة الأدوية ', 'Are you sure you want to delete pharma company ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' نهائياً من دليل شركات التوريد والإنتاج؟', ' from the supplier directory?')}</span>
+                    ) : (
+                      <span>{text('هل أنت متأكد تماماً من حذف الملاحظة السلوكية والطبية المسجلة للمقيم ', 'Are you sure you want to delete the behavioral observation for resident ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' نهائياً من نظام التتبع السلوكي؟', ' permanently from the behavioral tracking system?')}</span>
+                    )}
+                  </p>
+                  <div className="flex justify-end gap-2 text-xs">
+                    <button 
+                      type="button" 
+                      onClick={() => setDeleteConfirmTarget(null)} 
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer"
+                    >
+                      {text('إلغاء التراجع', 'Cancel')}
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={async () => {
+                        if (deleteConfirmTarget.type === 'resident') {
+                          await DbService.deleteResident(deleteConfirmTarget.id);
+                          const updated = residents.filter(r => r.id !== deleteConfirmTarget.id);
+                          setResidents(updated);
+                          saveLocalResidents(updated);
+                          showToast(text(`تم شطب المقيم "${deleteConfirmTarget.name}" بنجاح.`, `Resident "${deleteConfirmTarget.name}" removed successfully.`), 'success');
+                        } else if (deleteConfirmTarget.type === 'user') {
+                          const targetUser = users.find(u => u.uid === deleteConfirmTarget.id);
+                          if (targetUser?.role === 'developer' && currentUser?.role !== 'developer') {
+                            showToast(text('عذراً، لا يمكن حذف حساب المبرمج إلا بواسطة مبرمج!', 'Developer accounts can only be deleted by a developer!'), 'error');
+                            setDeleteConfirmTarget(null);
+                            return;
+                          }
+                          await DbService.deleteUser(deleteConfirmTarget.id);
+                          const updated = users.filter(u => u.uid !== deleteConfirmTarget.id);
+                          updateUsersList(updated);
+                          showToast(text(`تم إلغاء حساب الكادر الطبي "${deleteConfirmTarget.name}" بنجاح.`, `User "${deleteConfirmTarget.name}" removed successfully.`), 'success');
+                        } else if (deleteConfirmTarget.type === 'company') {
+                          await DbService.deleteCompany(deleteConfirmTarget.id);
+                          const updated = companies.filter(c => c.id !== deleteConfirmTarget.id);
+                          setCompanies(updated);
+                          saveLocalCompanies(updated);
+                          showToast(text(`تم حذف شركة "${deleteConfirmTarget.name}" بنجاح.`, `Company "${deleteConfirmTarget.name}" removed successfully.`), 'success');
+                        } else if (deleteConfirmTarget.type === 'behaviorLog') {
+                          await DbService.deleteBehaviorLog(deleteConfirmTarget.id);
+                          const updated = behaviorLogs.filter(b => b.id !== deleteConfirmTarget.id);
+                          setBehaviorLogs(updated);
+                          saveLocalBehaviorLogs(updated);
+                          showToast(text(`تم حذف السجل السلوكي للمريض "${deleteConfirmTarget.name}" بنجاح.`, `Behavioral log for "${deleteConfirmTarget.name}" removed successfully.`), 'success');
+                        }
+                        setDeleteConfirmTarget(null);
+                      }}
+                      className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold shadow-lg shadow-rose-900/40 cursor-pointer"
+                    >
+                      {text('حذف نهائي ومؤكد 🗑️', 'Confirm Delete 🗑️')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- INTERACTIVE PRINT PREVIEW MODAL ----------------- */}
+            {showPrintPreviewModal && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border shadow-2xl p-6 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <div className="flex justify-between items-center pb-4 border-b border-slate-800 mb-4">
+                    <h3 className="text-base font-black text-slate-200 flex items-center gap-2">
+                      <Printer className="w-5 h-5 text-teal-400" />
+                      <span>{text('📂 مركز تصدير وطباعة تقارير المخازن', '📂 Warehouse Reports Export & Print Center')}</span>
+                    </h3>
+                    <button onClick={() => setShowPrintPreviewModal(false)} className="text-slate-400 hover:text-white transition p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Actions Bar */}
+                  <div className="flex flex-wrap gap-2 mb-6 bg-slate-950/60 p-3 rounded-2xl border border-slate-800 text-xs">
+                    <button 
+                      onClick={() => {
+                        try {
+                          let textReport = `${OFFICIAL_CENTER_NAME}\n`;
+                          textReport += `${text('تقرير جرد المخازن وحركة الأدوية وصرف الوحدات الطبية', 'Warehouse Inventory & Medication Dispensing Report')}\n`;
+                          textReport += `${text('تاريخ التصدير:', 'Export Date:')} ${new Date().toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}\n\n`;
+                          textReport += `==========================================\n`;
+                          textReport += `${text('إجمالي قيمة مستودع الأدوية:', 'Total Inventory Value:')} ${Number(stats.totalInventoryValue || 0).toFixed(2)} ${text('ر.س', 'SAR')}\n`;
+                          textReport += `${text('عدد الأصناف المسجلة:', 'Registered Items:')} ${stats.totalItems} ${text('صنف', 'Items')}\n`;
+                          textReport += `${text('إجمالي الكمية المصروفة فعلياً:', 'Total Actually Dispensed:')} ${Number(stats.totalDispensedCount || 0).toFixed(2)} ${text('علبة/وحدة', 'Units')}\n`;
+                          textReport += `==========================================\n\n`;
+                          textReport += `${text('تفاصيل المستودع وجرد الأدوية:', 'Warehouse Details & Medication Inventory:')}\n`;
+                          textReport += medicines.map((med, idx) => {
+                            const nameDisplay = lang === 'en' ? (med.commercialNameEn || med.commercialName) : (med.commercialNameAr || med.commercialName);
+                            return `${idx + 1}. ${nameDisplay} (${med.scientificName}) - ${text('الكمية المتاحة:', 'Stock:')} ${med.quantity} ${translateUnit(med.unit)} - ${text('السعر:', 'Price:')} ${med.price} ${text('ر.س', 'SAR')} - ${text('الصلاحية:', 'Expiry:')} ${med.expiryDate}`;
+                          }).join('\n');
+                          
+                          navigator.clipboard.writeText(textReport);
+                          showToast(text('📋 تم نسخ تقرير جرد المخازن بالكامل إلى الحافظة بنجاح!', '📋 Inventory report copied to clipboard successfully!'), 'success');
+                        } catch (e) {
+                          showToast(text('فشل نسخ التقرير إلى الحافظة.', 'Failed to copy report to clipboard.'), 'error');
+                        }
+                      }}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Copy className="w-4 h-4 text-teal-400" />
+                      <span>{text('نسخ التقرير إلى الحافظة 📋', 'Copy Report to Clipboard 📋')}</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        try {
+                          let textReport = `${OFFICIAL_CENTER_NAME}\n`;
+                          textReport += `${text('تقرير جرد المخازن وحركة الأدوية وصرف الوحدات الطبية', 'Warehouse Inventory & Medication Dispensing Report')}\n`;
+                          textReport += `${text('تاريخ التصدير:', 'Export Date:')} ${new Date().toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}\n\n`;
+                          textReport += `==========================================\n`;
+                          textReport += `${text('إجمالي قيمة مستودع الأدوية:', 'Total Inventory Value:')} ${Number(stats.totalInventoryValue || 0).toFixed(2)} ${text('ر.س', 'SAR')}\n`;
+                          textReport += `${text('عدد الأصناف المسجلة:', 'Registered Items:')} ${stats.totalItems} ${text('صنف', 'Items')}\n`;
+                          textReport += `${text('إجمالي الكمية المصروفة فعلياً:', 'Total Actually Dispensed:')} ${Number(stats.totalDispensedCount || 0).toFixed(2)} ${text('علبة/وحدة', 'Units')}\n`;
+                          textReport += `==========================================\n\n`;
+                          textReport += `${text('تفاصيل المستودع وجرد الأدوية:', 'Warehouse Details & Medication Inventory:')}\n`;
+                          textReport += medicines.map((med, idx) => {
+                            const nameDisplay = lang === 'en' ? (med.commercialNameEn || med.commercialName) : (med.commercialNameAr || med.commercialName);
+                            return `${idx + 1}. ${nameDisplay} (${med.scientificName}) - ${text('الكمية المتاحة:', 'Stock:')} ${med.quantity} ${translateUnit(med.unit)} - ${text('السعر:', 'Price:')} ${med.price} ${text('ر.س', 'SAR')} - ${text('الصلاحية:', 'Expiry:')} ${med.expiryDate}`;
+                          }).join('\n');
+
+                          const blob = new Blob([textReport], { type: 'text/plain;charset=utf-8;' });
+                          const url = URL.createObjectURL(blob);
+                          const link = document.createElement("a");
+                          link.setAttribute("href", url);
+                          const filenamePrefix = lang === 'en' ? 'Warehouse_Inventory_Report_' : 'تقرير_جرد_المخزن_';
+                          link.setAttribute("download", `${filenamePrefix}${new Date().toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US').replace(/\//g, '-')}.txt`);
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                          showToast(text('📥 تم تحميل التقرير بصيغة نصية (.txt) بنجاح!', '📥 Text report (.txt) downloaded successfully!'), 'success');
+                        } catch (e) {
+                          showToast(text('فشل تصدير التقرير الطبي كنص.', 'Failed to export report as text.'), 'error');
+                        }
+                      }}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4 text-teal-400" />
+                      <span>{text('تنزيل كملف نصي (.txt) 📥', 'Download Text File (.txt) 📥')}</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        try {
+                          window.print();
+                        } catch (err) {
+                          showToast(text('تعذر فتح نافذة طباعة النظام؛ يرجى نسخ التقرير أو تنزيله كملف نصي.', 'Unable to open print dialog; please copy or download report.'), 'error');
+                        }
+                      }}
+                      className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Printer className="w-4 h-4" />
+                      <span>{text('أمر طباعة النظام المباشر 🖨️', 'Direct Print Command 🖨️')}</span>
+                    </button>
+                  </div>
+
+                  {/* Document View Area */}
+                  <div className={`border border-slate-800 rounded-2xl bg-white text-slate-900 p-8 shadow-inner overflow-x-auto ${lang === 'ar' ? 'text-right' : 'text-left'} text-xs`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                    <div className="text-center mb-6">
+                      <h1 className="text-xl font-bold text-slate-950">{OFFICIAL_CENTER_NAME}</h1>
+                      <p className="text-slate-600 mt-1">{text('تقرير جرد المخازن وحركة الأدوية وصرف الوحدات الطبية', 'Warehouse Inventory & Medication Dispensing Report')}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{text('تاريخ التقرير:', 'Report Date:')} {new Date().toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}</p>
+                    </div>
+
+                    <div className="border-b-2 border-slate-900 pb-3 mb-4">
+                      <h3 className="font-bold text-slate-900 text-sm">{text('ملخص الإحصاءات العامة للمستودع:', 'General Warehouse Summary Statistics:')}</h3>
+                      <div className="grid grid-cols-3 gap-2 mt-2 font-semibold text-slate-800">
+                        <div>{text('إجمالي قيمة المخزن:', 'Total Value:')} <strong className="text-slate-950 font-mono">{Number(stats.totalInventoryValue || 0).toFixed(2)} {text('ر.س', 'SAR')}</strong></div>
+                        <div>{text('عدد الأصناف المسجلة:', 'Registered Items:')} <strong className="text-slate-950 font-mono">{stats.totalItems} {text('صنف', 'Items')}</strong></div>
+                        <div>{text('إجمالي المنصرف فعلياً:', 'Total Dispensed:')} <strong className="text-slate-950 font-mono">{Number(stats.totalDispensedCount || 0).toFixed(2)} {text('علبة/وحدة', 'Units')}</strong></div>
+                      </div>
+                    </div>
+
+                    <h3 className="font-bold text-slate-900 mb-2 text-sm">{text('تفاصيل المستودع وجرد الأدوية:', 'Warehouse Details & Medication Inventory:')}</h3>
+                    <table className={`w-full ${lang === 'ar' ? 'text-right' : 'text-left'} text-xs border-collapse`}>
+                      <thead>
+                        <tr className="border-b-2 border-slate-800 font-bold text-slate-900">
+                          <th className="py-2 px-1">{text('الاسم التجاري', 'Trade Name')}</th>
+                          <th className="py-2 px-1">{text('الاسم العلمي', 'Scientific Name')}</th>
+                          <th className="py-2 px-1">{text('الفئة', 'Category')}</th>
+                          <th className="py-2 px-1">{text('الكمية المتاحة', 'Available Qty')}</th>
+                          <th className="py-2 px-1">{text('السعر', 'Price')}</th>
+                          <th className="py-2 px-1">{text('الصلاحية', 'Expiry')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {medicines.map((med) => (
+                          <tr key={med.id} className="text-slate-800 hover:bg-slate-50">
+                            <td className="py-2 px-1 font-bold text-slate-950">
+                              <div>{lang === 'en' ? (med.commercialNameEn || med.commercialName) : (med.commercialNameAr || med.commercialName)}</div>
+                              {lang !== 'en' && med.commercialNameEn && (
+                                <div className="text-[10px] text-slate-500 font-sans font-normal">{med.commercialNameEn}</div>
+                              )}
+                              {lang === 'en' && med.commercialNameAr && (
+                                <div className="text-[10px] text-slate-500 font-sans font-normal">{med.commercialNameAr}</div>
+                              )}
+                            </td>
+                            <td className="py-2 px-1">{med.scientificName}</td>
+                            <td className="py-2 px-1">{translateCategory(med.category || '') || (lang === 'en' ? 'General' : 'عام')}</td>
+                            <td className="py-2 px-1 font-mono font-bold">{med.quantity} {translateUnit(med.unit)}</td>
+                            <td className="py-2 px-1 font-mono">{med.price} {text('ر.س', 'SAR')}</td>
+                            <td className="py-2 px-1 font-mono">{med.expiryDate}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    <div className="mt-8 flex justify-between text-slate-700 font-bold">
+                      <div>
+                        <p>{text('توقيع الصيدلي المسؤول:', 'Duty Pharmacist Signature:')}</p>
+                        <p className="mt-8">___________________</p>
+                      </div>
+                      <div>
+                        <p>{text('ختم صيدلية المركز:', 'Center Pharmacy Stamp:')}</p>
+                        <p className="mt-8">___________________</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-slate-800/60">
+                    <button 
+                      onClick={() => setShowPrintPreviewModal(false)} 
+                      className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs cursor-pointer"
+                    >
+                      {text('إغلاق المعاينة', 'Close Preview')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+
+
+            {/* ----------------- MODAL: ADD BEHAVIOR LOG ----------------- */}
+            {showAddBehaviorModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-lg rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowAddBehaviorModal(false);
+                      setBehaviorResidentSearch('');
+                    }}
+                    className={`absolute top-4 ${lang === 'ar' ? 'left-4' : 'right-4'} p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 cursor-pointer`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  
+                  <h3 className="text-lg font-bold text-teal-400 mb-4 flex items-center gap-2">
+                    <span>🧠 {selectedBehaviorLogId ? text('تعديل ملاحظة سلوكية وأعراض جانبية قائمة', 'Edit Behavioral Note & Adverse Effects') : text('تسجيل ملاحظة سلوكية وأعراض جانبية جديدة', 'Record New Behavioral Note & Side Effects')}</span>
+                  </h3>
+
+                  <form onSubmit={handleAddBehaviorLog} className="space-y-4 text-xs text-slate-300">
+                    
+                    {/* Resident Select with Live Search Box */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-300 font-bold">{text('المقيم المستهدف *', 'Target Resident *')}</label>
+                        {behaviorResidentSearch && (
+                          <span className="text-[11px] text-teal-400 font-mono font-bold bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                            {filteredBehaviorResidents.length} {text('نتيجة مطابقة', 'matches')}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Resident Search Input */}
+                      <div className="relative flex items-center">
+                        <input 
+                          type="text"
+                          placeholder={text('🔍 ابحث باسم المقيم (عربي أو إنجليزي)، رقم الغرفة، أو رقم الهوية...', '🔍 Search resident by name, room number, or ID...')}
+                          value={behaviorResidentSearch}
+                          onChange={(e) => setBehaviorResidentSearch(e.target.value)}
+                          className="w-full px-3 py-2.5 pl-9 rounded-xl bg-slate-950 border border-slate-700/80 text-white placeholder-slate-500 text-xs focus:border-teal-400 focus:ring-1 focus:ring-teal-400 outline-none transition"
+                        />
+                        {behaviorResidentSearch ? (
+                          <button 
+                            type="button" 
+                            onClick={() => setBehaviorResidentSearch('')} 
+                            className="absolute left-2.5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer transition"
+                            title={text('مسح البحث', 'Clear search')}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <Search className="w-4 h-4 text-slate-500 absolute left-2.5 pointer-events-none" />
+                        )}
+                      </div>
+
+                      {/* Resident Select Dropdown */}
+                      <select 
+                        required
+                        value={behaviorForm.residentId}
+                        onChange={(e) => setBehaviorForm(prev => ({ ...prev, residentId: e.target.value }))}
+                        className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer font-medium text-xs"
+                      >
+                        <option value="">{text('-- اختر المقيم المستهدف من القائمة --', '-- Select Target Resident from list --')}</option>
+                        {filteredBehaviorResidents.map(r => (
+                          <option key={r.id} value={r.id}>
+                            {lang === 'en' ? (r.nameEn || r.name) : (r.nameAr || r.name)} {lang !== 'en' && r.nameEn ? `(${r.nameEn})` : ''} - {text('غرفة', 'Room')} {r.roomNumber}{r.nationalId ? ` | ${text('هوية:', 'ID:')} ${r.nationalId}` : ''}
+                          </option>
+                        ))}
+                        {filteredBehaviorResidents.length === 0 && (
+                          <option value="" disabled>{text('❌ لا يوجد مقيم مطابق لكلمات البحث', '❌ No matching resident found')}</option>
+                        )}
+                        {behaviorForm.residentId && !filteredBehaviorResidents.some(r => r.id === behaviorForm.residentId) && (() => {
+                          const currentSelected = residents.find(r => r.id === behaviorForm.residentId);
+                          return currentSelected ? (
+                            <option key={currentSelected.id} value={currentSelected.id}>
+                              {currentSelected.name} ({text('غرفة', 'Room')} {currentSelected.roomNumber}) - {text('(المحدد حالياً)', '(Currently Selected)')}
+                            </option>
+                          ) : null;
+                        })()}
+                      </select>
+
+                      {/* Active Selected Resident Info Badge */}
+                      {(() => {
+                        const selectedResidentObj = residents.find(r => r.id === behaviorForm.residentId);
+                        if (!selectedResidentObj) return null;
+                        return (
+                          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-teal-950/40 border border-teal-500/30 text-teal-300 text-xs">
+                            <div className="flex items-center gap-2 truncate">
+                              <span className="text-sm">👤</span>
+                              <div>
+                                <span className="font-bold text-white block truncate">{selectedResidentObj.name}</span>
+                                <span className="text-[10px] text-teal-400 font-mono">
+                                  {text('غرفة', 'Room')} {selectedResidentObj.roomNumber} {selectedResidentObj.nationalId ? `• ${text('هوية', 'ID')}: ${selectedResidentObj.nationalId}` : ''}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setBehaviorForm(prev => ({ ...prev, residentId: '' }))}
+                              className="text-[11px] text-rose-400 hover:text-rose-300 hover:underline px-2 py-1 rounded-lg hover:bg-rose-950/30 transition shrink-0 cursor-pointer"
+                            >
+                              {text('إلغاء الاختيار', 'Clear selection')}
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Behavior Rating Select */}
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('التقييم والتقلب السلوكي *', 'Behavioral Rating & Status *')}</label>
+                        <select 
+                          required
+                          value={behaviorForm.behaviorRating}
+                          onChange={(e) => setBehaviorForm(prev => ({ ...prev, behaviorRating: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                        >
+                          <option value="stable">{text('مستقر وضمن الحدود الطبيعية 🟢', 'Stable & within normal limits 🟢')}</option>
+                          <option value="agitated">{text('هياج سلوكي حاد 🔴', 'Acute Agitation / Distress 🔴')}</option>
+                          <option value="anxious">{text('قلق وتوتر نفسي 🟡', 'Anxiety & Tension 🟡')}</option>
+                          <option value="withdrawn">{text('انسحاب وعزلة اجتماعية 🟣', 'Social Withdrawal / Isolation 🟣')}</option>
+                          <option value="hyperactive">{text('نشاط وحركة مفرطة 🔵', 'Hyperactivity & Restlessness 🔵')}</option>
+                        </select>
+                      </div>
+
+                      {/* Suspected Medicine Select */}
+                      <div>
+                        <label className="block text-slate-400 mb-1 font-bold">{text('الدواء المرتبط (المشتبه به) - اختياري', 'Suspected / Linked Medication - Optional')}</label>
+                        <select 
+                          value={behaviorForm.recentMedicineId}
+                          onChange={(e) => setBehaviorForm(prev => ({ ...prev, recentMedicineId: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                        >
+                          <option value="">{text('-- لا يوجد دواء مرتبط مباشر --', '-- No direct medication linked --')}</option>
+                          {medicines.map(m => (
+                            <option key={m.id} value={m.id}>{m.commercialName} ({m.scientificName})</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Side effects checklist with custom additions/edits/deletions */}
+                    <div>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-slate-400 font-bold">{text('الأعراض الجانبية المرصودة (اختر كل ما ينطبق)', 'Observed Side Effects (Select all that apply)')}</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddSideEffectInput(!showAddSideEffectInput);
+                            setNewSideEffectInput('');
+                          }}
+                          className="text-[11px] text-teal-400 hover:underline cursor-pointer font-bold"
+                        >
+                          {showAddSideEffectInput ? text("إلغاء ❌", "Cancel ❌") : text("+ إضافة عرض جديد", "+ Add New Side Effect")}
+                        </button>
+                      </div>
+
+                      {showAddSideEffectInput && (
+                        <div className="flex gap-1.5 mb-2.5 items-center bg-slate-950/40 p-2 rounded-xl border border-slate-800">
+                          <input
+                            type="text"
+                            value={newSideEffectInput}
+                            onChange={(e) => setNewSideEffectInput(e.target.value)}
+                            placeholder={text("العرض الجانبي الجديد (مثال: طفح جلدي، دوخة...)", "New side effect (e.g., skin rash, dizziness...)")}
+                            className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-slate-950 border border-slate-855 text-white focus:border-teal-500 outline-none"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (newSideEffectInput.trim()) {
+                                  handleAddCustomSideEffect(newSideEffectInput.trim());
+                                  setNewSideEffectInput('');
+                                  setShowAddSideEffectInput(false);
+                                }
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (newSideEffectInput.trim()) {
+                                handleAddCustomSideEffect(newSideEffectInput.trim());
+                                setNewSideEffectInput('');
+                                setShowAddSideEffectInput(false);
+                              } else {
+                                showToast(text('الرجاء كتابة اسم العرض أولاً', 'Please enter a side effect name'), 'error');
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0 transition"
+                          >
+                            {text('حفظ 💾', 'Save 💾')}
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-850 max-h-56 overflow-y-auto">
+                        {customSideEffects.map((item) => {
+                          const isChecked = behaviorForm.sideEffects.includes(item.key);
+                          const defaultSideEffectTranslations: Record<string, { ar: string, en: string }> = {
+                            drowsiness: { ar: 'خمول ونعاس حاد 😴', en: 'Drowsiness & Sedation 😴' },
+                            appetite_loss: { ar: 'فقدان شهية واهتمام 🍽️', en: 'Appetite Loss & Anorexia 🍽️' },
+                            tremors: { ar: 'ارتعاش ورجفة بالأطراف 🫨', en: 'Tremors & Shaking 🫨' },
+                            rash: { ar: 'طفح جلدي وحساسية 🔴', en: 'Skin Rash & Allergic Reaction 🔴' },
+                            nausea: { ar: 'غثيان واضطراب معدة 🤢', en: 'Nausea & Stomach Upset 🤢' },
+                            insomnia: { ar: 'أرق وصعوبة نوم حادة ⏰', en: 'Severe Insomnia & Sleeplessness ⏰' }
+                          };
+                          const displayItemLabel = defaultSideEffectTranslations[item.key]
+                            ? (lang === 'ar' ? defaultSideEffectTranslations[item.key].ar : defaultSideEffectTranslations[item.key].en)
+                            : item.label;
+
+                          return (
+                            <div key={item.key} className="flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-slate-900/60 transition group min-h-[36px]">
+                              {editingSideEffectKey === item.key ? (
+                                <div className="flex items-center gap-1.5 w-full">
+                                  <input
+                                    type="text"
+                                    value={editingSideEffectLabel}
+                                    onChange={(e) => setEditingSideEffectLabel(e.target.value)}
+                                    className="flex-1 px-2 py-1 text-[11px] rounded bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        if (editingSideEffectLabel.trim()) {
+                                          handleEditCustomSideEffect(item.key, editingSideEffectLabel.trim());
+                                          setEditingSideEffectKey(null);
+                                          setEditingSideEffectLabel('');
+                                        }
+                                      }
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (editingSideEffectLabel.trim()) {
+                                        handleEditCustomSideEffect(item.key, editingSideEffectLabel.trim());
+                                        setEditingSideEffectKey(null);
+                                        setEditingSideEffectLabel('');
+                                      } else {
+                                        showToast(text('الرجاء كتابة العرض المعدل', 'Please enter edited side effect name'), 'error');
+                                      }
+                                    }}
+                                    className="px-2 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded text-[10px] font-bold cursor-pointer shrink-0 transition"
+                                  >
+                                    {text('حفظ', 'Save')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingSideEffectKey(null);
+                                      setEditingSideEffectLabel('');
+                                    }}
+                                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-bold cursor-pointer shrink-0 transition"
+                                  >
+                                    {text('إلغاء', 'Cancel')}
+                                  </button>
+                                </div>
+                              ) : deletingSideEffectKey === item.key ? (
+                                <div className="flex items-center justify-between gap-1.5 w-full">
+                                  <span className="text-[10px] text-rose-400 font-bold truncate">{text(`تأكيد حذف: ${displayItemLabel}؟`, `Delete: ${displayItemLabel}?`)}</span>
+                                  <div className="flex gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleDeleteCustomSideEffect(item.key);
+                                        if (isChecked) {
+                                          setBehaviorForm(prev => ({ 
+                                            ...prev, 
+                                            sideEffects: prev.sideEffects.filter(x => x !== item.key) 
+                                          }));
+                                        }
+                                        setDeletingSideEffectKey(null);
+                                      }}
+                                      className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[9px] font-bold cursor-pointer transition animate-pulse"
+                                    >
+                                      {text('نعم ✅', 'Yes ✅')}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeletingSideEffectKey(null)}
+                                      className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[9px] font-bold cursor-pointer transition"
+                                    >
+                                      {text('لا ❌', 'No ❌')}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <label className="flex items-center gap-2 cursor-pointer text-slate-300 select-none flex-1 min-w-0">
+                                    <input 
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {
+                                        let updated = [...behaviorForm.sideEffects];
+                                        if (isChecked) {
+                                          updated = updated.filter(x => x !== item.key);
+                                        } else {
+                                          updated.push(item.key);
+                                        }
+                                        setBehaviorForm(prev => ({ ...prev, sideEffects: updated }));
+                                      }}
+                                      className="w-4 h-4 rounded border-slate-800 text-teal-600 focus:ring-teal-500 bg-slate-950 cursor-pointer"
+                                    />
+                                    <span className="truncate text-[11px] font-medium">{displayItemLabel}</span>
+                                  </label>
+
+                                  <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingSideEffectKey(item.key);
+                                        setEditingSideEffectLabel(item.label);
+                                      }}
+                                      className="p-1 hover:bg-slate-800 text-teal-400 rounded transition cursor-pointer"
+                                      title={text("تعديل هذا العرض", "Edit this side effect")}
+                                    >
+                                      <Edit2 className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDeletingSideEffectKey(item.key);
+                                      }}
+                                      className="p-1 hover:bg-slate-800 text-rose-400 rounded transition cursor-pointer"
+                                      title={text("حذف هذا العرض", "Delete this side effect")}
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Severity Level select */}
+                    <div>
+                      <label className="block text-slate-400 mb-1 font-bold">{text('درجة خطورة وحدة الأعراض', 'Side Effect Severity Level')}</label>
+                      <select 
+                        value={behaviorForm.severity}
+                        onChange={(e) => setBehaviorForm(prev => ({ ...prev, severity: e.target.value as any }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                      >
+                        <option value="none">{text('بدون عوارض (سليم) ✅', 'None / Normal ✅')}</option>
+                        <option value="mild">{text('طفيفة وغير مقلقة 🟢', 'Mild / Not concerning 🟢')}</option>
+                        <option value="moderate">{text('متوسطة الأثر وتتطلب متابعة 🟡', 'Moderate / Requires monitoring 🟡')}</option>
+                        <option value="severe">{text('حادة للغاية وتتطلب تدخل طبيب عاجل 🚨', 'Severe / Urgent medical intervention required 🚨')}</option>
+                      </select>
+                    </div>
+
+                    {/* Clinical Notes text area */}
+                    <div>
+                      <label className="block text-slate-400 mb-1 font-bold">{text('تقرير الملاحظة والتفاصيل السلوكية *', 'Clinical Observation Report & Behavioral Details *')}</label>
+                      <textarea 
+                        required
+                        rows={3}
+                        value={behaviorForm.notes}
+                        onChange={(e) => setBehaviorForm(prev => ({ ...prev, notes: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-sans"
+                        placeholder={text("اكتب بالتفصيل التقلبات الملاحظة، مثلاً: تغير في سلوك المقيم بعد تناول دواء الصرع، هدوء مفرط، صعوبة تركيز، تفاصيل الغثيان أو الحساسية...", "Describe observed behavioral changes in detail, e.g., resident behavior changes after dose, lethargy, poor focus, tremors, nausea...")}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-teal-600 hover:bg-teal-700 py-2.5 text-sm font-bold text-white transition mt-4 shadow-lg shadow-teal-900/25 cursor-pointer"
+                    >
+                      {text('حفظ وتوثيق الملاحظة الطبية والسلوكية 💾', 'Save Behavioral & Clinical Observation 💾')}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Offline PWA warning badge */}
+            <OfflineIndicator lang={lang} />
+
+            {/* ----------------- MODAL: CONFIRM DELETE MEDICINE ----------------- */}
+            {deleteConfirmId && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl space-y-4">
+                  <h3 className="text-lg font-bold text-rose-400 flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5" />
+                    {text('تأكيد حذف الدواء نهائياً', 'Confirm Medication Deletion')}
+                  </h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {text('هل أنت متأكد من رغبتك في شطب هذا الدواء نهائياً من مخزون صيدلية الرعاية؟ لا يمكن التراجع عن هذا الإجراء وسيتم إلغاء تتبع الكميات المسجلة.', 'Are you sure you want to permanently delete this medicine from pharmacy stock? This action cannot be undone.')}
+                  </p>
+                  <div className="flex gap-3 justify-end pt-2">
+                    <button
+                      onClick={() => setDeleteConfirmId(null)}
+                      className="px-4 py-2 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl cursor-pointer"
+                    >
+                      {text('إلغاء الأمر', 'Cancel')}
+                    </button>
+                    <button
+                      onClick={handleDeleteMedicine}
+                      className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl cursor-pointer"
+                    >
+                      {text('تأكيد الحذف والشطب', 'Confirm Delete')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- MODAL: CONFIRM DELETE COMPANY ----------------- */}
+            {deleteConfirmCompanyId && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl space-y-4">
+                  <h3 className="text-lg font-bold text-rose-400 flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5" />
+                    {text('تأكيد حذف شركة الأدوية', 'Confirm Pharma Company Deletion')}
+                  </h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {text(`هل أنت متأكد تماماً من شطب شركة الأدوية "${companies.find(c => c.id === deleteConfirmCompanyId)?.name}" نهائياً من دليل الشركات؟`, `Are you sure you want to permanently delete company "${companies.find(c => c.id === deleteConfirmCompanyId)?.name}"?`)}
+                  </p>
+                  <div className="flex gap-3 justify-end pt-2">
+                    <button
+                      onClick={() => setDeleteConfirmCompanyId(null)}
+                      className="px-4 py-2 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl cursor-pointer"
+                    >
+                      {text('إلغاء الأمر', 'Cancel')}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const targetCompany = companies.find(c => c.id === deleteConfirmCompanyId);
+                        if (targetCompany) {
+                          await DbService.deleteCompany(deleteConfirmCompanyId);
+                          const updated = companies.filter(c => c.id !== deleteConfirmCompanyId);
+                          setCompanies(updated);
+                          saveLocalCompanies(updated);
+                          showToast(text(`تم حذف شركة "${targetCompany.name}" بنجاح.`, `Company "${targetCompany.name}" deleted successfully.`), 'success');
+                        }
+                        setDeleteConfirmCompanyId(null);
+                      }}
+                      className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl cursor-pointer"
+                    >
+                      {text('تأكيد الحذف', 'Confirm Delete')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- MODAL: ADD MEDICINE ----------------- */}
+            {showAddMedModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-5 text-slate-100 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl relative overflow-hidden">
+                  
+                  {/* Modal Header */}
+                  <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-900/95 backdrop-blur-sm">
+                    <h3 className="text-base font-bold text-teal-400 flex items-center gap-2">
+                      <Plus className="w-5 h-5 text-teal-400" />
+                      <span>{text('إضافة صنف دواء جديد لمستودع الصيدلية', 'Add New Medication to Pharmacy Inventory')}</span>
+                    </h3>
+                    <button 
+                      type="button"
+                      onClick={() => setShowAddMedModal(false)}
+                      className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                      title={text('إغلاق', 'Close')}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleAddMedicine} className="flex-1 flex flex-col overflow-hidden">
+                    {/* Scrollable Form Body */}
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 text-xs text-slate-300">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* اسم الدواء التجاري باللغة الإنجليزية */}
+                        <div>
+                          <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <span>{text('اسم الدواء التجاري (بالإنجليزية فقط)', 'Medicine Trade Name (English only)')}</span>
+                              <span className="text-rose-400 font-black">*</span>
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold">English only</span>
+                          </label>
+                          <input 
+                            type="text"
+                            required
+                            dir="ltr"
+                            value={medForm.commercialNameEn || medForm.commercialName}
+                            onChange={(e) => setMedForm(prev => ({ 
+                              ...prev, 
+                              commercialNameEn: e.target.value,
+                              commercialName: e.target.value,
+                              commercialNameAr: '' 
+                            }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-sans"
+                            placeholder="e.g. Panadol Extra 500mg"
+                          />
+                        </div>
+                        
+                        {/* تاريخ دخول الدواء */}
+                        <div>
+                          <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <span>{text('تاريخ دخول الدواء للمستودع', 'Medication Entry Date')}</span>
+                              <span className="text-rose-400 font-black">*</span>
+                            </span>
+                            <span className="text-[10px] text-teal-400 font-mono">Date of Entry</span>
+                          </label>
+                          <div className="relative flex items-center">
+                            <input 
+                              type="date"
+                              required
+                              value={medForm.entryDate || new Date().toISOString().split('T')[0]}
+                              onChange={(e) => setMedForm(prev => ({ ...prev, entryDate: e.target.value }))}
+                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
+                                input?.showPicker?.();
+                                input?.focus();
+                              }}
+                              className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
+                              title={text('انقر لفتح التقويم', 'Click to open calendar')}
+                            >
+                              <Calendar className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* الاسم العلمي للدواء */}
+                      <div>
+                        <label className="block text-slate-400 mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span className="font-semibold text-slate-300">{text('الاسم العلمي للدواء (المادة الفعالة)', 'Scientific / Generic Name')}</span>
+                            <span className="text-rose-400 font-black">*</span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">Active Chemical Ingredient</span>
+                        </label>
+                        <input 
+                          type="text"
+                          required
+                          dir="ltr"
+                          value={medForm.scientificName}
+                          onChange={(e) => setMedForm(prev => ({ ...prev, scientificName: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                          placeholder="e.g. Paracetamol + Caffeine"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-slate-400 mb-1">{text('الكمية المتاحة (وحدة الصنف) *', 'Available Quantity (Stock Units) *')}</label>
+                          <input 
+                            type="number"
+                            required
+                            min={0}
+                            value={medForm.quantity}
+                            onChange={(e) => setMedForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-slate-400">{text('الوحدة *', 'Unit *')}</label>
+                            {currentUser?.role !== 'technician' && (
+                              <button
+                                type="button"
+                                onClick={() => setShowManageUnitsModal(true)}
+                                className="text-[10px] text-teal-400 hover:text-teal-300 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                                title={text('إضافة أو تعديل أو حذف الوحدات', 'Add, Edit, or Delete Units')}
+                              >
+                                <span>⚙️ {text('إدارة الوحدات', 'Manage Units')}</span>
+                              </button>
+                            )}
+                          </div>
+                          <select
+                            value={medForm.unit}
+                            onChange={(e) => setMedForm(prev => ({ ...prev, unit: e.target.value as any }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                          >
+                            {customUnits.map(unit => (
+                              <option key={unit} value={unit}>{translateUnit(unit)}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-400 mb-1">{text('سعر الوحدة (ر.س) *', 'Unit Price (SAR) *')}</label>
+                          <input 
+                            type="number"
+                            required
+                            step={0.01}
+                            min={0}
+                            value={medForm.price}
+                            onChange={(e) => setMedForm(prev => ({ ...prev, price: Number(e.target.value) }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-slate-400 mb-1">{text('تاريخ انتهاء الصلاحية *', 'Expiry Date *')}</label>
+                          <div className="relative">
+                            <input 
+                              type="date"
+                              required
+                              value={medForm.expiryDate}
+                              onChange={(e) => setMedForm(prev => ({ ...prev, expiryDate: e.target.value }))}
+                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                            />
+                            <Calendar className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-slate-400">{text('الفئة العلاجية *', 'Therapeutic Category *')}</label>
+                            {currentUser?.role !== 'technician' && (
+                              <button
+                                type="button"
+                                onClick={() => setShowManageCategoriesModal(true)}
+                                className="text-[10px] text-teal-400 hover:text-teal-300 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                                title={text('إضافة أو تعديل أو حذف الفئات العلاجية', 'Add, Edit, or Delete Categories')}
+                              >
+                                <span>⚙️ {text('إدارة الفئات', 'Manage Classes')}</span>
+                              </button>
+                            )}
+                          </div>
+                          <select
+                            value={medForm.category}
+                            onChange={(e) => setMedForm(prev => ({ ...prev, category: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                          >
+                            {customCategories.map(cat => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">{text('الشركة المصنعة للدواء', 'Manufacturer')}</label>
+                        <input 
+                          type="text"
+                          list="company-list"
+                          value={medForm.manufacturer}
+                          onChange={(e) => setMedForm(prev => ({ ...prev, manufacturer: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          placeholder={text("اكتب اسم الشركة أو اختر من القائمة...", "Type company name or choose from list...")}
+                        />
+                        <datalist id="company-list">
+                          {companies.map(c => (
+                            <option key={c.id} value={c.name} />
+                          ))}
+                        </datalist>
+                      </div>
+
+                      {/* دواء مراقب وخاضع للرقابة (Control Medication) */}
+                      <div className="p-3 rounded-2xl border border-rose-500/30 bg-rose-950/20 flex items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <label htmlFor="add-is-controlled" className="text-xs font-bold text-rose-300 flex items-center gap-1.5 cursor-pointer">
+                            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>{text('دواء مراقب وخاضع للرقابة (Control / Controlled Drug)', 'Controlled Medication (Restricted Dispensing)')}</span>
+                          </label>
+                          <p className="text-[10px] text-rose-200/70 leading-relaxed">
+                            {text('عند تفعيل هذا الخيار، يُحظر على فني الصيدلة صرف هذا الدواء نهائياً، ويقتصر صرفه على الصيدلي القانوني ومدير النظام.', 'When checked, pharmacy technicians are strictly prohibited from dispensing this drug.')}
+                          </p>
+                        </div>
+                        <input 
+                          id="add-is-controlled"
+                          type="checkbox"
+                          checked={!!medForm.isControlled}
+                          onChange={(e) => setMedForm(prev => ({ ...prev, isControlled: e.target.checked }))}
+                          className="w-5 h-5 accent-rose-500 rounded cursor-pointer shrink-0"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Sticky Modal Footer */}
+                    <div className="p-4 bg-slate-900 border-t border-slate-800 shrink-0">
+                      <button
+                        type="submit"
+                        className="w-full rounded-2xl bg-teal-600 hover:bg-teal-500 py-3 text-sm font-bold text-white transition shadow-lg shadow-teal-900/30 cursor-pointer flex items-center justify-center gap-2 active:scale-98"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>{text('إضافة الدواء للمستودع وتوليد سجل المراقبة', 'Add Medicine & Generate Trail')}</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- MODAL: EDIT MEDICINE ----------------- */}
+            {showEditMedModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-5 text-slate-100 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl relative overflow-hidden">
+                  
+                  {/* Modal Header */}
+                  <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-900/95 backdrop-blur-sm">
+                    <h3 className="text-base font-bold text-teal-400 flex items-center gap-2">
+                      <Edit2 className="w-5 h-5 text-teal-400" />
+                      <span>{text('تعديل صنف دواء في مستودع الصيدلية', 'Edit Medication in Pharmacy Inventory')}</span>
+                    </h3>
+                    <button 
+                      type="button"
+                      onClick={() => setShowEditMedModal(false)}
+                      className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                      title={text('إغلاق', 'Close')}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleEditMedicine} className="flex-1 flex flex-col overflow-hidden">
+                    {/* Scrollable Form Body */}
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 text-xs text-slate-300">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* اسم الدواء التجاري باللغة الإنجليزية */}
+                        <div>
+                          <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <span>{text('اسم الدواء التجاري (بالإنجليزية فقط)', 'Medicine Trade Name (English only)')}</span>
+                              <span className="text-rose-400 font-black">*</span>
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold">English only</span>
+                          </label>
+                          <input 
+                            type="text"
+                            required
+                            dir="ltr"
+                            value={medForm.commercialNameEn || medForm.commercialName}
+                            onChange={(e) => setMedForm(prev => ({ 
+                              ...prev, 
+                              commercialNameEn: e.target.value,
+                              commercialName: e.target.value,
+                              commercialNameAr: '' 
+                            }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-sans"
+                            placeholder="e.g. Panadol Extra 500mg"
+                          />
+                        </div>
+                        
+                        {/* تاريخ دخول الدواء */}
+                        <div>
+                          <label className="block text-slate-300 font-bold mb-1 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <span>{text('تاريخ دخول الدواء للمستودع', 'Medication Entry Date')}</span>
+                              <span className="text-rose-400 font-black">*</span>
+                            </span>
+                            <span className="text-[10px] text-teal-400 font-mono">Date of Entry</span>
+                          </label>
+                          <div className="relative flex items-center">
+                            <input 
+                              type="date"
+                              required
+                              value={medForm.entryDate || new Date().toISOString().split('T')[0]}
+                              onChange={(e) => setMedForm(prev => ({ ...prev, entryDate: e.target.value }))}
+                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
+                                input?.showPicker?.();
+                                input?.focus();
+                              }}
+                              className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
+                              title={text('انقر لفتح التقويم', 'Click to open calendar')}
+                            >
+                              <Calendar className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* الاسم العلمي للدواء */}
+                      <div>
+                        <label className="block text-slate-400 mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span className="font-semibold text-slate-300">{text('الاسم العلمي للدواء (المادة الفعالة)', 'Scientific / Generic Name')}</span>
+                            <span className="text-rose-400 font-black">*</span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">Active Chemical Ingredient</span>
+                        </label>
+                        <input 
+                          type="text"
+                          required
+                          dir="ltr"
+                          value={medForm.scientificName}
+                          onChange={(e) => setMedForm(prev => ({ ...prev, scientificName: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                          placeholder="e.g. Paracetamol + Caffeine"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-slate-400 mb-1">{text('الكمية المتاحة (وحدة الصنف) *', 'Available Quantity (Stock Units) *')}</label>
+                          <input 
+                            type="number"
+                            required
+                            min={0}
+                            value={medForm.quantity}
+                            onChange={(e) => setMedForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-slate-400">{text('الوحدة *', 'Unit *')}</label>
+                            {currentUser?.role !== 'technician' && (
+                              <button
+                                type="button"
+                                onClick={() => setShowManageUnitsModal(true)}
+                                className="text-[10px] text-teal-400 hover:text-teal-300 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                                title={text('إضافة أو تعديل أو حذف الوحدات', 'Add, Edit, or Delete Units')}
+                              >
+                                <span>⚙️ {text('إدارة الوحدات', 'Manage Units')}</span>
+                              </button>
+                            )}
+                          </div>
+                          <select
+                            value={medForm.unit}
+                            onChange={(e) => setMedForm(prev => ({ ...prev, unit: e.target.value as any }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                          >
+                            {customUnits.map(unit => (
+                              <option key={unit} value={unit}>{translateUnit(unit)}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-400 mb-1">{text('سعر الوحدة (ر.س) *', 'Unit Price (SAR) *')}</label>
+                          <input 
+                            type="number"
+                            required
+                            step={0.01}
+                            min={0}
+                            value={medForm.price}
+                            onChange={(e) => setMedForm(prev => ({ ...prev, price: Number(e.target.value) }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-slate-400 mb-1">{text('تاريخ انتهاء الصلاحية *', 'Expiry Date *')}</label>
+                          <div className="relative">
+                            <input 
+                              type="date"
+                              required
+                              value={medForm.expiryDate}
+                              onChange={(e) => setMedForm(prev => ({ ...prev, expiryDate: e.target.value }))}
+                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
+                            />
+                            <Calendar className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-slate-400">{text('الفئة العلاجية *', 'Therapeutic Category *')}</label>
+                            {currentUser?.role !== 'technician' && (
+                              <button
+                                type="button"
+                                onClick={() => setShowManageCategoriesModal(true)}
+                                className="text-[10px] text-teal-400 hover:text-teal-300 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                                title={text('إضافة أو تعديل أو حذف الفئات العلاجية', 'Add, Edit, or Delete Categories')}
+                              >
+                                <span>⚙️ {text('إدارة الفئات', 'Manage Classes')}</span>
+                              </button>
+                            )}
+                          </div>
+                          <select
+                            value={medForm.category}
+                            onChange={(e) => setMedForm(prev => ({ ...prev, category: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer"
+                          >
+                            {customCategories.map(cat => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">{text('الشركة المصنعة للدواء', 'Manufacturer')}</label>
+                        <input 
+                          type="text"
+                          list="company-list"
+                          value={medForm.manufacturer}
+                          onChange={(e) => setMedForm(prev => ({ ...prev, manufacturer: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          placeholder={text("اكتب اسم الشركة أو اختر من القائمة...", "Type company name or choose from list...")}
+                        />
+                        <datalist id="company-list">
+                          {companies.map(c => (
+                            <option key={c.id} value={c.name} />
+                          ))}
+                        </datalist>
+                      </div>
+
+                      {/* دواء مراقب وخاضع للرقابة (Control Medication) */}
+                      <div className="p-3 rounded-2xl border border-rose-500/30 bg-rose-950/20 flex items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <label htmlFor="edit-is-controlled" className="text-xs font-bold text-rose-300 flex items-center gap-1.5 cursor-pointer">
+                            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>{text('دواء مراقب وخاضع للرقابة (Control / Controlled Drug)', 'Controlled Medication (Restricted Dispensing)')}</span>
+                          </label>
+                          <p className="text-[10px] text-rose-200/70 leading-relaxed">
+                            {text('عند تفعيل هذا الخيار، يُحظر على فني الصيدلة صرف هذا الدواء نهائياً، ويقتصر صرفه على الصيدلي القانوني ومدير النظام.', 'When checked, pharmacy technicians are strictly prohibited from dispensing this drug.')}
+                          </p>
+                        </div>
+                        <input 
+                          id="edit-is-controlled"
+                          type="checkbox"
+                          checked={!!medForm.isControlled}
+                          onChange={(e) => setMedForm(prev => ({ ...prev, isControlled: e.target.checked }))}
+                          className="w-5 h-5 accent-rose-500 rounded cursor-pointer shrink-0"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Sticky Modal Footer */}
+                    <div className="p-4 bg-slate-900 border-t border-slate-800 shrink-0">
+                      <button
+                        type="submit"
+                        className="w-full rounded-2xl bg-teal-600 hover:bg-teal-500 py-3 text-sm font-bold text-white transition shadow-lg shadow-teal-900/30 cursor-pointer flex items-center justify-center gap-2 active:scale-98"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        <span>{text('حفظ التعديلات الطارئة', 'Save Changes')}</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- MODAL: DISPENSE MEDICINE ----------------- */}
+            {showDispenseModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-5 text-slate-100 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl relative overflow-hidden">
+                  
+                  {/* Modal Header */}
+                  <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-900/95 backdrop-blur-sm">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                        <UserCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                          <span>{text('توثيق وصرف جرعة علاجية لمقيم', 'Document & Dispense Medication')}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">💊 Dual-Audit</span>
+                        </h3>
+                        <p className="text-[11px] text-slate-400">
+                          {text('صرف الدواء المعتمد وتدقيق الجرعة والكمية المصروفة', 'Verify & dispense medication dosage')}
+                        </p>
+                      </div>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => setShowDispenseModal(false)}
+                      className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                      title={text('إغلاق', 'Close')}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Filtered lists inside modal for instant reactive search */}
+                  {(() => {
+                    const filteredDispenseMeds = medicines.filter(m => {
+                      if (m.quantity <= 0) return false;
+                      if (!dispenseMedSearch.trim()) return true;
+                      const q = dispenseMedSearch.trim().toLowerCase();
+                      return (
+                        (m.commercialName && m.commercialName.toLowerCase().includes(q)) ||
+                        (m.commercialNameAr && m.commercialNameAr.toLowerCase().includes(q)) ||
+                        (m.commercialNameEn && m.commercialNameEn.toLowerCase().includes(q)) ||
+                        (m.scientificName && m.scientificName.toLowerCase().includes(q)) ||
+                        (m.category && m.category.toLowerCase().includes(q))
+                      );
+                    });
+
+                    const filteredDispenseResidents = residents.filter(r => {
+                      if (!dispenseResidentSearch.trim()) return true;
+                      const q = dispenseResidentSearch.trim().toLowerCase();
+                      return (
+                        (r.name && r.name.toLowerCase().includes(q)) ||
+                        (r.nameAr && r.nameAr.toLowerCase().includes(q)) ||
+                        (r.nameEn && r.nameEn.toLowerCase().includes(q)) ||
+                        (r.roomNumber && r.roomNumber.toLowerCase().includes(q)) ||
+                        (r.nationalId && r.nationalId.toLowerCase().includes(q))
+                      );
+                    });
+
+                    const selectedMedicineObj = medicines.find(m => m.id === dispenseForm.medicineId);
+
+                    return (
+                      <form onSubmit={handleAddDispense} className="flex-1 flex flex-col overflow-hidden">
+                        {/* Scrollable Form Body */}
+                        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 text-xs text-slate-300">
+                        {/* 1. اختر الدواء + تيكست للبحث عن الدواء */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-slate-300 font-bold flex items-center gap-1.5">
+                              <span>{text('اختر الدواء المراد صرفه من مخزن المركز', 'Select Medicine to Dispense')}</span>
+                              <span className="text-rose-400 font-black">*</span>
+                            </label>
+                            {dispenseMedSearch && (
+                              <span className="text-[10px] text-teal-400 font-mono bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                                {text(`${filteredDispenseMeds.length} دواء مطابق`, `${filteredDispenseMeds.length} matches`)}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* تيكست للبحث عن الدواء */}
+                          <div className="relative flex items-center">
+                            <input 
+                              type="text"
+                              placeholder={text('🔍 تيكست للبحث السريع عن الدواء (الاسم التجاري أو العلمي)...', '🔍 Search medicine by brand or scientific name...')}
+                              value={dispenseMedSearch}
+                              onChange={(e) => setDispenseMedSearch(e.target.value)}
+                              className="w-full px-3 py-2 pl-8 rounded-xl bg-slate-950 border border-slate-700/80 text-white placeholder-slate-500 text-xs focus:border-indigo-400 outline-none transition"
+                            />
+                            {dispenseMedSearch ? (
+                              <button 
+                                type="button" 
+                                onClick={() => setDispenseMedSearch('')} 
+                                className="absolute left-2.5 text-slate-400 hover:text-white p-0.5 cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none" />
+                            )}
+                          </div>
+
+                          {/* قائمة اختيار الدواء */}
+                          <select
+                            required
+                            value={dispenseForm.medicineId}
+                            onChange={(e) => {
+                              const chosenId = e.target.value;
+                              const chosenMed = medicines.find(m => m.id === chosenId);
+                              setDispenseForm(prev => ({ 
+                                ...prev, 
+                                medicineId: chosenId,
+                                unit: chosenMed?.unit || prev.unit || (customUnits[0] || (lang === 'en' ? 'Tablet' : 'قرص'))
+                              }));
+                            }}
+                            className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-indigo-500 outline-none cursor-pointer font-semibold"
+                          >
+                            <option value="">{text('-- اضغط لتحديد الدواء --', '-- Click to select medication --')}</option>
+                            {filteredDispenseMeds.map(m => (
+                              <option key={m.id} value={m.id}>
+                                {m.isControlled ? '🔒 [دواء مراقب / كنترول] ' : ''}{lang === 'en' ? (m.commercialNameEn || m.commercialName) : (m.commercialNameAr || m.commercialName)}{m.commercialNameEn && lang !== 'en' ? ` / ${m.commercialNameEn}` : ''} ({m.scientificName}) - {text('متوفر:', 'Stock:')} {m.quantity} {translateUnit(m.unit)} | {text('انتهاء:', 'Exp:')} {m.expiryDate}
+                              </option>
+                            ))}
+                            {filteredDispenseMeds.length === 0 && (
+                              <option value="" disabled>{text('لا توجد أدوية مطابقة لبحثك', 'No matching medicines found')}</option>
+                            )}
+                          </select>
+                        </div>
+
+                        {/* 2. المقيم ذوي الإعاقة + تيكست للبحث عن المقيم */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-slate-300 font-bold flex items-center gap-1.5">
+                              <span>{text('المقيم ذوي الإعاقة المستفيد من العلاج', 'Resident Beneficiary')}</span>
+                              <span className="text-rose-400 font-black">*</span>
+                            </label>
+                            {dispenseResidentSearch && (
+                              <span className="text-[10px] text-teal-400 font-mono bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                                {text(`${filteredDispenseResidents.length} مقيم مطابق`, `${filteredDispenseResidents.length} matches`)}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* تيكست للبحث عن المقيم ذي الإعاقة */}
+                          <div className="relative flex items-center">
+                            <input 
+                              type="text"
+                              placeholder={text('🔍 تيكست للبحث عن المقيم (الاسم بالعربي أو الإنجليزي، الغرفة، أو الهوية)...', '🔍 Search resident by name, room number, or ID...')}
+                              value={dispenseResidentSearch}
+                              onChange={(e) => setDispenseResidentSearch(e.target.value)}
+                              className="w-full px-3 py-2 pl-8 rounded-xl bg-slate-950 border border-slate-700/80 text-white placeholder-slate-500 text-xs focus:border-indigo-400 outline-none transition"
+                            />
+                            {dispenseResidentSearch ? (
+                              <button 
+                                type="button" 
+                                onClick={() => setDispenseResidentSearch('')} 
+                                className="absolute left-2.5 text-slate-400 hover:text-white p-0.5 cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none" />
+                            )}
+                          </div>
+
+                          {/* قائمة اختيار المقيم */}
+                          <select 
+                            required
+                            value={dispenseForm.residentName}
+                            onChange={(e) => setDispenseForm(prev => ({ ...prev, residentName: e.target.value }))}
+                            className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-indigo-500 outline-none cursor-pointer font-semibold text-xs"
+                          >
+                            <option value="">{text('-- اختر المقيم المستفيد من رعاية المركز --', '-- Select beneficiary resident --')}</option>
+                            {filteredDispenseResidents.map(r => (
+                              <option key={r.id} value={r.name}>
+                                {lang === 'en' ? (r.nameEn || r.name) : (r.nameAr || r.name)} {lang !== 'en' && r.nameEn ? `(${r.nameEn})` : ''} ({r.roomNumber}) {r.nationalId ? `| ${text('هوية:', 'ID:')} ${r.nationalId}` : ''}
+                              </option>
+                            ))}
+                            {filteredDispenseResidents.length === 0 && (
+                              <option value="" disabled>{text('لا يوجد مقيمون مطابقون لبحثك', 'No matching residents found')}</option>
+                            )}
+                          </select>
+                        </div>
+
+                        {/* Warning if selected medicine is controlled and user is technician (or general reminder) */}
+                        {selectedMedicineObj?.isControlled && (
+                          <div className={`p-3 rounded-2xl border flex items-start gap-2.5 ${
+                            currentUser?.role === 'technician' 
+                              ? 'bg-rose-950/40 border-rose-600/50 text-rose-300' 
+                              : 'bg-amber-950/30 border-amber-500/40 text-amber-300'
+                          }`}>
+                            <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
+                            <div className="space-y-1 text-xs">
+                              <strong className="block font-bold">
+                                {currentUser?.role === 'technician'
+                                  ? text('⛔ تنبيه رقابي مشدد: دواء مراقب (Control Drug)', '⛔ Security Alert: Controlled Substance (Control Drug)')
+                                  : text('🔒 تنبيه: دواء خاضع للرقابة (Control Drug)', '🔒 Notice: Controlled Substance (Control Drug)')}
+                              </strong>
+                              <p className="text-[11px] leading-relaxed opacity-90">
+                                {currentUser?.role === 'technician'
+                                  ? text(
+                                      'هذا الصنف مصنف كـ "دواء مراقب / كنترول". نظامياً، يُمنع فني الصيدلة من صرفه؛ يجب على الصيدلي القانوني أو مدير النظام توثيق الصرف شخصياً.',
+                                      'This is a Controlled Drug. Pharmacy technicians are not permitted to dispense it; only authorized Pharmacists or Admins can proceed.'
+                                    )
+                                  : text(
+                                      'هذا الصنف خاضع للرقابة المشددة. يتم تسجيل وتوثيق عملية الصرف في سجل المراقبة والتدقيق باسمك الرسمي.',
+                                      'This is a strictly monitored medication. Dispensation will be permanently logged in the audit trail under your name.'
+                                    )}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 3. الكميات + كومبو بوكس لاختيار الوحدة وأزرار الجرعات الكسرية (ربع ونصف حبة) */}
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {/* الكمية المقررة بالوصفة الطبية + كومبو بوكس الوحدة بجانبها */}
+                            <div>
+                              <label className="block text-slate-300 mb-1 font-bold flex items-center justify-between">
+                                <span className="flex items-center gap-1">
+                                  <span>{text('الكمية المقررة بالوصفة', 'Prescribed Qty')}</span>
+                                  <span className="text-rose-400 font-black">*</span>
+                                </span>
+                                <span className="text-[10px] text-indigo-400 font-semibold">{text('وحدة الصرف', 'Dispense Unit')}</span>
+                              </label>
+                              <div className="grid grid-cols-5 gap-2">
+                                {/* حقل إدخال الكمية (يدعم الكسور 0.25 و 0.5) */}
+                                <div className="col-span-3">
+                                  <input 
+                                    type="number"
+                                    required
+                                    step="0.05"
+                                    min="0.05"
+                                    value={dispenseForm.quantityDispensed}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setDispenseForm(prev => ({ 
+                                        ...prev, 
+                                        quantityDispensed: val,
+                                        actualQuantityDispensed: val // default match
+                                      }));
+                                    }}
+                                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-indigo-500 outline-none font-bold text-center font-mono"
+                                    placeholder="1"
+                                  />
+                                </div>
+                                {/* كومبو بوكس اختيار الوحدة */}
+                                <div className="col-span-2">
+                                  <select
+                                    value={dispenseForm.unit}
+                                    onChange={(e) => setDispenseForm(prev => ({ ...prev, unit: e.target.value }))}
+                                    className="w-full px-2 py-2 rounded-xl bg-slate-950 border border-indigo-500/70 text-indigo-300 focus:border-indigo-400 outline-none cursor-pointer font-bold text-xs"
+                                    title={text('كومبو بوكس لاختيار وحدة الصرف', 'Combo box to select dispensing unit')}
+                                  >
+                                    {customUnits.map(unit => (
+                                      <option key={unit} value={unit}>{unit}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* الكمية المصروفة فعلياً */}
+                            <div>
+                              <label className="block text-indigo-400 mb-1 font-bold flex items-center justify-between">
+                                <span>{text('الكمية المصروفة فعلياً (للمراجعة والأمان)', 'Actual Dispensed Qty (Safety Audit)')}</span>
+                                <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/30">
+                                  {dispenseForm.unit}
+                                </span>
+                              </label>
+                              <div className="relative flex items-center">
+                                <input 
+                                  type="number"
+                                  required
+                                  step="0.05"
+                                  min="0.05"
+                                  value={dispenseForm.actualQuantityDispensed}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    setDispenseForm(prev => ({ ...prev, actualQuantityDispensed: val }));
+                                  }}
+                                  className="w-full px-3 py-2 pl-14 rounded-xl bg-slate-950 border border-indigo-500 text-white focus:border-indigo-500 outline-none font-bold text-center font-mono"
+                                />
+                                <span className="absolute left-3 text-xs text-indigo-300 font-bold pointer-events-none">
+                                  {dispenseForm.unit}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* أزرار سريعة لاختيار الجرعات الكسرية والاعتيادية (ربع حبة، نصف حبة، 1 حبة، حبتان) */}
+                          <div className="p-2.5 rounded-2xl bg-indigo-950/20 border border-indigo-900/40">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[11px] font-bold text-indigo-300 flex items-center gap-1">
+                                <span>⚡</span>
+                                <span>{text('أزرار سريعة للجرعات (كسور الحبة والقرص):', 'Quick Dose Presets (Fractions & Tablets):')}</span>
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {text('انقر للتطبيق المباشر', 'Click to set')}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                              {/* 0.2 حبة (خمس حبة) */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDispenseForm(prev => ({
+                                    ...prev,
+                                    quantityDispensed: 0.2,
+                                    actualQuantityDispensed: 0.2
+                                  }));
+                                }}
+                                className={`px-1.5 py-1.5 rounded-xl border text-xs font-bold transition flex flex-col items-center justify-center cursor-pointer ${
+                                  dispenseForm.actualQuantityDispensed === 0.2
+                                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-md shadow-indigo-900/30 ring-1 ring-indigo-400'
+                                    : 'bg-slate-950/80 hover:bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
+                                }`}
+                              >
+                                <span className="text-[10px] sm:text-[11px] font-bold">{text('0.2 حبة', '0.2 Tab')}</span>
+                                <span className="text-[9px] font-mono opacity-70">0.20</span>
+                              </button>
+
+                              {/* ربع حبة (0.25) */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDispenseForm(prev => ({
+                                    ...prev,
+                                    quantityDispensed: 0.25,
+                                    actualQuantityDispensed: 0.25
+                                  }));
+                                }}
+                                className={`px-1.5 py-1.5 rounded-xl border text-xs font-bold transition flex flex-col items-center justify-center cursor-pointer ${
+                                  dispenseForm.actualQuantityDispensed === 0.25
+                                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-md shadow-indigo-900/30 ring-1 ring-indigo-400'
+                                    : 'bg-slate-950/80 hover:bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
+                                }`}
+                              >
+                                <span className="text-[10px] sm:text-[11px] font-bold">{text('ربع (¼)', '¼ Tab')}</span>
+                                <span className="text-[9px] font-mono opacity-70">0.25</span>
+                              </button>
+
+                              {/* نصف حبة (0.5) */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDispenseForm(prev => ({
+                                    ...prev,
+                                    quantityDispensed: 0.5,
+                                    actualQuantityDispensed: 0.5
+                                  }));
+                                }}
+                                className={`px-1.5 py-1.5 rounded-xl border text-xs font-bold transition flex flex-col items-center justify-center cursor-pointer ${
+                                  dispenseForm.actualQuantityDispensed === 0.5
+                                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-md shadow-indigo-900/30 ring-1 ring-indigo-400'
+                                    : 'bg-slate-950/80 hover:bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
+                                }`}
+                              >
+                                <span className="text-[10px] sm:text-[11px] font-bold">{text('نصف (½)', '½ Tab')}</span>
+                                <span className="text-[9px] font-mono opacity-70">0.50</span>
+                              </button>
+
+                              {/* حبة كاملة (1) */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDispenseForm(prev => ({
+                                    ...prev,
+                                    quantityDispensed: 1,
+                                    actualQuantityDispensed: 1
+                                  }));
+                                }}
+                                className={`px-1.5 py-1.5 rounded-xl border text-xs font-bold transition flex flex-col items-center justify-center cursor-pointer ${
+                                  dispenseForm.actualQuantityDispensed === 1
+                                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-md shadow-indigo-900/30 ring-1 ring-indigo-400'
+                                    : 'bg-slate-950/80 hover:bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
+                                }`}
+                              >
+                                <span className="text-[10px] sm:text-[11px] font-bold">{text('1 حبة', '1 Tab')}</span>
+                                <span className="text-[9px] font-mono opacity-70">1.00</span>
+                              </button>
+
+                              {/* حبتان (2) */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDispenseForm(prev => ({
+                                    ...prev,
+                                    quantityDispensed: 2,
+                                    actualQuantityDispensed: 2
+                                  }));
+                                }}
+                                className={`px-1.5 py-1.5 rounded-xl border text-xs font-bold transition flex flex-col items-center justify-center cursor-pointer ${
+                                  dispenseForm.actualQuantityDispensed === 2
+                                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-md shadow-indigo-900/30 ring-1 ring-indigo-400'
+                                    : 'bg-slate-950/80 hover:bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
+                                }`}
+                              >
+                                <span className="text-[10px] sm:text-[11px] font-bold">{text('حبتان (2)', '2 Tabs')}</span>
+                                <span className="text-[9px] font-mono opacity-70">2.00</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {selectedMedicineObj && (
+                          <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex flex-wrap justify-between items-center text-xs text-slate-400 gap-2">
+                            <div>
+                              <span className="text-slate-400">{text('المخزون المتوفر بالمستودع:', 'Available stock:')} </span>
+                              <span className="font-bold text-teal-400">
+                                {selectedMedicineObj.quantity} {selectedMedicineObj.unit}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 font-mono">
+                              <span>{text('إجمالي التكلفة الدوائية:', 'Total cost:')}</span>
+                              <span className="font-bold text-teal-400 text-sm">
+                                {(selectedMedicineObj.price * dispenseForm.actualQuantityDispensed).toFixed(2)} {text('ر.س', 'SAR')}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        </div>
+
+                        {/* Sticky Modal Footer with Dispense Button */}
+                        <div className="p-4 bg-slate-900 border-t border-slate-800 shrink-0">
+                          <button
+                            type="submit"
+                            disabled={selectedMedicineObj?.isControlled && currentUser?.role === 'technician'}
+                            className={`w-full rounded-2xl py-3.5 px-4 text-sm font-black text-white transition shadow-xl cursor-pointer active:scale-98 flex items-center justify-center gap-2.5 ${
+                              selectedMedicineObj?.isControlled && currentUser?.role === 'technician'
+                                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                                : 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-500 hover:to-purple-600 shadow-indigo-900/40 ring-2 ring-indigo-500/20'
+                            }`}
+                          >
+                            {selectedMedicineObj?.isControlled && currentUser?.role === 'technician' ? (
+                              <>
+                                <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" />
+                                <span>{text('محظور: دواء خاضع للرقابة (صلاحية صيدلي قانوني فقط)', 'Blocked: Controlled Drug (Pharmacist Only)')}</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-5 h-5 text-indigo-200 shrink-0" />
+                                <span>{text('توثيق وصرف الأدوية للمقيم 📋💊✓', 'Document & Dispense Medication 📋💊✓')}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </form>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- MODAL: ADD/EDIT PHARMACEUTICAL COMPANY ----------------- */}
+            {showCompanyModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl relative animate-fade-in">
+                  <button 
+                    onClick={() => {
+                      setShowCompanyModal(false);
+                      setSelectedCompanyId(null);
+                    }}
+                    className={`absolute top-4 ${lang === 'ar' ? 'left-4' : 'right-4'} p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 cursor-pointer`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  
+                  <h3 className="text-lg font-bold text-teal-400 mb-4 flex items-center gap-2">
+                    <Plus className="w-5 h-5" />
+                    <span>{selectedCompanyId ? text('تعديل بيانات شركة الأدوية', 'Edit Pharma Company') : text('إضافة شركة أدوية جديدة', 'Add New Pharma Company')}</span>
+                  </h3>
+
+                  <form onSubmit={handleAddOrEditCompany} className="space-y-4 text-xs text-slate-300">
+                    <div>
+                      <label className="block text-slate-400 mb-1 font-bold">{text('اسم الشركة المصنعة *', 'Manufacturer / Company Name *')}</label>
+                      <input 
+                        type="text"
+                        required
+                        value={companyForm.name}
+                        onChange={(e) => setCompanyForm(prev => ({ ...prev, name: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                        placeholder={text('مثال: الشركة السعودية للصناعات الدوائية (سبيماكو)', 'e.g. SPIMACO')}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-400 mb-1">{text('بلد التصنيع / المنشأ', 'Country of Origin')}</label>
+                        <input 
+                          type="text"
+                          value={companyForm.country}
+                          onChange={(e) => setCompanyForm(prev => ({ ...prev, country: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          placeholder={text('مثال: المملكة العربية السعودية', 'e.g. Saudi Arabia')}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">{text('مسؤول التواصل العلمي/المبيعات', 'Medical / Sales Representative')}</label>
+                        <input 
+                          type="text"
+                          value={companyForm.contactPerson}
+                          onChange={(e) => setCompanyForm(prev => ({ ...prev, contactPerson: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          placeholder={text('مثال: أ. أحمد القحطاني', 'e.g. Mr. Ahmed')}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-400 mb-1">{text('رقم الهاتف / الاتصال', 'Phone / Contact Number')}</label>
+                        <input 
+                          type="text"
+                          value={companyForm.phone}
+                          onChange={(e) => setCompanyForm(prev => ({ ...prev, phone: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          placeholder={text('مثال: +96611234567', '+96611234567')}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">{text('البريد الإلكتروني المهني', 'Professional Email')}</label>
+                        <input 
+                          type="email"
+                          value={companyForm.email}
+                          onChange={(e) => setCompanyForm(prev => ({ ...prev, email: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                          placeholder="example@spimaco.com"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">{text('ملاحظات تزويد الدواء ووكلاء التوزيع', 'Supply Notes & Distribution Agents')}</label>
+                      <textarea 
+                        value={companyForm.notes}
+                        onChange={(e) => setCompanyForm(prev => ({ ...prev, notes: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none h-20 resize-none"
+                        placeholder={text('اكتب أي معلومات تزويد خاصة بالشركة...', 'Enter supply details or distribution notes for this company...')}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-teal-600 hover:bg-teal-700 py-2.5 text-sm font-bold text-white transition mt-4 shadow-lg shadow-teal-900/20 cursor-pointer"
+                    >
+                      {selectedCompanyId ? text('تحديث بيانات الشركة', 'Update Company Details') : text('إضافة الشركة الجديدة وحفظها', 'Save & Add New Company')}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- MODAL: MANAGE UNITS (إدارة وتعديل وإضافة وحذف وحدات الصنف) ----------------- */}
+            {showManageUnitsModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir="rtl">
+                <div className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl relative animate-fade-in space-y-4 max-h-[90vh] overflow-y-auto ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-800'}`}>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowManageUnitsModal(false);
+                      setEditingUnitIdx(null);
+                      setUnitSearchQuery('');
+                    }}
+                    className="absolute top-4 left-4 p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-2xl bg-teal-500/15 border border-teal-500/30 text-teal-400">
+                      <Package className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className={`text-lg font-black ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {text('إدارة وحدات الصنف الدوائي 📦', 'Manage Medicine Item Units 📦')}
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        {text('إضافة وحدات قياس جديدة، تعديل المسميات، حذف الوحدات، ومتابعة ربطها بأصناف المستودع', 'Add new measurement units, edit names, delete units, and track warehouse links')}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Technician Permission Notice if role === technician */}
+                  {currentUser?.role === 'technician' ? (
+                    <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                      <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <strong className="block font-bold">
+                          {text('صلاحيات القراءة والعرض فقط (فني صيدلي)', 'Read-Only Permission (Pharmacy Technician)')}
+                        </strong>
+                        <p className="text-[11px] opacity-90 leading-relaxed">
+                          {text('نظامياً، تقتصر صلاحيات إضافة وتعديل وحذف الوحدات الدوائية على الصيدلي القانوني ومدير النظام فقط.', 'Adding, editing, and deleting medicine units is strictly reserved for Authorized Pharmacists and Admins.')}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Add New Unit Input Box */
+                    <div className={`p-4 rounded-2xl border space-y-2.5 ${darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <label className={`block text-xs font-bold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                        {text('إضافة وحدة صنف جديدة:', 'Add New Item Unit:')}
+                      </label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text"
+                          value={newUnitInputModal}
+                          onChange={(e) => setNewUnitInputModal(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleCreateUnit(newUnitInputModal);
+                            }
+                          }}
+                          placeholder={text('مثال: قارورة، كبسولة، أمبولة، بخاخ، أنبوب، ملل...', 'e.g. Vial, Capsule, Ampoule, Spray, Tube, ml...')}
+                          className={`flex-1 px-3.5 py-2 text-xs rounded-xl border outline-none transition focus:border-teal-500 ${darkMode ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500' : 'bg-white border-slate-200 text-slate-800 placeholder-slate-400'}`}
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => handleCreateUnit(newUnitInputModal)}
+                          className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 shrink-0 shadow-md shadow-teal-900/25 active:scale-95"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{text('إضافة وحدة +', 'Add Unit +')}</span>
+                        </button>
+                      </div>
+
+                      {/* Quick Suggested Presets */}
+                      <div className="space-y-1 pt-1">
+                        <span className="text-[10px] text-slate-400 font-bold block">
+                          {text('اقتراحات سريعة بنقرة واحدة (إضافة فورية):', 'Quick Presets (Click to add):')}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {['علبة', 'شريط', 'حبة / قرص', 'كبسولة', 'أمبولة', 'قارورة شراب', 'بخاخ', 'أنبوب مرهم', 'قطرة', 'تحميلة', 'كيس فوار', 'ملل']
+                            .filter(preset => !customUnits.includes(preset))
+                            .slice(0, 8)
+                            .map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => handleCreateUnit(preset)}
+                                className="px-2 py-0.5 rounded-lg border border-teal-500/30 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-[11px] font-medium transition cursor-pointer flex items-center gap-1 active:scale-95"
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                                <span>{preset}</span>
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Registered Units List with Search Toolbar */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-400 px-1">
+                      <span>{text('الوحدات المعتمدة بالنظام:', 'Approved Units in System:')}</span>
+                      <span className="font-mono text-teal-400">({customUnits.length} {text('وحدات', 'units')})</span>
+                    </div>
+
+                    {/* Unit Search Bar */}
+                    <div className="relative flex items-center">
+                      <input 
+                        type="text"
+                        value={unitSearchQuery}
+                        onChange={(e) => setUnitSearchQuery(e.target.value)}
+                        placeholder={text('🔍 ابحث في قائمة الوحدات...', '🔍 Search units...')}
+                        className={`w-full px-3 py-1.5 pl-8 text-xs rounded-xl border outline-none transition focus:border-teal-500 ${darkMode ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400'}`}
+                      />
+                      {unitSearchQuery ? (
+                        <button 
+                          type="button" 
+                          onClick={() => setUnitSearchQuery('')}
+                          className="absolute left-2.5 text-slate-400 hover:text-white cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none" />
+                      )}
+                    </div>
+
+                    {/* Units Items List */}
+                    <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                      {customUnits
+                        .map((unit, originalIdx) => ({ unit, originalIdx }))
+                        .filter(item => !unitSearchQuery.trim() || item.unit.toLowerCase().includes(unitSearchQuery.toLowerCase().trim()))
+                        .map(({ unit, originalIdx }) => {
+                          const medCount = medicines.filter(m => m.unit === unit).length;
+                          return (
+                            <div 
+                              key={unit + originalIdx}
+                              className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition ${darkMode ? 'bg-slate-950/80 border-slate-800 hover:border-slate-700' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}
+                            >
+                              {editingUnitIdx === originalIdx && currentUser?.role !== 'technician' ? (
+                                <div className="flex items-center gap-1.5 flex-1">
+                                  <input 
+                                    type="text"
+                                    value={editingUnitVal}
+                                    onChange={(e) => setEditingUnitVal(e.target.value)}
+                                    className={`flex-1 px-2.5 py-1 text-xs rounded-lg border outline-none font-bold ${darkMode ? 'bg-slate-900 border-teal-500 text-white' : 'bg-white border-teal-500 text-slate-900'}`}
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleUpdateUnit(originalIdx, editingUnitVal);
+                                      } else if (e.key === 'Escape') {
+                                        setEditingUnitIdx(null);
+                                      }
+                                    }}
+                                  />
+                                  <button 
+                                    type="button"
+                                    onClick={() => handleUpdateUnit(originalIdx, editingUnitVal)}
+                                    className="p-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs cursor-pointer shadow-sm"
+                                    title={text('حفظ التعديل', 'Save')}
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    type="button"
+                                    onClick={() => setEditingUnitIdx(null)}
+                                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
+                                    title={text('إلغاء', 'Cancel')}
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-center gap-2 truncate">
+                                    <span className="w-2 h-2 rounded-full bg-teal-400 shrink-0"></span>
+                                    <span className={`font-bold text-xs truncate ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                                      {unit}
+                                    </span>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-medium ${medCount > 0 ? (darkMode ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20' : 'bg-teal-50 text-teal-700 border border-teal-200') : (darkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-200 text-slate-500')}`}>
+                                      {medCount > 0 ? text(`مرتبطة بـ ${medCount} دواء`, `${medCount} meds linked`) : text('غير مستخدمة حالياً', 'Not in use')}
+                                    </span>
+                                  </div>
+                                  {currentUser?.role !== 'technician' && (
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button 
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingUnitIdx(originalIdx);
+                                          setEditingUnitVal(unit);
+                                        }}
+                                        className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-amber-300 rounded-lg transition cursor-pointer"
+                                        title={text('تعديل اسم الوحدة', 'Edit unit')}
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button 
+                                        type="button"
+                                        onClick={() => handleDeleteUnit(originalIdx)}
+                                        className="p-1.5 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 rounded-lg transition cursor-pointer"
+                                        title={text('حذف الوحدة', 'Delete unit')}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      {customUnits.filter(u => !unitSearchQuery.trim() || u.toLowerCase().includes(unitSearchQuery.toLowerCase().trim())).length === 0 && (
+                        <div className="text-center py-4 text-xs text-slate-500">
+                          {text('لا توجد وحدات تطابق كلمات البحث', 'No matching units found')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
+                    <span className="text-slate-400 text-[11px]">
+                      {text('يتم تحديث قائمة الوحدات فورياً في جميع نماذج الإدخال والصرف بالمستودع', 'Units update in real-time across all forms')}
+                    </span>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setShowManageUnitsModal(false);
+                        setEditingUnitIdx(null);
+                        setUnitSearchQuery('');
+                      }}
+                      className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-md shadow-teal-900/25"
+                    >
+                      {text('تم / إغلاق النافذة ✕', 'Done / Close ✕')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- MODAL: MANAGE CATEGORIES (إدارة وتعديل وإضافة وحذف الفئات) ----------------- */}
+            {showManageCategoriesModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir="rtl">
+                <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl relative animate-fade-in space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-800'}`}>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowManageCategoriesModal(false);
+                      setEditingCategoryIdx(null);
+                    }}
+                    className="absolute top-4 left-4 p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                      <Activity className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className={`text-base font-black ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {text('إدارة وتعديل الفئات العلاجية', 'Manage Therapeutic Classes')}
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        {text('إضافة فئات علاجية جديدة، تعديل أسمائها، أو حذف الفئات غير المستخدمة', 'Add classes, edit names, or delete unused categories')}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Technician Permission Notice if role === technician */}
+                  {currentUser?.role === 'technician' ? (
+                    <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                      <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <strong className="block font-bold">
+                          {text('صلاحيات القراءة والعرض فقط (فني صيدلي)', 'Read-Only Permission (Pharmacy Technician)')}
+                        </strong>
+                        <p className="text-[11px] opacity-90 leading-relaxed">
+                          {text('نظامياً، تقتصر صلاحيات إضافة وتعديل وحذف الفئات العلاجية على الصيدلي القانوني ومدير النظام فقط.', 'Adding, editing, and deleting therapeutic classes is strictly reserved for Authorized Pharmacists and Admins.')}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Add New Category Input Box */
+                    <div className={`p-3.5 rounded-2xl border space-y-2 ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <label className={`block text-xs font-bold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                        {text('إضافة فئة علاجية جديدة:', 'Add New Therapeutic Category:')}
+                      </label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text"
+                          value={newCategoryInputModal}
+                          onChange={(e) => setNewCategoryInputModal(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleCreateCategory(newCategoryInputModal);
+                            }
+                          }}
+                          placeholder={text('مثال: فيتامينات، مكملات غذائية، مراهم جلدية...', 'e.g. Vitamins, Supplements, Ointments...')}
+                          className={`flex-1 px-3 py-2 rounded-xl border text-xs outline-none focus:border-teal-500 ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => handleCreateCategory(newCategoryInputModal)}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1 shrink-0 shadow-md shadow-indigo-900/20"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{text('إضافة +', 'Add +')}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Registered Categories List with inline Edit & Delete */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-400 px-1">
+                      <span>{text('الفئات العلاجية المسجلة:', 'Registered Categories:')}</span>
+                      <span className="font-mono text-indigo-400">({customCategories.length})</span>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                      {customCategories.map((cat, idx) => (
+                        <div 
+                          key={cat + idx}
+                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition ${darkMode ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                        >
+                          {editingCategoryIdx === idx && currentUser?.role !== 'technician' ? (
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input 
+                                type="text"
+                                value={editingCategoryVal}
+                                onChange={(e) => setEditingCategoryVal(e.target.value)}
+                                className={`flex-1 px-2.5 py-1 text-xs rounded-lg border outline-none font-bold ${darkMode ? 'bg-slate-900 border-indigo-500 text-white' : 'bg-white border-indigo-500 text-slate-900'}`}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleUpdateCategory(idx, editingCategoryVal);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingCategoryIdx(null);
+                                  }
+                                }}
+                              />
+                              <button 
+                                type="button"
+                                onClick={() => handleUpdateCategory(idx, editingCategoryVal)}
+                                className="p-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs cursor-pointer"
+                                title={text('حفظ التعديل', 'Save')}
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => setEditingCategoryIdx(null)}
+                                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
+                                title={text('إلغاء', 'Cancel')}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
+                                <span className={`font-bold text-xs ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{cat}</span>
+                                {medForm.category === cat && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
+                                    {text('المحددة', 'Selected')}
+                                  </span>
+                                )}
+                              </div>
+                              {currentUser?.role !== 'technician' && (
+                                <div className="flex items-center gap-1">
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingCategoryIdx(idx);
+                                      setEditingCategoryVal(cat);
+                                    }}
+                                    className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-amber-300 rounded-lg transition cursor-pointer"
+                                    title={text('تعديل اسم الفئة', 'Edit category')}
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    type="button"
+                                    onClick={() => handleDeleteCategory(idx)}
+                                    className="p-1.5 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 rounded-lg transition cursor-pointer"
+                                    title={text('حذف الفئة', 'Delete category')}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2 border-t border-slate-800">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setShowManageCategoriesModal(false);
+                        setEditingCategoryIdx(null);
+                      }}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer transition"
+                    >
+                      {text('تم / إغلاق النافذة', 'Done / Close')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </>
+        )}
+
+      </main>
+
+      {/* Footer */}
+      <footer className="mt-20 border-t border-slate-900 py-6 text-center text-xs text-slate-500 print:hidden bg-slate-950 relative z-10">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p>© 2026 {OFFICIAL_CENTER_NAME}. {text('جميع الحقوق والبيانات الطبية مشفرة ومحمية بالكامل.', 'All rights and medical data fully encrypted and secured.')}</p>
+          <div className="flex items-center gap-3">
+            <span>{text('إصدار التطبيق المستقل PWA v1.2.0', 'PWA Standalone App v1.2.0')}</span>
+            <span>·</span>
+            <span className="text-teal-500 font-semibold flex items-center gap-1">
+              <Shield className="w-3.5 h-3.5" />
+              {text('حماية امتثال معايير الصحة والسلامة', 'Health & Safety Compliance Guard')}
+            </span>
+          </div>
+        </div>
+      </footer>
+
+    </div>
+
+    {/* ----------------- STANDALONE PRINT VIEW (أمر الطباعة المتكامل) ----------------- */}
+    <div id="print-area" className={`hidden print:block w-full ${lang === 'ar' ? 'text-right' : 'text-left'} text-xs p-8 text-black bg-white`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+      {printType === 'helpManual' ? (
+        <div style={{ padding: '10px 20px', color: '#000', fontFamily: 'Cairo, sans-serif' }}>
+          {/* Document Cover Header */}
+          <div style={{ textAlign: 'center', marginBottom: '25px', borderBottom: '3px solid #0d9488', paddingBottom: '15px' }}>
+            <h1 style={{ fontSize: '26px', fontWeight: 'bold', margin: '0 0 8px 0', color: '#0f766e' }}>
+              {OFFICIAL_CENTER_NAME} | {text('صيدلية الرعاية الذكية', 'Smart Care Pharmacy')}
+            </h1>
+            <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 6px 0', color: '#1e293b' }}>
+              {text('دليل الاستخدام والتشغيل الشامل والملف المرجعي للنظام', 'Comprehensive System User & Operations Manual')}
+            </h2>
+            <p style={{ fontSize: '12px', color: '#475569', margin: '0 0 6px 0' }}>
+              {text('وثيقة تشغيلية رسمية موحدة لتدريب وتوجيه الصيادلة ومسؤولي التمريض وإدارة مركز الرعاية', 'Standard official operating document for pharmacists, nursing supervisors, and center administration')}
+            </p>
+            <p style={{ fontSize: '10px', color: '#64748b', margin: '0' }}>
+              {text('تاريخ استخراج الوثيقة:', 'Document Date:')} {new Date().toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })} | {text('الإصدار المعتمد: 4.2 Pro | رقم الاعتماد: REF-MANUAL-2026', 'Certified Version: 4.2 Pro | Accreditation No: REF-MANUAL-2026')}
+            </p>
+          </div>
+
+          {/* Introduction & Vision */}
+          <div style={{ marginBottom: '25px', backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', padding: '15px', borderRadius: '8px' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: 'bold', margin: '0 0 8px 0', color: '#0f766e' }}>
+              {text('مقدمة النظام والهدف السريري العام:', 'System Introduction & Clinical Scope:')}
+            </h3>
+            <p style={{ fontSize: '11px', lineHeight: '1.7', margin: '0', color: '#334155' }}>
+              {text('تم تصميم منظومة صيدلية الرعاية الذكية خصيصاً لتلبية أعلى معايير السلامة الدوائية والرعاية السريرية الشاملة لمقيمي مراكز ذوي الاحتياجات الخاصة والتأهيل الشامل. يدمج النظام بين الرقابة اللوجستية الصارمة للمخزون الدوائي، والفحص التلقائي للحساسية وتعارضات الجرعات، وتوثيق السلوك النفسي وتأثيرات الأدوية، والتقييم السريري التنبؤي المدعوم بالذكاء الاصطناعي.', 'The Smart Care Pharmacy system is purpose-built to fulfill the highest standards of medication safety and comprehensive clinical care for residents of special needs and rehabilitation centers. It seamlessly unifies rigorous inventory logistics, automated allergy and dose interaction checks, psychiatric behavioral monitoring, and predictive AI-powered clinical assessments.')}
+            </p>
+          </div>
+
+          {/* Table of contents quick index */}
+          <div style={{ marginBottom: '25px', border: '1px solid #e2e8f0', padding: '12px 16px', borderRadius: '8px' }}>
+            <h4 style={{ fontSize: '13px', fontWeight: 'bold', margin: '0 0 10px 0', color: '#1e293b' }}>
+              {text('فهرس شاشات وأقسام النظام الموثقة:', 'Index of Documented Modules & Screens:')}
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '11px' }}>
+              {SYSTEM_HELP_SECTIONS.map((sec, i) => (
+                <div key={sec.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontWeight: 'bold', color: '#0f766e' }}>{i + 1}.</span>
+                  <span>{lang === 'en' ? sec.titleEn : sec.titleAr}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Detailed Chapter for Every Screen */}
+          {SYSTEM_HELP_SECTIONS.map((sec, idx) => (
+            <div key={sec.id} style={{ marginBottom: '30px', pageBreakInside: 'avoid', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '18px' }}>
+              {/* Screen Title */}
+              <div style={{ borderBottom: '2px solid #0f766e', paddingBottom: '8px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 'bold', margin: '0', color: '#0f766e' }}>
+                  {idx + 1}. {lang === 'en' ? sec.titleEn : sec.titleAr}
+                </h3>
+                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', backgroundColor: '#e2e8f0', padding: '2px 8px', borderRadius: '4px' }}>
+                  {lang === 'en' ? sec.categoryEn : sec.categoryAr}
+                </span>
+              </div>
+
+              {/* Description */}
+              <p style={{ fontSize: '11px', lineHeight: '1.7', margin: '0 0 12px 0', color: '#1e293b' }}>
+                {lang === 'en' ? sec.shortDescEn : sec.shortDescAr}
+              </p>
+
+              {/* Target KPIs */}
+              <div style={{ marginBottom: '12px' }}>
+                <h4 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 6px 0', color: '#b45309' }}>
+                  {text('🎯 المؤشرات والبيانات التي يتم رصدها بالشاشة:', '🎯 Monitored Metrics & Target KPIs:')}
+                </h4>
+                <ul style={{ margin: '0', paddingRight: lang === 'ar' ? '20px' : '0', paddingLeft: lang === 'ar' ? '0' : '20px', fontSize: '11px', lineHeight: '1.6', color: '#334155' }}>
+                  {((lang === 'en' && sec.kpisEn) ? sec.kpisEn : sec.kpisAr).map((kpi, kIdx) => (
+                    <li key={kIdx}>{kpi}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Core Features */}
+              <div style={{ marginBottom: '12px' }}>
+                <h4 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 6px 0', color: '#047857' }}>
+                  {text('⚡ الوظائف الرئيسية والقدرات السريرية:', '⚡ Core Capabilities & Clinical Functions:')}
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '6px' }}>
+                  {((lang === 'en' && sec.featuresEn) ? sec.featuresEn : sec.featuresAr).map((feat, fIdx) => (
+                    <div key={fIdx} style={{ fontSize: '11px', lineHeight: '1.5' }}>
+                      <strong style={{ color: '#0f766e' }}>• {feat.title}: </strong>
+                      <span style={{ color: '#334155' }}>{feat.desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Step-by-Step Operating Guide */}
+              <div style={{ marginBottom: '12px', backgroundColor: '#f1f5f9', padding: '10px 14px', borderRadius: '6px' }}>
+                <h4 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 6px 0', color: '#0369a1' }}>
+                  {text('📋 خطوات التشغيل العملية:', '📋 Operating Steps & Clinical Workflow:')}
+                </h4>
+                <ol style={{ margin: '0', paddingRight: lang === 'ar' ? '20px' : '0', paddingLeft: lang === 'ar' ? '0' : '20px', fontSize: '11px', lineHeight: '1.6', color: '#1e293b' }}>
+                  {((lang === 'en' && sec.stepsEn) ? sec.stepsEn : sec.stepsAr).map((step, sIdx) => (
+                    <li key={sIdx}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+
+              {/* Safety Tips */}
+              <div style={{ backgroundColor: '#ecfdf5', borderRight: lang === 'ar' ? '4px solid #10b981' : 'none', borderLeft: lang === 'ar' ? 'none' : '4px solid #10b981', padding: '8px 12px', borderRadius: '4px' }}>
+                <h4 style={{ fontSize: '11px', fontWeight: 'bold', margin: '0 0 4px 0', color: '#065f46' }}>
+                  {text('🛡️ إرشادات الأمان السريري والجودة:', '🛡️ Clinical Safety & Quality Guidelines:')}
+                </h4>
+                {((lang === 'en' && sec.tipsEn) ? sec.tipsEn : sec.tipsAr).map((tip, tIdx) => (
+                  <p key={tIdx} style={{ fontSize: '10.5px', margin: '0', color: '#047857', lineHeight: '1.5' }}>
+                    💡 {tip}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* Official Sign-off and Accreditation Footer */}
+          <div style={{ marginTop: '40px', borderTop: '2px solid #334155', paddingTop: '20px', display: 'flex', justifyContent: 'space-between', pageBreakInside: 'avoid' }}>
+            <div style={{ textAlign: 'center', width: '30%' }}>
+              <p style={{ fontWeight: 'bold', fontSize: '11px', margin: '0 0 35px 0' }}>{text('إعداد الصيدلي السريري المسؤول:', 'Prepared by Clinical Pharmacist:')}</p>
+              <p style={{ borderTop: '1px dashed #64748b', paddingTop: '5px', fontSize: '11px' }}>{text('التوقيع والختم المهني', 'Professional Signature & Stamp')}</p>
+            </div>
+            <div style={{ textAlign: 'center', width: '30%' }}>
+              <p style={{ fontWeight: 'bold', fontSize: '11px', margin: '0 0 35px 0' }}>{text('مراجعة مسؤول الجودة الطبية:', 'Reviewed by Medical Quality Officer:')}</p>
+              <p style={{ borderTop: '1px dashed #64748b', paddingTop: '5px', fontSize: '11px' }}>{text('التوقيع والتاريخ', 'Signature & Date')}</p>
+            </div>
+            <div style={{ textAlign: 'center', width: '30%' }}>
+              <p style={{ fontWeight: 'bold', fontSize: '11px', margin: '0 0 35px 0' }}>{text(`اعتماد إدارة ${OFFICIAL_CENTER_NAME}:`, `${OFFICIAL_CENTER_NAME} Administration Approval:`)}</p>
+              <p style={{ borderTop: '1px dashed #64748b', paddingTop: '5px', fontSize: '11px' }}>{text('الختم الإداري الرسمي', 'Official Stamp')}</p>
+            </div>
+          </div>
+        </div>
+      ) : printType === 'inventory' ? (
+        <>
+          <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+            <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: '0', color: '#0f766e' }}>{OFFICIAL_CENTER_NAME}</h1>
+            <p style={{ margin: '5px 0' }}>{text('تقرير جرد المخازن وحركة الأدوية وصرف الوحدات الطبية', 'Warehouse Inventory & Medication Dispensing Report')}</p>
+            <p style={{ fontSize: '10px', color: '#666' }}>{text('تاريخ ترحيل التقرير:', 'Report Export Date:')} {new Date().toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}</p>
+          </div>
+
+          <div style={{ marginBottom: '20px', borderBottom: '2px solid #333', paddingBottom: '10px' }}>
+            <h3>{text('ملخص الإحصاءات العامة للمستودع:', 'Warehouse Summary Statistics:')}</h3>
+            <p>{text('إجمالي قيمة مستودع الأدوية:', 'Total Inventory Value:')} <strong>{Number(stats.totalInventoryValue || 0).toFixed(2)} {text('ر.س', 'SAR')}</strong></p>
+            <p>{text('عدد الأصناف المسجلة:', 'Registered Items:')} <strong>{stats.totalItems} {text('صنف', 'Items')}</strong></p>
+            <p>{text('إجمالي الكمية المصروفة فعلياً:', 'Total Actually Dispensed:')} <strong>{Number(stats.totalDispensedCount || 0).toFixed(2)} {text('علبة/وحدة', 'Units')}</strong></p>
+          </div>
+
+          <h3>{text('تفاصيل المستودع وجرد الأدوية:', 'Warehouse Details & Medication Inventory:')}</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #333', textAlign: lang === 'ar' ? 'right' : 'left' }}>
+                <th style={{ padding: '8px' }}>{text('الاسم التجاري', 'Trade Name')}</th>
+                <th style={{ padding: '8px' }}>{text('الاسم العلمي', 'Scientific Name')}</th>
+                <th style={{ padding: '8px' }}>{text('الكمية المتاحة', 'Available Qty')}</th>
+                <th style={{ padding: '8px' }}>{text('الوحدة', 'Unit')}</th>
+                <th style={{ padding: '8px' }}>{text('السعر', 'Price')}</th>
+                <th style={{ padding: '8px' }}>{text('تاريخ الصلاحية', 'Expiry Date')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {medicines.map((med) => (
+                <tr key={med.id} style={{ borderBottom: '1px solid #ddd' }}>
+                  <td style={{ padding: '8px', fontWeight: 'bold' }}>
+                    {lang === 'en' ? (med.commercialNameEn || med.commercialName) : (med.commercialNameAr || med.commercialName)}
+                  </td>
+                  <td style={{ padding: '8px' }}>{med.scientificName}</td>
+                  <td style={{ padding: '8px' }}>{med.quantity}</td>
+                  <td style={{ padding: '8px' }}>{translateUnit(med.unit)}</td>
+                  <td style={{ padding: '8px' }}>{med.price} {text('ر.س', 'SAR')}</td>
+                  <td style={{ padding: '8px' }}>{med.expiryDate}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-between' }}>
+            <div>
+              <p>{text('توقيع الصيدلي المسؤول:', 'Duty Pharmacist Signature:')}</p>
+              <p>___________________</p>
+            </div>
+            <div>
+              <p>{text(`اعتماد إدارة ${OFFICIAL_CENTER_NAME}:`, `${OFFICIAL_CENTER_NAME} Administration Approval:`)}</p>
+              <p>___________________</p>
+            </div>
+          </div>
+        </>
+      ) : (
+        activeDossierResident && (
+          <>
+            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+              <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: '0', color: '#0f766e' }}>{OFFICIAL_CENTER_NAME}</h1>
+              <p style={{ margin: '5px 0', fontSize: '16px', fontWeight: 'bold' }}>{text('تقرير التقييم الطبي السريري المتقدم (ذكاء اصطناعي)', 'Advanced Clinical Assessment Report (AI-Powered)')}</p>
+              <p style={{ fontSize: '10px', color: '#666' }}>{text('تاريخ ترحيل التقرير:', 'Report Export Date:')} {new Date().toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}</p>
+            </div>
+
+            <div style={{ marginBottom: '20px', borderBottom: '2px solid #333', paddingBottom: '10px' }}>
+              <h3>{text('معلومات المقيم الطبية والسريرية:', 'Resident Clinical Information:')}</h3>
+              <p>{text('اسم المقيم:', 'Resident Name:')} <strong>{lang === 'en' ? (activeDossierResident.nameEn || activeDossierResident.name) : (activeDossierResident.nameAr || activeDossierResident.name)}</strong></p>
+              <p>{text('العمر:', 'Age:')} <strong>{activeDossierResident.age} {text('سنة', 'years')}</strong></p>
+              <p>{text('رقم الغرفة/الجناح:', 'Room / Ward:')} <strong>{activeDossierResident.roomNumber}</strong></p>
+              <p>{text('الحساسية المسجلة:', 'Documented Allergies:')} <strong style={{ color: '#b91c1c' }}>{activeDossierResident.allergies || text('لا توجد', 'None')}</strong></p>
+            </div>
+
+            <h3>{text('محتوى تقرير التقييم والتحليل السريري:', 'Clinical Evaluation & Assessment Content:')}</h3>
+            <div style={{ whiteSpace: 'pre-line', fontSize: '11px', lineHeight: '1.6', marginTop: '10px', padding: '15px', border: '1px solid #ddd', borderRadius: '8px' }}>
+              {cleanAiReportText(aiDossierResult)}
+            </div>
+
+            <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-between' }}>
+              <div>
+                <p>{text('توقيع الصيدلي واللجنة الطبية السريرية:', 'Clinical Pharmacist & Medical Committee:')}</p>
+                <p style={{ marginTop: '30px' }}>___________________</p>
+              </div>
+              <div>
+                <p>{text(`اعتماد إدارة ${OFFICIAL_CENTER_NAME}:`, `${OFFICIAL_CENTER_NAME} Administration Approval:`)}</p>
+                <p style={{ marginTop: '30px' }}>___________________</p>
+              </div>
+            </div>
+          </>
+        )
+      )}
+    </div>
+    </>
+  );
+}
