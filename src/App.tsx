@@ -1538,6 +1538,19 @@ export default function App() {
     return Math.max(0, age);
   };
 
+  // Safe helper to trigger native date picker without throwing SecurityError in cross-origin iframes
+  const safeOpenDatePicker = (target: HTMLInputElement | null) => {
+    if (!target) return;
+    try {
+      target.showPicker?.();
+    } catch {
+      // Ignored: SecurityError when showPicker is called inside cross-origin iframe
+    }
+    try {
+      target.focus();
+    } catch {}
+  };
+
   // Care Center Residents Form and modal states
   const [showAddResidentModal, setShowAddResidentModal] = useState(false);
   const [showEditResidentModal, setShowEditResidentModal] = useState(false);
@@ -5828,7 +5841,6 @@ export default function App() {
                         type="date"
                         value={dispenseStartDate}
                         onChange={(e) => setDispenseStartDate(e.target.value)}
-                        onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                         className="bg-transparent border-none outline-none text-xs font-mono w-full cursor-pointer [color-scheme:dark]"
                       />
                       {dispenseStartDate && (
@@ -5848,7 +5860,6 @@ export default function App() {
                         type="date"
                         value={dispenseEndDate}
                         onChange={(e) => setDispenseEndDate(e.target.value)}
-                        onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                         className="bg-transparent border-none outline-none text-xs font-mono w-full cursor-pointer [color-scheme:dark]"
                       />
                       {dispenseEndDate && (
@@ -9088,16 +9099,13 @@ export default function App() {
                                 age: dob ? calculatedAge : p.age 
                               }));
                             }}
-                            onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                            onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
                             className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
                           />
                           <button
                             type="button"
                             onClick={(e) => {
                               const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
-                              input?.showPicker?.();
-                              input?.focus();
+                              safeOpenDatePicker(input);
                             }}
                             className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
                             title={text('انقر لفتح التقويم', 'Click to open calendar')}
@@ -9158,16 +9166,13 @@ export default function App() {
                             type="date"
                             value={residentForm.referralDate || ''}
                             onChange={(e) => setResidentForm(p => ({ ...p, referralDate: e.target.value }))}
-                            onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                            onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
                             className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
                           />
                           <button
                             type="button"
                             onClick={(e) => {
                               const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
-                              input?.showPicker?.();
-                              input?.focus();
+                              safeOpenDatePicker(input);
                             }}
                             className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
                             title={text('انقر لفتح التقويم', 'Click to open calendar')}
@@ -9302,16 +9307,13 @@ export default function App() {
                                 age: dob ? calculatedAge : p.age 
                               }));
                             }}
-                            onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                            onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
                             className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
                           />
                           <button
                             type="button"
                             onClick={(e) => {
                               const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
-                              input?.showPicker?.();
-                              input?.focus();
+                              safeOpenDatePicker(input);
                             }}
                             className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
                             title={text('انقر لفتح التقويم', 'Click to open calendar')}
@@ -9370,16 +9372,13 @@ export default function App() {
                             type="date"
                             value={residentForm.referralDate || ''}
                             onChange={(e) => setResidentForm(p => ({ ...p, referralDate: e.target.value }))}
-                            onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                            onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
                             className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
                           />
                           <button
                             type="button"
                             onClick={(e) => {
                               const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
-                              input?.showPicker?.();
-                              input?.focus();
+                              safeOpenDatePicker(input);
                             }}
                             className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
                             title={text('انقر لفتح التقويم', 'Click to open calendar')}
@@ -9777,16 +9776,13 @@ export default function App() {
                               type="date"
                               value={activeDossierResident.referralDate || ""}
                               onChange={(e) => handleUpdateDossierReferralDate(activeDossierResident.id, e.target.value)}
-                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                              onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
                               className="w-full px-2 py-1 text-xs rounded-lg bg-slate-950 border border-teal-500/40 text-teal-200 focus:border-teal-400 outline-none font-mono cursor-pointer [color-scheme:dark]"
                             />
                             <button
                               type="button"
                               onClick={(e) => {
                                 const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
-                                input?.showPicker?.();
-                                input?.focus();
+                                safeOpenDatePicker(input);
                               }}
                               className="p-1 text-teal-400 hover:text-teal-200 absolute left-1.5 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
                               title={text("انقر لفتح التقويم واختيار تاريخ الإحالة", "Click to open calendar")}
@@ -10474,7 +10470,6 @@ export default function App() {
                           type="date"
                           value={medicalDossierForm.referralDate}
                           onChange={(e) => setMedicalDossierForm(p => ({ ...p, referralDate: e.target.value }))}
-                          onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                           className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-teal-500/40 text-teal-200 focus:border-teal-400 outline-none font-mono cursor-pointer [color-scheme:dark]"
                         />
                       </div>
@@ -11878,16 +11873,13 @@ export default function App() {
                               required
                               value={medForm.entryDate || new Date().toISOString().split('T')[0]}
                               onChange={(e) => setMedForm(prev => ({ ...prev, entryDate: e.target.value }))}
-                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                              onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
                               className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
                             />
                             <button
                               type="button"
                               onClick={(e) => {
                                 const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
-                                input?.showPicker?.();
-                                input?.focus();
+                                safeOpenDatePicker(input);
                               }}
                               className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
                               title={text('انقر لفتح التقويم', 'Click to open calendar')}
@@ -11979,7 +11971,6 @@ export default function App() {
                               required
                               value={medForm.expiryDate}
                               onChange={(e) => setMedForm(prev => ({ ...prev, expiryDate: e.target.value }))}
-                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                               className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
                             />
                             <Calendar className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -12130,16 +12121,13 @@ export default function App() {
                               required
                               value={medForm.entryDate || new Date().toISOString().split('T')[0]}
                               onChange={(e) => setMedForm(prev => ({ ...prev, entryDate: e.target.value }))}
-                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                              onFocus={(e) => (e.target as HTMLInputElement).showPicker?.()}
                               className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
                             />
                             <button
                               type="button"
                               onClick={(e) => {
                                 const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement;
-                                input?.showPicker?.();
-                                input?.focus();
+                                safeOpenDatePicker(input);
                               }}
                               className="p-1 text-teal-400 hover:text-teal-300 absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer transition hover:scale-110 active:scale-95"
                               title={text('انقر لفتح التقويم', 'Click to open calendar')}
@@ -12231,7 +12219,6 @@ export default function App() {
                               required
                               value={medForm.expiryDate}
                               onChange={(e) => setMedForm(prev => ({ ...prev, expiryDate: e.target.value }))}
-                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                               className="w-full px-3 py-2 pl-9 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono cursor-pointer [color-scheme:dark]"
                             />
                             <Calendar className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />

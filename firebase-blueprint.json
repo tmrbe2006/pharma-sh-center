@@ -329,6 +329,161 @@
           "description": "اسم المستخدم الذي قام بالتحديث"
         }
       }
+    },
+    "Resident": {
+      "title": "Resident",
+      "description": "سجلات المقيمين في مركز رعاية وتأهيل ذوي الإعاقة مع ملفاتهم الطبية الشاملة وجداول جرعاتهم وتواريخ الإحالة",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "معرف المقيم الفريد"
+        },
+        "name": {
+          "type": "string",
+          "description": "اسم المقيم الأساسي"
+        },
+        "nameAr": {
+          "type": "string",
+          "description": "اسم المقيم باللغة العربية"
+        },
+        "nameEn": {
+          "type": "string",
+          "description": "اسم المقيم باللغة الإنجليزية"
+        },
+        "room": {
+          "type": "string",
+          "description": "رقم الغرفة أو الجناح السكني"
+        },
+        "age": {
+          "type": "integer",
+          "description": "عمر المقيم بالسنوات"
+        },
+        "diagnosis": {
+          "type": "string",
+          "description": "التشخيص الطبي والسريري المعتمد"
+        },
+        "bloodType": {
+          "type": "string",
+          "description": "فصيلة الدم"
+        },
+        "admissionDate": {
+          "type": "string",
+          "description": "تاريخ دخول المركز"
+        },
+        "referralDate": {
+          "type": "string",
+          "description": "تاريخ الإحالة وتجديد الوصفة الطبية (Refill Date)"
+        },
+        "allergies": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "قائمة الحساسيات الدوائية والغذائية"
+        },
+        "medicalHistory": {
+          "type": "string",
+          "description": "التاريخ المرضي والعمليات السابقة"
+        },
+        "chronicDiseases": {
+          "type": "string",
+          "description": "الأمراض المزمنة المسجلة"
+        },
+        "attendingPhysician": {
+          "type": "string",
+          "description": "اسم الطبيب المعالج المشرف"
+        },
+        "dosageSchedule": {
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "جدول مواعيد وجرعات الأدوية اليومية المقررة"
+        },
+        "vitalSigns": {
+          "type": "object",
+          "description": "العلامات الحيوية الأخيرة للمقيم (ضغط، نبض، سكر، حرارة)"
+        }
+      },
+      "required": ["id", "name"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "شركات ومصانع الأدوية والتوريد المعتمدة",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "معرف الشركة"
+        },
+        "name": {
+          "type": "string",
+          "description": "اسم الشركة"
+        },
+        "country": {
+          "type": "string",
+          "description": "بلد المنشأ"
+        },
+        "phone": {
+          "type": "string",
+          "description": "رقم هاتف التواصل"
+        },
+        "email": {
+          "type": "string",
+          "description": "البريد الإلكتروني للشركة"
+        },
+        "agent": {
+          "type": "string",
+          "description": "اسم الوكيل أو المندوب التجاري"
+        }
+      },
+      "required": ["id", "name"]
+    },
+    "BehaviorLog": {
+      "title": "BehaviorLog",
+      "description": "سجلات رصد التغيرات السلوكية والآثار الجانبية للأدوية على المقيمين",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "معرف سجل الرصد"
+        },
+        "residentId": {
+          "type": "string",
+          "description": "معرف المقيم المرصود"
+        },
+        "residentName": {
+          "type": "string",
+          "description": "اسم المقيم"
+        },
+        "medicineId": {
+          "type": "string",
+          "description": "معرف الدواء المرتبط"
+        },
+        "medicineName": {
+          "type": "string",
+          "description": "اسم الدواء"
+        },
+        "behaviorRating": {
+          "type": "string",
+          "description": "مستوى الحالة السلوكية (مستقر، قلق، هياج، إلخ)"
+        },
+        "observedSideEffects": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "الآثار الجانبية الملاحظة"
+        },
+        "notes": {
+          "type": "string",
+          "description": "ملاحظات سريرية من الكادر المشرف"
+        },
+        "loggedBy": {
+          "type": "string",
+          "description": "اسم المراقب أو الصيدلي"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "توقيت تسجيل الملاحظة"
+        }
+      },
+      "required": ["id", "residentId", "behaviorRating", "timestamp"]
     }
   },
   "firestore": {
@@ -339,6 +494,18 @@
     "/dispense_records/{recordId}": {
       "schema": "DispenseRecord",
       "description": "مجموعة سجلات الصرف للمقيمين بالمركز"
+    },
+    "/residents/{residentId}": {
+      "schema": "Resident",
+      "description": "مجموعة المقيمين بالمركز مع ملفاتهم الطبية وجداول جرعاتهم"
+    },
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "دليل شركات تصنيع وتوريد الأدوية"
+    },
+    "/behavior_logs/{logId}": {
+      "schema": "BehaviorLog",
+      "description": "سجلات التتبع السلوكي والآثار الجانبية للأدوية"
     },
     "/users/{userId}": {
       "schema": "User",
