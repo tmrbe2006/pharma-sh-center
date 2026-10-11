@@ -252,12 +252,8 @@ const INITIAL_DISPENSES: DispenseRecord[] = [
 export const getLocalMedicines = (): Medicine[] => {
   const data = localStorage.getItem('care_pharmacy_medicines');
   if (data === null) {
-    if (localStorage.getItem('care_pharmacy_seeded')) {
-      return [];
-    }
-    localStorage.setItem('care_pharmacy_seeded', 'true');
-    localStorage.setItem('care_pharmacy_medicines', JSON.stringify(INITIAL_MEDICINES));
-    return INITIAL_MEDICINES;
+    // In production with Firebase or after clearing, never re-seed fake sample medicines
+    return [];
   }
   try {
     const list: Medicine[] = JSON.parse(data);
@@ -872,7 +868,7 @@ export const DbService = {
     // Attempt Firebase delete
     try {
       if (isFirebaseConnected) {
-        await deleteDoc(doc(db, "medicines", id));
+        await withTimeout(deleteDoc(doc(db, "medicines", id)), 8000);
       }
     } catch (e) {
       console.warn("Firestore deleteMedicine failed, falling back to LocalStorage:", e);
@@ -1051,9 +1047,16 @@ export const DbService = {
       if (isFirebaseConnected) {
         const querySnapshot = await withTimeout(getDocs(collection(db, "stock_audit_logs")), 10000);
         if (!querySnapshot.empty) {
-          const list: StockAuditLog[] = [];
+          let list: StockAuditLog[] = [];
           querySnapshot.forEach((doc) => {
             list.push({ id: doc.id, ...doc.data() } as StockAuditLog);
+          });
+          // Sanitize legacy entries
+          list = list.map(l => {
+            if (l.performedByName && (l.performedByName.includes('طارق') || l.performedByName.includes('يوسف طارق'))) {
+              return { ...l, performedByName: 'مدير سابق', performedByEmail: '' };
+            }
+            return l;
           });
           // Sort by timestamp descending
           list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());

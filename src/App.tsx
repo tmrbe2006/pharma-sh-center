@@ -680,7 +680,7 @@ export const generateReferralAlertsReports = (residentsList: any[]) => {
       en += `Refill Date: ${cleanDate(r.referralDate)} | Status: Due Tomorrow (24h Remaining)\n`;
       en += `Refill Facility: ${r.referralFacility || 'Shaqra General Hospital - Specialist Clinic'}\n`;
       en += `Clinical Reason: ${r.referralReason || 'Routine consultation and specialist examination'}\n`;
-      en += `Blood Group: ${r.bloodGroup || 'Not specified'} | Attending Doctor: ${r.attendingPhysician || 'Dr. Tareq Al-Yousef'}\n`;
+      en += `Blood Group: ${r.bloodGroup || 'Not specified'} | Attending Doctor: ${r.attendingPhysician || 'Attending Physician'}\n`;
       en += `Recorded Drug Allergies: ${r.allergies || 'No known drug allergies'}\n`;
       en += `Scheduled Prescriptions to Prepare: ${scheduledMeds}\n`;
       if (r.notes) en += `Care & Swallowing Notes: ${r.notes}\n`;
