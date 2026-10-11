@@ -627,7 +627,7 @@ export const generateReferralAlertsReports = (residentsList: any[]) => {
       ar += `تاريخ الإحالة الطبي: ${cleanDate(r.referralDate)} | الحالة: موعد الإحالة غداً (متبقي 24 ساعة)\n`;
       ar += `الجهة المحال إليها: ${r.referralFacility || 'مستشفى شقراء العام - عيادة الرعاية المتخصصة'}\n`;
       ar += `سبب الإحالة الطبية: ${r.referralReason || 'متابعة استشارية دورية وفحص سريري'}\n`;
-      ar += `فصيلة الدم: ${r.bloodGroup || 'غير محدد'} | الطبيب المشرف: ${r.attendingPhysician || 'د. طارق اليوسف'}\n`;
+      ar += `فصيلة الدم: ${r.bloodGroup || 'غير محدد'} | الطبيب المشرف: ${r.attendingPhysician || 'طبيب المركز المشرف'}\n`;
       ar += `حساسية الأدوية المسجلة: ${r.allergies || 'لا توجد حساسية دوائية مسجلة'}\n`;
       ar += `الأدوية المجدولة المطلوب تجهيزها وصرفها: ${scheduledMeds}\n`;
       if (r.notes) ar += `ملاحظات الرعاية والبلع: ${r.notes}\n`;
@@ -884,8 +884,8 @@ export default function App() {
       },
       {
         uid: "user-101",
-        name: "د. طارق اليوسف",
-        email: "yousef.t@carecenter.org",
+        name: "مدير النظام",
+        email: "admin@carecenter.org",
         role: "admin",
         phone: "+966501234567",
         password: "admin"
@@ -1892,16 +1892,16 @@ export default function App() {
     const localBehaviorLogs = getLocalBehaviorLogs();
     const localSideEffects = getLocalCustomSideEffects();
 
-    if (localMeds && localMeds.length > 0) setMedicines(localMeds);
-    if (localDisp && localDisp.length > 0) setDispenseRecords(localDisp);
-    if (localSess && localSess.length > 0) setSessions(localSess);
-    if (localLogs && localLogs.length > 0) setStockLogs(localLogs);
+    if (localMeds !== undefined) setMedicines(localMeds);
+    if (localDisp !== undefined) setDispenseRecords(localDisp);
+    if (localSess !== undefined) setSessions(localSess);
+    if (localLogs !== undefined) setStockLogs(localLogs);
     if (localUnits && localUnits.length > 0) setCustomUnits(localUnits);
     if (localCats && localCats.length > 0) setCustomCategories(localCats);
-    if (localResidents && localResidents.length > 0) setResidents(localResidents);
-    if (localCompanies && localCompanies.length > 0) setCompanies(localCompanies);
-    if (localBehaviorLogs && localBehaviorLogs.length > 0) setBehaviorLogs(localBehaviorLogs);
-    if (localSideEffects && localSideEffects.length > 0) setCustomSideEffects(localSideEffects);
+    if (localResidents !== undefined) setResidents(localResidents);
+    if (localCompanies !== undefined) setCompanies(localCompanies);
+    if (localBehaviorLogs !== undefined) setBehaviorLogs(localBehaviorLogs);
+    if (localSideEffects !== undefined) setCustomSideEffects(localSideEffects);
 
     // Stop loading immediately so the screen is interactive and never hangs
     setLoading(false);
@@ -1959,10 +1959,10 @@ export default function App() {
       setSessions(sess);
       setStockLogs(logs);
       setUsers(ensuredUsers);
-      if (loadedResidents && loadedResidents.length > 0) setResidents(loadedResidents);
-      if (loadedCompanies && loadedCompanies.length > 0) setCompanies(loadedCompanies);
-      if (loadedBehaviorLogs && loadedBehaviorLogs.length > 0) setBehaviorLogs(loadedBehaviorLogs);
-      if (loadedSideEffects && loadedSideEffects.length > 0) setCustomSideEffects(loadedSideEffects);
+      if (loadedResidents !== undefined) setResidents(loadedResidents);
+      if (loadedCompanies !== undefined) setCompanies(loadedCompanies);
+      if (loadedBehaviorLogs !== undefined) setBehaviorLogs(loadedBehaviorLogs);
+      if (loadedSideEffects !== undefined) setCustomSideEffects(loadedSideEffects);
 
       // Load Units and Categories directly from Database (Firestore) in parallel
       try {
@@ -2109,8 +2109,8 @@ export default function App() {
           ...prev,
           role: role,
           isSimulated: true, // Mark as simulated
-          name: role === 'developer' ? "م. تامر (المبرمج)" : role === 'admin' ? "د. طارق اليوسف" : role === 'pharmacist' ? "صيدلي. كريم القحطاني" : "فني. ماجد الرويلي",
-          email: role === 'developer' ? "tmrbe2006@gmail.com" : role === 'admin' ? "yousef.t@carecenter.org" : role === 'pharmacist' ? "kareem.q@carecenter.org" : "majed.r@carecenter.org",
+          name: role === 'developer' ? "م. تامر (المبرمج)" : role === 'admin' ? "مدير النظام" : role === 'pharmacist' ? "صيدلي. كريم القحطاني" : "فني. ماجد الرويلي",
+          email: role === 'developer' ? "tmrbe2006@gmail.com" : role === 'admin' ? "admin@carecenter.org" : role === 'pharmacist' ? "kareem.q@carecenter.org" : "majed.r@carecenter.org",
           phone: role === 'developer' ? "+966500001122" : role === 'admin' ? "+966501234567" : role === 'pharmacist' ? "+966507654321" : "+966509998887"
         };
         // Persist role change if user has opted for remember me
@@ -2270,11 +2270,17 @@ export default function App() {
 
   const handleDeleteBehaviorLog = async (id: string) => {
     if (confirm(text('هل أنت متأكد من رغبتك في حذف هذا السجل السلوكي؟', 'Are you sure you want to delete this behavioral entry?'))) {
-      await DbService.deleteBehaviorLog(id);
+      const actorInfo = {
+        name: currentUser?.name || 'مستخدم النظام',
+        email: currentUser?.email || '',
+        id: currentUser?.uid || ''
+      };
+      await DbService.deleteBehaviorLog(id, actorInfo);
       const updated = behaviorLogs.filter(b => b.id !== id);
       setBehaviorLogs(updated);
       saveLocalBehaviorLogs(updated);
       showToast(text('تم حذف السجل السلوكي بنجاح.', 'Behavioral entry deleted successfully.'), 'success');
+      loadAllData();
     }
   };
 
@@ -2394,6 +2400,12 @@ export default function App() {
         return;
       }
 
+      const actorInfo = {
+        name: currentUser?.name || 'مستخدم النظام',
+        email: currentUser?.email || '',
+        id: currentUser?.uid || ''
+      };
+
       const updated = await DbService.updateMedicine(selectedMedId, {
         ...medForm,
         commercialName: commEn,
@@ -2402,7 +2414,7 @@ export default function App() {
         entryDate: entryDt,
         quantity: Number(medForm.quantity),
         price: Number(medForm.price)
-      });
+      }, actorInfo);
       setMedicines(prev => prev.map(m => m.id === selectedMedId ? updated : m));
       setShowEditMedModal(false);
       showToast(`تم تحديث بيانات الدواء "${updated.commercialName}" بنجاح.`, 'success');
@@ -2430,7 +2442,12 @@ export default function App() {
   const handleDeleteMedicine = async () => {
     if (!deleteConfirmId) return;
     try {
-      await DbService.deleteMedicine(deleteConfirmId);
+      const actorInfo = {
+        name: currentUser?.name || 'مستخدم النظام',
+        email: currentUser?.email || '',
+        id: currentUser?.uid || ''
+      };
+      await DbService.deleteMedicine(deleteConfirmId, actorInfo);
       setMedicines(prev => prev.filter(m => m.id !== deleteConfirmId));
       setDeleteConfirmId(null);
       showToast('تم شطب الدواء نهائياً من مخزون الصيدلية.', 'success');
@@ -9661,7 +9678,7 @@ export default function App() {
                               allergies: activeDossierResident.allergies || "",
                               notes: activeDossierResident.notes || "",
                               bloodGroup: activeDossierResident.bloodGroup || "O+",
-                              attendingPhysician: activeDossierResident.attendingPhysician || (lang === 'en' ? "Dr. Tariq Al-Yousef" : "د. طارق اليوسف"),
+                              attendingPhysician: activeDossierResident.attendingPhysician || "",
                               chronicDiseases: activeDossierResident.chronicDiseases || (lang === 'en' ? "Hypertension" : "ارتفاع ضغط الدم")
                             });
                             setShowEditMedicalDossierModal(true);
@@ -10360,7 +10377,7 @@ export default function App() {
                               allergies: activeDossierResident.allergies || "",
                               notes: activeDossierResident.notes || "",
                               bloodGroup: activeDossierResident.bloodGroup || "O+",
-                              attendingPhysician: activeDossierResident.attendingPhysician || (lang === 'en' ? "Dr. Tariq Al-Yousef" : "د. طارق اليوسف"),
+                              attendingPhysician: activeDossierResident.attendingPhysician || "",
                               chronicDiseases: activeDossierResident.chronicDiseases || (lang === 'en' ? "Hypertension" : "ارتفاع ضغط الدم")
                             });
                             setShowEditMedicalDossierModal(true);
@@ -10594,7 +10611,7 @@ export default function App() {
                           type="text"
                           value={medicalDossierForm.attendingPhysician}
                           onChange={(e) => setMedicalDossierForm(p => ({ ...p, attendingPhysician: e.target.value }))}
-                          placeholder={text("مثال: د. طارق اليوسف", "e.g., Dr. Tareq Al-Yousef")}
+                          placeholder={text("مثال: د. أحمد خالد", "e.g., Dr. Ahmed Khaled")}
                           className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none text-xs"
                         />
                       </div>
@@ -11149,12 +11166,19 @@ export default function App() {
                     <button 
                       type="button" 
                       onClick={async () => {
+                        const actorInfo = {
+                          name: currentUser?.name || 'مستخدم النظام',
+                          email: currentUser?.email || '',
+                          id: currentUser?.uid || ''
+                        };
+
                         if (deleteConfirmTarget.type === 'resident') {
-                          await DbService.deleteResident(deleteConfirmTarget.id);
+                          await DbService.deleteResident(deleteConfirmTarget.id, actorInfo);
                           const updated = residents.filter(r => r.id !== deleteConfirmTarget.id);
                           setResidents(updated);
                           saveLocalResidents(updated);
                           showToast(text(`تم شطب المقيم "${deleteConfirmTarget.name}" بنجاح.`, `Resident "${deleteConfirmTarget.name}" removed successfully.`), 'success');
+                          loadAllData();
                         } else if (deleteConfirmTarget.type === 'user') {
                           const targetUser = users.find(u => u.uid === deleteConfirmTarget.id);
                           if (targetUser?.role === 'developer' && currentUser?.role !== 'developer') {
@@ -11162,18 +11186,19 @@ export default function App() {
                             setDeleteConfirmTarget(null);
                             return;
                           }
-                          await DbService.deleteUser(deleteConfirmTarget.id);
+                          await DbService.deleteUser(deleteConfirmTarget.id, actorInfo);
                           const updated = users.filter(u => u.uid !== deleteConfirmTarget.id);
                           updateUsersList(updated);
                           showToast(text(`تم إلغاء حساب الكادر الطبي "${deleteConfirmTarget.name}" بنجاح.`, `User "${deleteConfirmTarget.name}" removed successfully.`), 'success');
+                          loadAllData();
                         } else if (deleteConfirmTarget.type === 'company') {
-                          await DbService.deleteCompany(deleteConfirmTarget.id);
+                          await DbService.deleteCompany(deleteConfirmTarget.id, actorInfo);
                           const updated = companies.filter(c => c.id !== deleteConfirmTarget.id);
                           setCompanies(updated);
                           saveLocalCompanies(updated);
                           showToast(text(`تم حذف شركة "${deleteConfirmTarget.name}" بنجاح.`, `Company "${deleteConfirmTarget.name}" removed successfully.`), 'success');
                         } else if (deleteConfirmTarget.type === 'behaviorLog') {
-                          await DbService.deleteBehaviorLog(deleteConfirmTarget.id);
+                          await DbService.deleteBehaviorLog(deleteConfirmTarget.id, actorInfo);
                           const updated = behaviorLogs.filter(b => b.id !== deleteConfirmTarget.id);
                           setBehaviorLogs(updated);
                           saveLocalBehaviorLogs(updated);
@@ -11791,11 +11816,17 @@ export default function App() {
                       onClick={async () => {
                         const targetCompany = companies.find(c => c.id === deleteConfirmCompanyId);
                         if (targetCompany) {
-                          await DbService.deleteCompany(deleteConfirmCompanyId);
+                          const actorInfo = {
+                            name: currentUser?.name || 'مستخدم النظام',
+                            email: currentUser?.email || '',
+                            id: currentUser?.uid || ''
+                          };
+                          await DbService.deleteCompany(deleteConfirmCompanyId, actorInfo);
                           const updated = companies.filter(c => c.id !== deleteConfirmCompanyId);
                           setCompanies(updated);
                           saveLocalCompanies(updated);
                           showToast(text(`تم حذف شركة "${targetCompany.name}" بنجاح.`, `Company "${targetCompany.name}" deleted successfully.`), 'success');
+                          loadAllData();
                         }
                         setDeleteConfirmCompanyId(null);
                       }}

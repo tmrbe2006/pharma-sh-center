@@ -48,7 +48,7 @@ export interface StockAuditLog {
   id: string;
   medicineId: string;
   medicineName: string;
-  actionType: 'إضافة دواء جديد' | 'تحديث كمية' | 'تعديل يدوي' | 'حذف دواء' | 'صرف دواء لمقيم';
+  actionType: 'إضافة دواء جديد' | 'تحديث كمية' | 'تعديل يدوي' | 'حذف دواء' | 'صرف دواء لمقيم' | 'شطب ملف مقيم' | 'إلغاء حساب مستخدم' | 'حذف شركة أدوية' | 'حذف سجل سلوكي' | string;
   quantityChanged: number;
   previousQuantity: number;
   newQuantity: number;
@@ -230,7 +230,7 @@ const INITIAL_DISPENSES: DispenseRecord[] = [
     unit: "علبة",
     totalPrice: 31.0,
     actualQuantityDispensed: 2,
-    dispensedBy: "د. طارق اليوسف",
+    dispensedBy: "صيدلي المركز",
     dispensedById: "pharmacist-1",
     dispensedAt: "2026-09-22T10:30:00.000Z"
   },
@@ -243,7 +243,7 @@ const INITIAL_DISPENSES: DispenseRecord[] = [
     unit: "علبة",
     totalPrice: 110.0,
     actualQuantityDispensed: 1,
-    dispensedBy: "د. طارق اليوسف",
+    dispensedBy: "صيدلي المركز",
     dispensedById: "pharmacist-1",
     dispensedAt: "2026-09-23T08:15:00.000Z"
   }
@@ -251,38 +251,19 @@ const INITIAL_DISPENSES: DispenseRecord[] = [
 
 export const getLocalMedicines = (): Medicine[] => {
   const data = localStorage.getItem('care_pharmacy_medicines');
-  if (!data) {
+  if (data === null) {
+    if (localStorage.getItem('care_pharmacy_seeded')) {
+      return [];
+    }
+    localStorage.setItem('care_pharmacy_seeded', 'true');
     localStorage.setItem('care_pharmacy_medicines', JSON.stringify(INITIAL_MEDICINES));
     return INITIAL_MEDICINES;
   }
   try {
     const list: Medicine[] = JSON.parse(data);
-    let changed = false;
-    const migrated = list.map(m => {
-      // Find matching default if available for english name
-      const foundInitial = INITIAL_MEDICINES.find(init => init.id === m.id || init.commercialName === m.commercialName);
-      const commercialAr = m.commercialNameAr || (foundInitial ? foundInitial.commercialNameAr : m.commercialName);
-      const commercialEn = m.commercialNameEn || (foundInitial ? foundInitial.commercialNameEn : '');
-      const entryDate = m.entryDate || (foundInitial ? foundInitial.entryDate : (m.createdAt ? m.createdAt.split('T')[0] : new Date().toISOString().split('T')[0]));
-      const isControlled = m.isControlled !== undefined ? m.isControlled : (foundInitial ? !!foundInitial.isControlled : false);
-      if (!m.commercialNameAr || !m.commercialNameEn || !m.entryDate || m.isControlled === undefined) {
-        changed = true;
-      }
-      return {
-        ...m,
-        commercialName: commercialAr || m.commercialName,
-        commercialNameAr: commercialAr || m.commercialName,
-        commercialNameEn: commercialEn || m.commercialNameEn || '',
-        entryDate,
-        isControlled
-      };
-    });
-    if (changed) {
-      localStorage.setItem('care_pharmacy_medicines', JSON.stringify(migrated));
-    }
-    return migrated;
+    return Array.isArray(list) ? list : [];
   } catch (e) {
-    return INITIAL_MEDICINES;
+    return [];
   }
 };
 
@@ -293,10 +274,14 @@ export const saveLocalMedicines = (medicines: Medicine[]) => {
 export const getLocalDispenses = (): DispenseRecord[] => {
   const data = localStorage.getItem('care_pharmacy_dispenses');
   if (!data) {
-    localStorage.setItem('care_pharmacy_dispenses', JSON.stringify(INITIAL_DISPENSES));
-    return INITIAL_DISPENSES;
+    return [];
   }
-  return JSON.parse(data);
+  try {
+    const list = JSON.parse(data);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
 };
 
 export const saveLocalDispenses = (dispenses: DispenseRecord[]) => {
@@ -321,8 +306,8 @@ const INITIAL_STOCK_LOGS: StockAuditLog[] = [
     quantityChanged: 122,
     previousQuantity: 0,
     newQuantity: 122,
-    performedByName: "د. طارق اليوسف",
-    performedByEmail: "tmrbe2006@gmail.com",
+    performedByName: "مدير النظام",
+    performedByEmail: "admin@carecenter.org",
     performedById: "admin-1",
     notes: "رصيد افتتاح لتهيئة مخزن الصيدلية",
     timestamp: "2026-09-20T08:00:00.000Z"
@@ -335,8 +320,8 @@ const INITIAL_STOCK_LOGS: StockAuditLog[] = [
     quantityChanged: -2,
     previousQuantity: 122,
     newQuantity: 120,
-    performedByName: "د. طارق اليوسف",
-    performedByEmail: "tmrbe2006@gmail.com",
+    performedByName: "صيدلي المركز",
+    performedByEmail: "pharmacist@carecenter.org",
     performedById: "pharmacist-1",
     notes: "صرف علاج مجدول للمقيم: أحمد عبد الله المري",
     timestamp: "2026-09-22T10:30:00.000Z"
@@ -349,8 +334,8 @@ const INITIAL_STOCK_LOGS: StockAuditLog[] = [
     quantityChanged: 61,
     previousQuantity: 0,
     newQuantity: 61,
-    performedByName: "د. طارق اليوسف",
-    performedByEmail: "tmrbe2006@gmail.com",
+    performedByName: "مدير النظام",
+    performedByEmail: "admin@carecenter.org",
     performedById: "admin-1",
     notes: "تغذية أصلية لمخزن أدوية الصرع والتشنجات",
     timestamp: "2026-09-20T08:15:00.000Z"
@@ -363,8 +348,8 @@ const INITIAL_STOCK_LOGS: StockAuditLog[] = [
     quantityChanged: -1,
     previousQuantity: 61,
     newQuantity: 60,
-    performedByName: "د. طارق اليوسف",
-    performedByEmail: "tmrbe2006@gmail.com",
+    performedByName: "صيدلي المركز",
+    performedByEmail: "pharmacist@carecenter.org",
     performedById: "pharmacist-1",
     notes: "صرف علاج مجدول للمقيم: سارة محمد العتيبي",
     timestamp: "2026-09-23T08:15:00.000Z"
@@ -374,10 +359,20 @@ const INITIAL_STOCK_LOGS: StockAuditLog[] = [
 export const getLocalStockLogs = (): StockAuditLog[] => {
   const data = localStorage.getItem('care_pharmacy_stock_logs');
   if (!data) {
-    localStorage.setItem('care_pharmacy_stock_logs', JSON.stringify(INITIAL_STOCK_LOGS));
-    return INITIAL_STOCK_LOGS;
+    return [];
   }
-  return JSON.parse(data);
+  try {
+    const list: StockAuditLog[] = JSON.parse(data);
+    if (!Array.isArray(list)) return [];
+    return list.map(l => {
+      if (l.performedByName === 'د. طارق اليوسف' || l.performedByName === 'دكتور يوسف طارق اليوسف') {
+        return { ...l, performedByName: 'مدير سابق', performedByEmail: '' };
+      }
+      return l;
+    });
+  } catch {
+    return [];
+  }
 };
 
 export const saveLocalStockLogs = (logs: StockAuditLog[]) => {
@@ -477,7 +472,7 @@ export const INITIAL_RESIDENTS = [
     notes: "يعاني من ضغط الدم المرتفع وحساسية خفيفة من البنسلين",
     allergies: "البنسلين، المكسرات",
     bloodGroup: "O+",
-    attendingPhysician: "د. طارق اليوسف",
+    attendingPhysician: "طبيب المركز المشرف",
     chronicDiseases: "ارتفاع ضغط الدم المزمن",
     dosageSchedule: [
       {
@@ -495,7 +490,7 @@ export const INITIAL_RESIDENTS = [
         medicineName: "ديباكين كرونو 500 ملجم",
         dosage: "حبة واحدة قبل النوم لضبط نوبات الصرع والتشنج",
         checkedToday: true,
-        checkedBy: "د. طارق اليوسف",
+        checkedBy: "طبيب المركز المشرف",
         checkedAt: "2026-09-24T08:30:00Z"
       }
     ]
@@ -584,7 +579,7 @@ export const INITIAL_BEHAVIOR_LOGS = [
     residentId: "res-1",
     residentName: "عبد الرحمن بن سليمان",
     loggedAt: "2026-09-24T14:30:00Z",
-    loggedBy: "د. طارق اليوسف",
+    loggedBy: "أخصائي الرعاية",
     behaviorRating: "stable",
     sideEffects: ["drowsiness"],
     severity: "mild",
@@ -618,7 +613,16 @@ export const INITIAL_CUSTOM_SIDE_EFFECTS = [
 
 export const getLocalResidents = (): any[] => {
   const saved = localStorage.getItem('care_pharmacy_residents');
-  return saved ? JSON.parse(saved) : INITIAL_RESIDENTS;
+  if (saved === null) {
+    if (localStorage.getItem('care_pharmacy_seeded')) return [];
+    return INITIAL_RESIDENTS;
+  }
+  try {
+    const list = JSON.parse(saved);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
 };
 
 export const saveLocalResidents = (residents: any[]): void => {
@@ -627,7 +631,16 @@ export const saveLocalResidents = (residents: any[]): void => {
 
 export const getLocalCompanies = (): any[] => {
   const saved = localStorage.getItem('care_pharmacy_companies');
-  return saved ? JSON.parse(saved) : INITIAL_COMPANIES;
+  if (saved === null) {
+    if (localStorage.getItem('care_pharmacy_seeded')) return [];
+    return INITIAL_COMPANIES;
+  }
+  try {
+    const list = JSON.parse(saved);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
 };
 
 export const saveLocalCompanies = (companies: any[]): void => {
@@ -636,7 +649,16 @@ export const saveLocalCompanies = (companies: any[]): void => {
 
 export const getLocalBehaviorLogs = (): any[] => {
   const saved = localStorage.getItem('care_pharmacy_behavior_logs');
-  return saved ? JSON.parse(saved) : INITIAL_BEHAVIOR_LOGS;
+  if (saved === null) {
+    if (localStorage.getItem('care_pharmacy_seeded')) return [];
+    return INITIAL_BEHAVIOR_LOGS;
+  }
+  try {
+    const list = JSON.parse(saved);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
 };
 
 export const saveLocalBehaviorLogs = (logs: any[]): void => {
@@ -682,33 +704,8 @@ export const DbService = {
           list.push({ id: doc.id, ...doc.data() } as Medicine);
         });
         
-        if (list.length > 0) {
-          // Sync with local storage
-          saveLocalMedicines(list);
-          return list;
-        } else {
-          // Firestore is completely empty! Seed in background with Promise.allSettled
-          console.log("Firestore medicines collection is empty. Seeding INITIAL_MEDICINES in parallel background...");
-          Promise.allSettled(
-            INITIAL_MEDICINES.map(med => setDoc(doc(db, "medicines", med.id), {
-              commercialName: med.commercialName,
-              commercialNameAr: med.commercialNameAr || med.commercialName,
-              commercialNameEn: med.commercialNameEn || '',
-              scientificName: med.scientificName,
-              quantity: med.quantity,
-              expiryDate: med.expiryDate,
-              price: med.price,
-              unit: med.unit,
-              category: med.category || "عام",
-              createdAt: med.createdAt,
-              updatedAt: med.updatedAt,
-              manufacturer: med.manufacturer || '',
-              isControlled: !!med.isControlled
-            }))
-          ).catch(() => {});
-          saveLocalMedicines(INITIAL_MEDICINES);
-          return INITIAL_MEDICINES;
-        }
+        saveLocalMedicines(list);
+        return list;
       }
     } catch (e) {
       console.warn("Firestore fetchMedicines failed/timed out, returning offline cache:", e);
@@ -774,9 +771,9 @@ export const DbService = {
       quantityChanged: newMed.quantity,
       previousQuantity: 0,
       newQuantity: newMed.quantity,
-      performedByName: actor?.name || "د. طارق اليوسف",
-      performedByEmail: actor?.email || "tmrbe2006@gmail.com",
-      performedById: actor?.id || "admin-1",
+      performedByName: actor?.name || "مستخدم النظام",
+      performedByEmail: actor?.email || "",
+      performedById: actor?.id || "",
       notes: actor?.notes || "إدخال صنف دواء جديد للمخزن"
     });
 
@@ -845,9 +842,9 @@ export const DbService = {
         quantityChanged: quantityDifference,
         previousQuantity,
         newQuantity: updatedMed.quantity,
-        performedByName: actor?.name || "د. طارق اليوسف",
-        performedByEmail: actor?.email || "tmrbe2006@gmail.com",
-        performedById: actor?.id || "admin-1",
+        performedByName: actor?.name || "مستخدم النظام",
+        performedByEmail: actor?.email || "",
+        performedById: actor?.id || "",
         notes: actor?.notes || "تعديل كمية المخزون يدوياً"
       });
     } else if (actor?.notes) {
@@ -858,9 +855,9 @@ export const DbService = {
         quantityChanged: 0,
         previousQuantity,
         newQuantity: updatedMed.quantity,
-        performedByName: actor?.name || "د. طارق اليوسف",
-        performedByEmail: actor?.email || "tmrbe2006@gmail.com",
-        performedById: actor?.id || "admin-1",
+        performedByName: actor?.name || "مستخدم النظام",
+        performedByEmail: actor?.email || "",
+        performedById: actor?.id || "",
         notes: actor.notes
       });
     }
@@ -888,14 +885,14 @@ export const DbService = {
       // Create Audit Log
       await this.addStockLog({
         medicineId: targetMed.id,
-        medicineName: `${targetMed.commercialName} (${targetMed.scientificName})`,
+        medicineName: targetMed.commercialNameEn ? `${targetMed.commercialName} / ${targetMed.commercialNameEn} (${targetMed.scientificName})` : `${targetMed.commercialName} (${targetMed.scientificName})`,
         actionType: 'حذف دواء',
         quantityChanged: -targetMed.quantity,
         previousQuantity: targetMed.quantity,
         newQuantity: 0,
-        performedByName: actor?.name || "د. طارق اليوسف",
-        performedByEmail: actor?.email || "tmrbe2006@gmail.com",
-        performedById: actor?.id || "admin-1",
+        performedByName: actor?.name || "مستخدم النظام",
+        performedByEmail: actor?.email || "",
+        performedById: actor?.id || "",
         notes: actor?.notes || "شطب الصنف نهائياً وحذفه من السجلات"
       });
     }
@@ -913,29 +910,8 @@ export const DbService = {
           list.push({ id: doc.id, ...doc.data() } as DispenseRecord);
         });
 
-        if (list.length > 0) {
-          saveLocalDispenses(list);
-          return list;
-        } else {
-          // Seed with initial realistic records in background
-          console.log("Firestore dispense_records is empty. Seeding INITIAL_DISPENSES in parallel background...");
-          Promise.allSettled(
-            INITIAL_DISPENSES.map(rec => setDoc(doc(db, "dispense_records", rec.id), {
-              medicineId: rec.medicineId,
-              medicineName: rec.medicineName,
-              residentName: rec.residentName,
-              quantityDispensed: rec.quantityDispensed,
-              unit: rec.unit,
-              totalPrice: rec.totalPrice,
-              actualQuantityDispensed: rec.actualQuantityDispensed,
-              dispensedBy: rec.dispensedBy,
-              dispensedById: rec.dispensedById,
-              dispensedAt: rec.dispensedAt
-            }))
-          ).catch(() => {});
-          saveLocalDispenses(INITIAL_DISPENSES);
-          return INITIAL_DISPENSES;
-        }
+        saveLocalDispenses(list);
+        return list;
       }
     } catch (e) {
       console.warn("Firestore fetchDispenseRecords failed/timed out, returning offline cache:", e);
@@ -1145,8 +1121,8 @@ export const DbService = {
       },
       {
         uid: "user-101",
-        name: "د. طارق اليوسف",
-        email: "yousef.t@carecenter.org",
+        name: "مدير النظام",
+        email: "admin@carecenter.org",
         role: "admin",
         phone: "+966501234567",
         password: "admin"
@@ -1173,10 +1149,12 @@ export const DbService = {
       if (isFirebaseConnected) {
         const querySnapshot = await withTimeout(getDocs(collection(db, "users")), 10000);
         if (!querySnapshot.empty) {
-          const list: any[] = [];
+          let list: any[] = [];
           querySnapshot.forEach((doc) => {
             list.push({ uid: doc.id, ...doc.data() });
           });
+          // Filter out any removed legacy accounts
+          list = list.filter(u => u.email?.toLowerCase() !== 'yousef.t@carecenter.org');
           const tmrbeIdx = list.findIndex(u => u.email?.toLowerCase() === 'tmrbe2006@gmail.com');
           if (tmrbeIdx !== -1) {
             list[tmrbeIdx].role = 'developer';
@@ -1207,7 +1185,8 @@ export const DbService = {
     const saved = localStorage.getItem('care_pharmacy_all_users');
     let list = saved ? JSON.parse(saved) : DEFAULT_USERS;
     if (Array.isArray(list)) {
-      const tmrbeIdx = list.findIndex(u => u.email?.toLowerCase() === 'tmrbe2006@gmail.com');
+      list = list.filter((u: any) => u.email?.toLowerCase() !== 'yousef.t@carecenter.org');
+      const tmrbeIdx = list.findIndex((u: any) => u.email?.toLowerCase() === 'tmrbe2006@gmail.com');
       if (tmrbeIdx !== -1) {
         list[tmrbeIdx].role = 'developer';
       } else {
@@ -1268,7 +1247,10 @@ export const DbService = {
     return updatedUser;
   },
 
-  async deleteUser(userId: string): Promise<void> {
+  async deleteUser(userId: string, actor?: { name: string; email: string; id: string }): Promise<void> {
+    const saved = localStorage.getItem('care_pharmacy_all_users');
+    let list = saved ? JSON.parse(saved) : [];
+    const targetUser = list.find((u: any) => u.uid === userId);
     try {
       if (isFirebaseConnected) {
         await deleteDoc(doc(db, "users", userId));
@@ -1277,10 +1259,21 @@ export const DbService = {
       console.warn("Firestore deleteUser failed, saving locally:", e);
     }
 
-    const saved = localStorage.getItem('care_pharmacy_all_users');
-    let list = saved ? JSON.parse(saved) : [];
     list = list.filter((u: any) => u.uid !== userId);
     localStorage.setItem('care_pharmacy_all_users', JSON.stringify(list));
+
+    await this.addStockLog({
+      medicineId: userId,
+      medicineName: targetUser?.name ? `حساب: ${targetUser.name}` : `مستخدم #${userId}`,
+      actionType: 'إلغاء حساب مستخدم',
+      quantityChanged: 0,
+      previousQuantity: 0,
+      newQuantity: 0,
+      performedByName: actor?.name || "مستخدم النظام",
+      performedByEmail: actor?.email || "",
+      performedById: actor?.id || "",
+      notes: targetUser?.name ? `إلغاء حساب "${targetUser.name}" وحظر وصوله إلى النظام` : "حذف حساب مستخدم"
+    });
   },
 
   // --- Security & Channel Settings CRUD with Firestore persistence ---
@@ -1575,23 +1568,12 @@ export const DbService = {
     try {
       if (isFirebaseConnected) {
         const querySnapshot = await withTimeout(getDocs(collection(db, "residents")), 7000);
-        if (!querySnapshot.empty) {
-          const list: any[] = [];
-          querySnapshot.forEach((doc) => {
-            list.push({ id: doc.id, ...doc.data() });
-          });
-          saveLocalResidents(list);
-          return list;
-        } else {
-          // If Firestore is empty, seed from local storage or initial defaults
-          const existing = getLocalResidents();
-          const toSeed = existing.length > 0 ? existing : INITIAL_RESIDENTS;
-          Promise.allSettled(
-            toSeed.map(r => setDoc(doc(db, "residents", r.id), r))
-          ).catch(() => {});
-          saveLocalResidents(toSeed);
-          return toSeed;
-        }
+        const list: any[] = [];
+        querySnapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        saveLocalResidents(list);
+        return list;
       }
     } catch (e) {
       console.warn("Firestore fetchResidents failed/timed out, returning offline cache:", e);
@@ -1622,7 +1604,9 @@ export const DbService = {
     return resWithId;
   },
 
-  async deleteResident(id: string): Promise<void> {
+  async deleteResident(id: string, actor?: { name: string; email: string; id: string }): Promise<void> {
+    const current = getLocalResidents();
+    const target = current.find(r => r.id === id);
     try {
       if (isFirebaseConnected) {
         await deleteDoc(doc(db, "residents", id));
@@ -1630,9 +1614,21 @@ export const DbService = {
     } catch (e) {
       console.warn("Firestore deleteResident failed, updating locally:", e);
     }
-    const current = getLocalResidents();
     const filtered = current.filter(r => r.id !== id);
     saveLocalResidents(filtered);
+
+    await this.addStockLog({
+      medicineId: id,
+      medicineName: target ? (target.name || target.fullName || id) : id,
+      actionType: 'شطب ملف مقيم',
+      quantityChanged: 0,
+      previousQuantity: 0,
+      newQuantity: 0,
+      performedByName: actor?.name || "مستخدم النظام",
+      performedByEmail: actor?.email || "",
+      performedById: actor?.id || "",
+      notes: target ? `شطب ملف المقيم "${target.name || target.fullName}" نهائياً من سجلات المركز` : "شطب مقيم"
+    });
   },
 
   async syncAllResidents(list: any[]): Promise<void> {
@@ -1653,22 +1649,12 @@ export const DbService = {
     try {
       if (isFirebaseConnected) {
         const querySnapshot = await withTimeout(getDocs(collection(db, "pharmaceutical_companies")), 10000);
-        if (!querySnapshot.empty) {
-          const list: any[] = [];
-          querySnapshot.forEach((doc) => {
-            list.push({ id: doc.id, ...doc.data() });
-          });
-          saveLocalCompanies(list);
-          return list;
-        } else {
-          const existing = getLocalCompanies();
-          const toSeed = existing.length > 0 ? existing : INITIAL_COMPANIES;
-          Promise.allSettled(
-            toSeed.map(c => setDoc(doc(db, "pharmaceutical_companies", c.id), c))
-          ).catch(() => {});
-          saveLocalCompanies(toSeed);
-          return toSeed;
-        }
+        const list: any[] = [];
+        querySnapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        saveLocalCompanies(list);
+        return list;
       }
     } catch (e) {
       console.warn("Firestore fetchCompanies failed, returning offline cache:", e);
@@ -1696,7 +1682,9 @@ export const DbService = {
     return compWithId;
   },
 
-  async deleteCompany(id: string): Promise<void> {
+  async deleteCompany(id: string, actor?: { name: string; email: string; id: string }): Promise<void> {
+    const current = getLocalCompanies();
+    const target = current.find(c => c.id === id);
     try {
       if (isFirebaseConnected) {
         await deleteDoc(doc(db, "pharmaceutical_companies", id));
@@ -1704,8 +1692,20 @@ export const DbService = {
     } catch (e) {
       console.warn("Firestore deleteCompany failed:", e);
     }
-    const current = getLocalCompanies();
     saveLocalCompanies(current.filter(c => c.id !== id));
+
+    await this.addStockLog({
+      medicineId: id,
+      medicineName: target?.name || id,
+      actionType: 'حذف شركة أدوية',
+      quantityChanged: 0,
+      previousQuantity: 0,
+      newQuantity: 0,
+      performedByName: actor?.name || "مستخدم النظام",
+      performedByEmail: actor?.email || "",
+      performedById: actor?.id || "",
+      notes: `شطب شركة "${target?.name || id}" من دليل الشركات الموردة`
+    });
   },
 
   async syncAllCompanies(list: any[]): Promise<void> {
@@ -1722,21 +1722,13 @@ export const DbService = {
     try {
       if (isFirebaseConnected) {
         const querySnapshot = await withTimeout(getDocs(collection(db, "behavior_logs")), 10000);
-        if (!querySnapshot.empty) {
-          const list: any[] = [];
-          querySnapshot.forEach((doc) => {
-            list.push({ id: doc.id, ...doc.data() });
-          });
-          list.sort((a, b) => new Date(b.loggedAt || 0).getTime() - new Date(a.loggedAt || 0).getTime());
-          saveLocalBehaviorLogs(list);
-          return list;
-        } else {
-          const existing = getLocalBehaviorLogs();
-          const toSeed = existing.length > 0 ? existing : INITIAL_BEHAVIOR_LOGS;
-          Promise.allSettled(toSeed.map(b => setDoc(doc(db, "behavior_logs", b.id), b))).catch(() => {});
-          saveLocalBehaviorLogs(toSeed);
-          return toSeed;
-        }
+        const list: any[] = [];
+        querySnapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        list.sort((a, b) => new Date(b.loggedAt || 0).getTime() - new Date(a.loggedAt || 0).getTime());
+        saveLocalBehaviorLogs(list);
+        return list;
       }
     } catch (e) {
       console.warn("Firestore fetchBehaviorLogs failed:", e);
@@ -1763,14 +1755,28 @@ export const DbService = {
     return logWithId;
   },
 
-  async deleteBehaviorLog(id: string): Promise<void> {
+  async deleteBehaviorLog(id: string, actor?: { name: string; email: string; id: string }): Promise<void> {
+    const current = getLocalBehaviorLogs();
+    const target = current.find(b => b.id === id);
     try {
       if (isFirebaseConnected) {
         await deleteDoc(doc(db, "behavior_logs", id));
       }
     } catch (e) {}
-    const current = getLocalBehaviorLogs();
     saveLocalBehaviorLogs(current.filter(b => b.id !== id));
+
+    await this.addStockLog({
+      medicineId: id,
+      medicineName: target?.residentName ? `ملاحظة: ${target.residentName}` : id,
+      actionType: 'حذف سجل سلوكي',
+      quantityChanged: 0,
+      previousQuantity: 0,
+      newQuantity: 0,
+      performedByName: actor?.name || "مستخدم النظام",
+      performedByEmail: actor?.email || "",
+      performedById: actor?.id || "",
+      notes: `حذف الملاحظة السلوكية والطبية`
+    });
   },
 
   async syncAllBehaviorLogs(list: any[]): Promise<void> {
