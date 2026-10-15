@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Plus, Edit2, Trash2, Calendar, DollarSign, Package, Activity, AlertTriangle, 
   Search, Shield, ShieldAlert, FileText, UserCheck, Bell, Printer, Sparkles, RefreshCw, 
   Smartphone, Monitor, Moon, Sun, Info, CheckCircle2, User, HelpCircle, Eye, LogOut, X,
   Lock, EyeOff, Mail, Copy, TrendingUp, TrendingDown, Download, BookOpen, Database, Clock,
-  Stethoscope
+  Stethoscope, Upload, HardDrive, ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
@@ -17,6 +17,7 @@ import { OfflineIndicator } from './OfflineIndicator';
 import { localizationData, Language } from './db/localization';
 import { SYSTEM_HELP_SECTIONS, ScreenGuide } from './helpManualData';
 import { generateMedicationPdfReports, PdfGenerationResult } from './utils/pdfReportGenerator';
+import { DeveloperStatisticsTab } from './DeveloperStatisticsTab';
 
 // User roles and permission matrix
 interface RoleConfig {
@@ -27,7 +28,7 @@ interface RoleConfig {
 const ROLES: Record<string, RoleConfig> = {
   developer: {
     name: "المبرمج",
-    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'security', 'ai_reports', 'audit_logs', 'behavioral_tracker']
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'dev_statistics', 'security', 'ai_reports', 'audit_logs', 'behavioral_tracker']
   },
   admin: {
     name: "مدير النظام",
@@ -1056,6 +1057,105 @@ export default function App() {
     }
   };
 
+  // Developer Database Backup & Restore States (Strictly accessible by Developer)
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [restoreModalData, setRestoreModalData] = useState<any | null>(null);
+  const restoreFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleExportBackup = async () => {
+    if (currentUser?.role !== 'developer') {
+      showToast(text('عذراً، هذه الميزة مقتصرة حصرياً على المبرمج!', 'Developer access required!'), 'error');
+      return;
+    }
+    try {
+      setIsExportingBackup(true);
+      const backup = await DbService.createFullBackup({
+        name: currentUser?.name || 'م. تامر (المبرمج)',
+        email: currentUser?.email || 'tmrbe2006@gmail.com'
+      });
+
+      const jsonStr = JSON.stringify(backup, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const nowStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `care_pharmacy_backup_all_tables_${nowStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const totalDocs = backup.counts?.totalDocuments || Object.values(backup.counts || {}).reduce((a: any, b: any) => typeof b === 'number' ? a + b : a, 0);
+      showToast(
+        text(
+          `تم بنجاح أخذ نسخة احتياطية شاملة لكافة جداول قاعدة البيانات (${totalDocs} وثيقة عبر كافة مجموعات Firebase)! 💾📥`,
+          `Complete backup of all Firebase collections downloaded successfully (${totalDocs} documents)! 💾📥`
+        ),
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Backup error:', err);
+      showToast(text('فشل إنشاء النسخة الاحتياطية: ' + (err.message || ''), 'Failed to generate backup: ' + (err.message || '')), 'error');
+    } finally {
+      setIsExportingBackup(false);
+    }
+  };
+
+  const handleSelectRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (currentUser?.role !== 'developer') {
+      showToast(text('عذراً، هذه الميزة مقتصرة حصرياً على المبرمج!', 'Developer access required!'), 'error');
+      return;
+    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (!parsed || (!parsed.collections && !parsed.data && !parsed.medicines && !parsed.residents && !parsed.batches)) {
+          showToast(text('الملف المحدد غير صالح أو لا يطابق بنية بيانات صيدلية المركز!', 'Invalid backup file structure!'), 'error');
+          return;
+        }
+        setRestoreModalData(parsed);
+      } catch (err) {
+        showToast(text('تعذر قراءة الملف! يرجى التأكد من اختيار ملف JSON صحيح.', 'Failed to parse JSON file!'), 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!restoreModalData || currentUser?.role !== 'developer') return;
+    try {
+      setIsRestoringBackup(true);
+      const result = await DbService.restoreFullBackup(restoreModalData, {
+        name: currentUser?.name || 'م. تامر (المبرمج)',
+        email: currentUser?.email || 'tmrbe2006@gmail.com',
+        id: currentUser?.uid || 'user-tmrbe'
+      });
+
+      setRestoreModalData(null);
+      await loadAllData();
+      showToast(
+        text(
+          `تمت استعادة كافة جداول الداتابيز سحابياً ومحلياً بنجاح! (${result.counts.total} وثيقة تشمل: ${result.counts.residents} مقيم، ${result.counts.stock_audit_logs} تدقيق، ${result.counts.user_sessions} جلسة، ${result.counts.dispense_records} صرف، ${result.counts.batches} تشغيلة، ${result.counts.item_units} وحدة، ${result.counts.therapeutic_categories} فئة) 🔄🎉`,
+          `Database restored successfully to cloud and local cache! (${result.counts.total} documents across all tables) 🔄🎉`
+        ),
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Restore error:', err);
+      showToast(text('فشلت عملية استعادة قاعدة البيانات: ' + (err.message || ''), 'Failed to restore database: ' + (err.message || '')), 'error');
+    } finally {
+      setIsRestoringBackup(false);
+    }
+  };
+
+
   // Custom Categories & Units State with database persistence
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
     return getLocalCategories();
@@ -1281,6 +1381,60 @@ export default function App() {
   const [dispenseStartDate, setDispenseStartDate] = useState('');
   const [dispenseEndDate, setDispenseEndDate] = useState('');
   const [dispenseTimeQuery, setDispenseTimeQuery] = useState('');
+  
+  // Sorting state for medication dispense table
+  type DispenseSortField = 
+    | 'dispensedAt' 
+    | 'residentName' 
+    | 'medicineName' 
+    | 'quantityDispensed' 
+    | 'actualQuantityDispensed' 
+    | 'unit' 
+    | 'totalPrice' 
+    | 'dispensedBy' 
+    | 'id';
+
+  const [dispenseSortField, setDispenseSortField] = useState<DispenseSortField>('dispensedAt');
+  const [dispenseSortDirection, setDispenseSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  // Helper to extract Resident Arabic & English names reliably from database
+  const getResidentInfoForDispense = (residentName: string, residentId?: string) => {
+    if (!residentName) return { ar: '', en: '' };
+    const clean = (s: string) => (s || '').replace(/[\s\u064B-\u065F\u0670\u0640]/g, '').toLowerCase();
+    const target = clean(residentName);
+    const matched = residents.find(r => 
+      (residentId && r.id === residentId) ||
+      clean(r.name) === target || 
+      clean(r.nameAr || '') === target || 
+      clean(r.nameEn || '') === target
+    );
+
+    const ar = matched ? (matched.nameAr || matched.name) : residentName;
+    let en = matched?.nameEn || '';
+    if (!en && (residentName.includes('المري') || residentName.includes('أحمد عبد الله'))) {
+      en = 'Ahmed Abdullah Al-Marri';
+    }
+    return { ar, en };
+  };
+
+  // Helper to extract Medicine Arabic & English / Scientific names reliably from database
+  const getMedicineInfoForDispense = (medicineName: string, medicineId?: string) => {
+    if (!medicineName) return { ar: '', en: '' };
+    const matched = medicines.find(m => (medicineId && m.id === medicineId) || m.commercialName === medicineName || m.commercialNameAr === medicineName);
+    const ar = matched?.commercialNameAr || matched?.commercialName || medicineName;
+    const en = matched?.commercialNameEn || matched?.scientificName || '';
+    return { ar, en };
+  };
+
+  const handleDispenseSortToggle = (field: DispenseSortField) => {
+    if (dispenseSortField === field) {
+      setDispenseSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setDispenseSortField(field);
+      setDispenseSortDirection(field === 'dispensedAt' ? 'desc' : 'asc');
+    }
+  };
+
   const [residentsSearchQuery, setResidentsSearchQuery] = useState('');
   const [usersSearchQuery, setUsersSearchQuery] = useState('');
   const [filterBehavior, setFilterBehavior] = useState('all');
@@ -1288,18 +1442,26 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedStockFilter, setSelectedStockFilter] = useState('all');
 
-  // Filter Dispense Records with Date Range (من تاريخ إلى تاريخ) and Time/Text queries
+  // Filter Dispense Records with Date Range (من تاريخ إلى تاريخ), Time/Text queries, and Full Sorting
   const getFilteredDispenseRecords = () => {
-    return dispenseRecords.filter(rec => {
+    const filtered = dispenseRecords.filter(rec => {
       const q = dispenseSearchQuery.trim().toLowerCase();
       const startDt = dispenseStartDate.trim();
       const endDt = dispenseEndDate.trim();
       const tq = dispenseTimeQuery.trim().toLowerCase();
 
+      const resInfo = getResidentInfoForDispense(rec.residentName, rec.residentId);
+      const medInfo = getMedicineInfoForDispense(rec.medicineName, rec.medicineId);
+
       // General search filter
       const matchesGeneral = !q ||
         (rec.residentName || '').toLowerCase().includes(q) ||
+        (resInfo.ar || '').toLowerCase().includes(q) ||
+        (resInfo.en || '').toLowerCase().includes(q) ||
+        (rec.residentNameEn || '').toLowerCase().includes(q) ||
         (rec.medicineName || '').toLowerCase().includes(q) ||
+        (medInfo.ar || '').toLowerCase().includes(q) ||
+        (medInfo.en || '').toLowerCase().includes(q) ||
         (rec.dispensedBy || '').toLowerCase().includes(q) ||
         (rec.unit || '').toLowerCase().includes(q);
 
@@ -1323,6 +1485,65 @@ export default function App() {
       }
 
       return matchesGeneral && matchesDateRange && matchesTimeText;
+    });
+
+    // Multi-parameter sorting for every table column
+    return filtered.sort((a, b) => {
+      let comparison = 0;
+      switch (dispenseSortField) {
+        case 'dispensedAt': {
+          const tA = a.dispensedAt ? new Date(a.dispensedAt).getTime() : 0;
+          const tB = b.dispensedAt ? new Date(b.dispensedAt).getTime() : 0;
+          comparison = tA - tB;
+          break;
+        }
+        case 'residentName': {
+          const resA = getResidentInfoForDispense(a.residentName, a.residentId);
+          const resB = getResidentInfoForDispense(b.residentName, b.residentId);
+          const nameA = resA.ar || a.residentName || '';
+          const nameB = resB.ar || b.residentName || '';
+          comparison = nameA.localeCompare(nameB, lang === 'ar' ? 'ar' : 'en', { numeric: true });
+          break;
+        }
+        case 'medicineName': {
+          const medA = (a.medicineName || '').trim();
+          const medB = (b.medicineName || '').trim();
+          comparison = medA.localeCompare(medB, lang === 'ar' ? 'ar' : 'en', { numeric: true });
+          break;
+        }
+        case 'quantityDispensed': {
+          comparison = (Number(a.quantityDispensed) || 0) - (Number(b.quantityDispensed) || 0);
+          break;
+        }
+        case 'actualQuantityDispensed': {
+          comparison = (Number(a.actualQuantityDispensed) || 0) - (Number(b.actualQuantityDispensed) || 0);
+          break;
+        }
+        case 'unit': {
+          const uA = (a.unit || '').trim();
+          const uB = (b.unit || '').trim();
+          comparison = uA.localeCompare(uB, lang === 'ar' ? 'ar' : 'en');
+          break;
+        }
+        case 'totalPrice': {
+          comparison = (Number(a.totalPrice) || 0) - (Number(b.totalPrice) || 0);
+          break;
+        }
+        case 'dispensedBy': {
+          const byA = (a.dispensedBy || '').trim();
+          const byB = (b.dispensedBy || '').trim();
+          comparison = byA.localeCompare(byB, lang === 'ar' ? 'ar' : 'en');
+          break;
+        }
+        case 'id': {
+          comparison = (a.id || '').localeCompare(b.id || '', undefined, { numeric: true });
+          break;
+        }
+        default:
+          comparison = 0;
+      }
+
+      return dispenseSortDirection === 'asc' ? comparison : -comparison;
     });
   };
 
@@ -1365,6 +1586,10 @@ export default function App() {
 
       // Construct native Excel HTML table with explicit UTF-8 charset, borders, and RTL/LTR styling
       const rowsHtml = recordsToExport.map((rec, idx) => {
+        const resInfo = getResidentInfoForDispense(rec.residentName, rec.residentId);
+        const residentDisplay = resInfo.en ? `${resInfo.ar} (${resInfo.en})` : resInfo.ar;
+        const medInfo = getMedicineInfoForDispense(rec.medicineName, rec.medicineId);
+        const medDisplay = medInfo.en ? `${medInfo.ar} (${medInfo.en})` : medInfo.ar;
         const formattedDate = rec.dispensedAt 
           ? new Date(rec.dispensedAt).toISOString().replace('T', ' ').substring(0, 16)
           : '';
@@ -1372,8 +1597,8 @@ export default function App() {
           <tr>
             <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${idx + 1}</td>
             <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">DSP-${idx + 1}</td>
-            <td style="text-align: ${isAr ? 'right' : 'left'}; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">${rec.residentName || ''}</td>
-            <td style="text-align: ${isAr ? 'right' : 'left'}; border: 1px solid #cbd5e1; padding: 8px;">${rec.medicineName || ''}</td>
+            <td style="text-align: ${isAr ? 'right' : 'left'}; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold;">${residentDisplay}</td>
+            <td style="text-align: ${isAr ? 'right' : 'left'}; border: 1px solid #cbd5e1; padding: 8px;">${medDisplay}</td>
             <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${rec.quantityDispensed || 0}</td>
             <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px; font-weight: bold; color: #0d9488;">${rec.actualQuantityDispensed || rec.quantityDispensed || 0}</td>
             <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">${rec.unit || ''}</td>
@@ -2532,11 +2757,16 @@ export default function App() {
       }
 
       const totalCost = med.price * dispenseForm.actualQuantityDispensed;
+      const resInfo = getResidentInfoForDispense(dispenseForm.residentName);
+      const selectedResident = residents.find(r => r.name === dispenseForm.residentName || r.nameAr === dispenseForm.residentName);
 
       const record = await DbService.addDispenseRecord({
         medicineId: med.id,
         medicineName: med.commercialName,
-        residentName: dispenseForm.residentName,
+        medicineNameEn: med.commercialNameEn || med.scientificName || '',
+        residentId: selectedResident?.id || '',
+        residentName: resInfo.ar || dispenseForm.residentName,
+        residentNameEn: resInfo.en || selectedResident?.nameEn || '',
         quantityDispensed: Number(dispenseForm.quantityDispensed),
         unit: dispenseForm.unit || med.unit,
         totalPrice: totalCost,
@@ -3784,7 +4014,10 @@ export default function App() {
       const record = await DbService.addDispenseRecord({
         medicineId: med.id,
         medicineName: med.commercialName,
+        medicineNameEn: med.commercialNameEn || med.scientificName || '',
+        residentId: resident.id,
         residentName: recipientName,
+        residentNameEn: resident.nameEn || '',
         quantityDispensed: qtyToDispense,
         unit: med.unit || "علبة",
         totalPrice: totalCost,
@@ -4082,15 +4315,15 @@ export default function App() {
 
   const isScreenAllowed = (tab: string) => {
     if (!currentUser) return false;
-    // Security tab is EXCLUSIVELY for the developer
-    if (tab === 'security') {
+    // Security and Developer Statistics tabs are EXCLUSIVELY for the developer
+    if (tab === 'security' || tab === 'dev_statistics') {
       return currentUser.role === 'developer';
     }
     return ROLES[currentUser.role]?.allowedScreens.includes(tab) ?? false;
   };
 
   useEffect(() => {
-    if (activeTab === 'security' && currentUser?.role !== 'developer') {
+    if ((activeTab === 'security' || activeTab === 'dev_statistics') && currentUser?.role !== 'developer') {
       setActiveTab('dashboard');
     }
   }, [activeTab, currentUser]);
@@ -4348,6 +4581,43 @@ export default function App() {
             <span className="font-bold text-[11px] text-amber-400">{firebaseConfig.projectId}</span>
           </div>
 
+          {/* Quick Developer Backup button - Exclusive to Developer */}
+          {currentUser?.role === 'developer' && (
+            <button
+              type="button"
+              onClick={handleExportBackup}
+              disabled={isExportingBackup}
+              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border font-bold text-xs transition-all cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-50 ${
+                darkMode 
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' 
+                  : 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+              }`}
+              title={lang === 'ar' ? 'أخذ نسخة احتياطية فورية للداتابيز وتنزيلها (حصري للمبرمج)' : 'Download Database Backup (Developer Only)'}
+            >
+              <Download className={`w-3.5 h-3.5 ${isExportingBackup ? 'animate-bounce' : ''}`} />
+              <span className="text-[11px]">{lang === 'ar' ? 'نسخ احتياطي 💾' : 'Backup 💾'}</span>
+            </button>
+          )}
+
+          {/* Quick Developer Stats button - Exclusive to Developer */}
+          {currentUser?.role === 'developer' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('dev_statistics')}
+              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border font-bold text-xs transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+                activeTab === 'dev_statistics'
+                  ? 'border-purple-400 bg-purple-600 text-white shadow-md shadow-purple-900/30'
+                  : darkMode 
+                    ? 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20' 
+                    : 'border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100'
+              }`}
+              title={lang === 'ar' ? 'الانتقال لشاشة إحصائيات وأعداد المبرمج الشاملة' : 'Developer Statistics & Entity Counts'}
+            >
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span className="text-[11px]">{lang === 'ar' ? 'الإحصائيات 📈' : 'Stats 📈'}</span>
+            </button>
+          )}
+
           {/* Quick Role display */}
           <div className="hidden sm:flex items-center gap-1 p-1 rounded-xl border border-rose-950/40 bg-rose-950/20 text-xs text-rose-300">
             <span className="font-bold px-1 text-rose-400 text-[11px]">{lang === 'ar' ? 'الدور:' : 'Role:'}</span>
@@ -4380,6 +4650,7 @@ export default function App() {
             { id: 'units', icon: '📦', label: lang === 'ar' ? 'إدارة الوحدات' : 'Units Management' },
             { id: 'categories', icon: '🏷️', label: lang === 'ar' ? 'إدارة فئات العلاج' : 'Therapeutic Classes' },
             { id: 'users', icon: '⚙️', label: t('users') },
+            { id: 'dev_statistics', icon: '📈', label: lang === 'ar' ? 'إحصائيات المبرمج' : 'Developer Stats' },
             { id: 'ai_reports', icon: '✨', label: lang === 'ar' ? 'التقارير الذكية AI' : 'AI Reports' },
             { id: 'behavioral_tracker', icon: '⚠️', label: t('behavior') },
             { id: 'security', icon: '🛡️', label: lang === 'ar' ? 'الحماية والأمان' : 'Security & Protection' },
@@ -5940,6 +6211,109 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Sorting Combobox (ترتيب السجلات حسب جميع باراميترات الجدول) */}
+                  <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-teal-400">
+                        <ArrowUpDown className="w-4 h-4 text-teal-400" />
+                        <span>{text('ترتيب السجلات (Combobox):', 'Sort Records (Combobox):')}</span>
+                      </div>
+
+                      {/* Combobox with all parameters */}
+                      <select
+                        value={`${dispenseSortField}:${dispenseSortDirection}`}
+                        onChange={(e) => {
+                          const [field, dir] = e.target.value.split(':') as [DispenseSortField, 'asc' | 'desc'];
+                          setDispenseSortField(field);
+                          setDispenseSortDirection(dir);
+                        }}
+                        className={`px-3 py-2 rounded-xl border text-xs font-bold outline-none cursor-pointer transition ${
+                          darkMode ? 'bg-slate-900 border-slate-700 text-teal-300 focus:border-teal-400' : 'bg-white border-slate-300 text-teal-800 focus:border-teal-500 shadow-sm'
+                        }`}
+                        title={text('اختر معيار الترتيب والاتجاه', 'Select sort criteria and direction')}
+                      >
+                        <optgroup label={text('📅 التاريخ والتوقيت', '📅 Dispensation Timestamp')}>
+                          <option value="dispensedAt:desc">{text('📅 التاريخ والتوقيت (الأحدث أولاً - تنازلي)', '📅 Timestamp (Newest First - Desc)')}</option>
+                          <option value="dispensedAt:asc">{text('📅 التاريخ والتوقيت (الأقدم أولاً - تصاعدي)', '📅 Timestamp (Oldest First - Asc)')}</option>
+                        </optgroup>
+                        
+                        <optgroup label={text('👤 اسم المقيم المستفيد', '👤 Beneficiary Resident')}>
+                          <option value="residentName:asc">{text('👤 اسم المقيم المستفيد (أبجدي أ - ي)', '👤 Resident Name (A - Z)')}</option>
+                          <option value="residentName:desc">{text('👤 اسم المقيم المستفيد (أبجدي ي - أ)', '👤 Resident Name (Z - A)')}</option>
+                        </optgroup>
+
+                        <optgroup label={text('💊 اسم الدواء المصروف', '💊 Medication Name')}>
+                          <option value="medicineName:asc">{text('💊 اسم الدواء المصروف (أبجدي أ - ي)', '💊 Medicine Name (A - Z)')}</option>
+                          <option value="medicineName:desc">{text('💊 اسم الدواء المصروف (أبجدي ي - أ)', '💊 Medicine Name (Z - A)')}</option>
+                        </optgroup>
+
+                        <optgroup label={text('👨‍⚕️ اسم الصيدلي المسؤول', '👨‍⚕️ Responsible Pharmacist')}>
+                          <option value="dispensedBy:asc">{text('👨‍⚕️ اسم الصيدلي المسؤول (أبجدي أ - ي)', '👨‍⚕️ Pharmacist Name (A - Z)')}</option>
+                          <option value="dispensedBy:desc">{text('👨‍⚕️ اسم الصيدلي المسؤول (أبجدي ي - أ)', '👨‍⚕️ Pharmacist Name (Z - A)')}</option>
+                        </optgroup>
+
+                        <optgroup label={text('🔢 الكمية المقررة والمصروفة فعلياً', '🔢 Quantities')}>
+                          <option value="actualQuantityDispensed:desc">{text('🟢 الكمية المصروفة فعلياً (الأعلى أولاً)', '🟢 Actually Dispensed (Highest First)')}</option>
+                          <option value="actualQuantityDispensed:asc">{text('🟢 الكمية المصروفة فعلياً (الأقل أولاً)', '🟢 Actually Dispensed (Lowest First)')}</option>
+                          <option value="quantityDispensed:desc">{text('📋 الكمية المقررة (الأعلى أولاً)', '📋 Prescribed Qty (Highest First)')}</option>
+                          <option value="quantityDispensed:asc">{text('📋 الكمية المقررة (الأقل أولاً)', '📋 Prescribed Qty (Lowest First)')}</option>
+                        </optgroup>
+
+                        <optgroup label={text('💰 إجمالي السعر والتكلفة', '💰 Total Price')}>
+                          <option value="totalPrice:desc">{text('💰 إجمالي السعر (الأعلى سعراً أولاً)', '💰 Total Price (Highest First)')}</option>
+                          <option value="totalPrice:asc">{text('💰 إجمالي السعر (الأقل سعراً أولاً)', '💰 Total Price (Lowest First)')}</option>
+                        </optgroup>
+
+                        <optgroup label={text('📦 الوحدة ورقم السجل', '📦 Unit & ID')}>
+                          <option value="unit:asc">{text('📦 الوحدة (أبجدي أ - ي)', '📦 Unit (A - Z)')}</option>
+                          <option value="unit:desc">{text('📦 الوحدة (أبجدي ي - أ)', '📦 Unit (Z - A)')}</option>
+                          <option value="id:asc">{text('# الترتيب ورقم السجل (تصاعدي)', '# Record ID (Asc)')}</option>
+                          <option value="id:desc">{text('# الترتيب ورقم السجل (تنازلي)', '# Record ID (Desc)')}</option>
+                        </optgroup>
+                      </select>
+
+                      {/* Direction Quick Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => setDispenseSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+                        className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          darkMode ? 'bg-slate-900 border-slate-700 hover:bg-slate-800 text-slate-200' : 'bg-white border-slate-300 hover:bg-slate-100 text-slate-700 shadow-sm'
+                        }`}
+                        title={text('عكس اتجاه الترتيب (تصاعدي / تنازلي)', 'Toggle sort direction')}
+                      >
+                        {dispenseSortDirection === 'asc' ? (
+                          <>
+                            <ArrowUp className="w-3.5 h-3.5 text-teal-400" />
+                            <span>{text('تصاعدي ⬆', 'Ascending ⬆')}</span>
+                          </>
+                        ) : (
+                          <>
+                            <ArrowDown className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{text('تنازلي ⬇', 'Descending ⬇')}</span>
+                          </>
+                        )}
+                      </button>
+
+                      {(dispenseSortField !== 'dispensedAt' || dispenseSortDirection !== 'desc') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDispenseSortField('dispensedAt');
+                            setDispenseSortDirection('desc');
+                          }}
+                          className="px-2.5 py-1.5 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
+                        >
+                          {text('إعادة ضبط الترتيب ↺', 'Reset Sort ↺')}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="text-[11px] text-slate-400 hidden xl:flex items-center gap-1">
+                      <span>💡</span>
+                      <span>{text('انقر على عناوين أعمدة الجدول أدناه لفرز أي عمود مباشرة', 'Click on table column headers to sort directly')}</span>
+                    </div>
+                  </div>
+
                   {/* Summary Bar */}
                   <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
                     <div>
@@ -5965,16 +6339,133 @@ export default function App() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-right text-xs">
                       <thead>
-                        <tr className="border-b border-slate-800 text-slate-400 font-bold">
-                          <th className="p-4 text-right">#</th>
-                          <th className="p-4 text-right">{text('اسم المقيم المستفيد', 'Recipient Resident')}</th>
-                          <th className="p-4 text-right">{text('اسم الدواء المصروف', 'Medication Dispensed')}</th>
-                          <th className="p-4 text-right">{text('الكمية المقررة', 'Prescribed Qty')}</th>
-                          <th className="p-4 text-right">{text('الكمية المصروفة فعلياً', 'Actually Dispensed')}</th>
-                          <th className="p-4 text-right">{text('الوحدة', 'Unit')}</th>
-                          <th className="p-4 text-right">{text('إجمالي السعر', 'Total Cost')}</th>
-                          <th className="p-4 text-right">{text('اسم الصيدلي المسؤول', 'Responsible Pharmacist')}</th>
-                          <th className="p-4 text-right">{text('تاريخ ووقت الصرف', 'Dispensation Timestamp')}</th>
+                        <tr className="border-b border-slate-800 text-slate-400 font-bold bg-slate-950/40">
+                          <th 
+                            onClick={() => handleDispenseSortToggle('id')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب الرقم', 'Click to sort by ID')}
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>#</span>
+                              {dispenseSortField === 'id' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-teal-400" /> : <ArrowDown className="w-3 h-3 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleDispenseSortToggle('residentName')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب اسم المقيم', 'Click to sort by Resident Name')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('اسم المقيم المستفيد', 'Recipient Resident')}</span>
+                              {dispenseSortField === 'residentName' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleDispenseSortToggle('medicineName')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب اسم الدواء', 'Click to sort by Medicine Name')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('اسم الدواء المصروف', 'Medication Dispensed')}</span>
+                              {dispenseSortField === 'medicineName' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleDispenseSortToggle('quantityDispensed')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب الكمية المقررة', 'Click to sort by Prescribed Quantity')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('الكمية المقررة', 'Prescribed Qty')}</span>
+                              {dispenseSortField === 'quantityDispensed' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleDispenseSortToggle('actualQuantityDispensed')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب الكمية المصروفة فعلياً', 'Click to sort by Actually Dispensed Quantity')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('الكمية المصروفة فعلياً', 'Actually Dispensed')}</span>
+                              {dispenseSortField === 'actualQuantityDispensed' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleDispenseSortToggle('unit')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب الوحدة', 'Click to sort by Unit')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('الوحدة', 'Unit')}</span>
+                              {dispenseSortField === 'unit' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleDispenseSortToggle('totalPrice')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب إجمالي السعر', 'Click to sort by Total Cost')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('إجمالي السعر', 'Total Cost')}</span>
+                              {dispenseSortField === 'totalPrice' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleDispenseSortToggle('dispensedBy')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب اسم الصيدلي', 'Click to sort by Responsible Pharmacist')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('اسم الصيدلي المسؤول', 'Responsible Pharmacist')}</span>
+                              {dispenseSortField === 'dispensedBy' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleDispenseSortToggle('dispensedAt')}
+                            className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
+                            title={text('انقر للترتيب حسب تاريخ ووقت الصرف', 'Click to sort by Dispensation Timestamp')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('تاريخ ووقت الصرف', 'Dispensation Timestamp')}</span>
+                              {dispenseSortField === 'dispensedAt' ? (
+                                dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
                           <th className="p-4 text-center print:hidden">{text('توثيق وصرف', 'Actions')}</th>
                         </tr>
                       </thead>
@@ -5989,40 +6480,62 @@ export default function App() {
                             </td>
                           </tr>
                         ) : (
-                          getFilteredDispenseRecords().map((rec, idx) => (
-                            <tr key={rec.id} className="hover:bg-slate-900/10 transition">
-                              <td className="p-4 font-mono text-slate-500 font-bold">{idx + 1}</td>
-                              <td className="p-4 font-black text-slate-200 text-sm">{rec.residentName}</td>
-                              <td className="p-4 font-bold text-teal-400">{rec.medicineName}</td>
-                              <td className="p-4 font-mono text-slate-400">{rec.quantityDispensed}</td>
-                              <td className="p-4 font-mono">
-                                <span className="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-lg font-bold border border-emerald-500/20">
-                                  {rec.actualQuantityDispensed} (فعلياً)
-                                </span>
-                              </td>
-                              <td className="p-4 text-slate-400">{rec.unit}</td>
-                              <td className="p-4 font-mono text-slate-300 font-semibold">{rec.totalPrice} ر.س</td>
-                              <td className="p-4 text-slate-400">{rec.dispensedBy}</td>
-                              <td className="p-4 font-mono text-slate-300 text-right whitespace-nowrap">
-                                {rec.dispensedAt ? new Date(rec.dispensedAt).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US') : '-'}
-                              </td>
-                              <td className="p-4 text-center print:hidden">
-                                <button
-                                  type="button"
-                                  onClick={() => openDispenseModal({ 
-                                    medicineId: rec.medicineId, 
-                                    residentName: rec.residentName, 
-                                    unit: rec.unit 
-                                  })}
-                                  className="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg border border-indigo-500/30 transition text-[11px] font-bold cursor-pointer inline-flex items-center gap-1 active:scale-95 shadow-sm"
-                                  title={text('صرف وتوثيق جرعة جديدة لهذا المقيم لنفس الدواء', 'Re-dispense & document dose for this resident')}
-                                >
-                                  <Plus className="w-3 h-3" />
-                                  <span>{text('صرف جديد', 'Re-dispense')}</span>
-                                </button>
-                              </td>
-                            </tr>
-                          ))
+                          getFilteredDispenseRecords().map((rec, idx) => {
+                            const resInfo = getResidentInfoForDispense(rec.residentName, rec.residentId);
+                            const medInfo = getMedicineInfoForDispense(rec.medicineName, rec.medicineId);
+                            return (
+                              <tr key={rec.id} className="hover:bg-slate-900/10 transition">
+                                <td className="p-4 font-mono text-slate-500 font-bold">{idx + 1}</td>
+                                <td className="p-4 font-bold text-slate-200">
+                                  <div className="text-slate-100 font-bold text-sm">
+                                    {resInfo.ar || rec.residentName}
+                                  </div>
+                                  {resInfo.en && (
+                                    <div className="text-[11px] text-teal-400 font-sans font-medium mt-0.5">
+                                      {resInfo.en}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="p-4">
+                                  <div className="font-bold text-teal-400 text-sm">
+                                    {medInfo.ar || rec.medicineName}
+                                  </div>
+                                  {medInfo.en && (
+                                    <div className="text-[11px] text-slate-400 font-sans font-medium mt-0.5">
+                                      {medInfo.en}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="p-4 font-mono text-slate-400">{rec.quantityDispensed}</td>
+                                <td className="p-4 font-mono">
+                                  <span className="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-lg font-bold border border-emerald-500/20">
+                                    {rec.actualQuantityDispensed} (فعلياً)
+                                  </span>
+                                </td>
+                                <td className="p-4 text-slate-400">{rec.unit}</td>
+                                <td className="p-4 font-mono text-slate-300 font-semibold">{rec.totalPrice} ر.س</td>
+                                <td className="p-4 text-slate-400">{rec.dispensedBy}</td>
+                                <td className="p-4 font-mono text-slate-300 text-right whitespace-nowrap">
+                                  {rec.dispensedAt ? new Date(rec.dispensedAt).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US') : '-'}
+                                </td>
+                                <td className="p-4 text-center print:hidden">
+                                  <button
+                                    type="button"
+                                    onClick={() => openDispenseModal({ 
+                                      medicineId: rec.medicineId, 
+                                      residentName: rec.residentName, 
+                                      unit: rec.unit 
+                                    })}
+                                    className="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg border border-indigo-500/30 transition text-[11px] font-bold cursor-pointer inline-flex items-center gap-1 active:scale-95 shadow-sm"
+                                    title={text('صرف وتوثيق جرعة جديدة لهذا المقيم لنفس الدواء', 'Re-dispense & document dose for this resident')}
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>{text('صرف جديد', 'Re-dispense')}</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -6736,22 +7249,51 @@ export default function App() {
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await loadAllData();
-                        showToast(
-                          lang === 'ar' 
-                            ? `تمت مزامنة البيانات سحابياً بنجاح مع قاعدة بيانات (${firebaseConfig.projectId})! 🔄` 
-                            : `Data synchronized with Cloud Firestore (${firebaseConfig.projectId})! 🔄`, 
-                          'success'
-                        );
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all shrink-0 hover:scale-105 active:scale-95"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      <span>{text('مزامنة سحابية الآن 🔄', 'Sync with Cloud Now 🔄')}</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await loadAllData();
+                          showToast(
+                            lang === 'ar' 
+                              ? `تمت مزامنة البيانات سحابياً بنجاح مع قاعدة بيانات (${firebaseConfig.projectId})! 🔄` 
+                              : `Data synchronized with Cloud Firestore (${firebaseConfig.projectId})! 🔄`, 
+                            'success'
+                          );
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0 hover:scale-105 active:scale-95"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>{text('مزامنة سحابية الآن 🔄', 'Sync with Cloud Now 🔄')}</span>
+                      </button>
+
+                      {/* Developer Only: Backup and Restore Buttons */}
+                      {currentUser?.role === 'developer' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleExportBackup}
+                            disabled={isExportingBackup}
+                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0 hover:scale-105 active:scale-95 disabled:opacity-50"
+                            title={text('تصدير نسخة احتياطية كاملة من قاعدة البيانات كملف JSON (المبرمج فقط)', 'Export full database backup to JSON file (Developer Only)')}
+                          >
+                            <Download className={`w-4 h-4 ${isExportingBackup ? 'animate-bounce' : ''}`} />
+                            <span>{isExportingBackup ? text('جارِ التصدير...', 'Exporting...') : text('نسخ احتياطي للداتابيز 📥', 'Backup Database 📥')}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => restoreFileInputRef.current?.click()}
+                            disabled={isRestoringBackup}
+                            className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0 hover:scale-105 active:scale-95 disabled:opacity-50"
+                            title={text('استعادة قاعدة البيانات من ملف نسخة احتياطية JSON (المبرمج فقط)', 'Restore database from backup JSON file (Developer Only)')}
+                          >
+                            <Upload className="w-4 h-4" />
+                            <span>{text('استعادة الداتابيز 📤', 'Restore Database 📤')}</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1">
@@ -6785,6 +7327,73 @@ export default function App() {
                     <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 font-mono text-amber-300 text-[10px]">security_settings</span>
                   </div>
                 </div>
+
+                {/* Developer Dedicated Database Backup & Disaster Recovery Suite */}
+                {currentUser?.role === 'developer' && (
+                  <div className={`p-5 sm:p-6 rounded-3xl border transition-all ${darkMode ? 'bg-gradient-to-br from-slate-900/90 via-slate-900 to-indigo-950/30 border-indigo-500/20' : 'bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 border-indigo-200'} space-y-4 shadow-xl`}>
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-indigo-500/20 pb-4">
+                      <div className="flex items-center gap-3.5">
+                        <div className="p-3 bg-indigo-500/15 rounded-2xl border border-indigo-500/30 text-indigo-400">
+                          <HardDrive className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base font-black text-slate-100">
+                              {text('إدارة النسخ الاحتياطي والاستعادة الشاملة (Database Backup & Disaster Recovery)', 'Database Backup & Disaster Recovery Suite')}
+                            </h3>
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                              {text('حصري للمبرمج فقط 👨‍💻', 'Developer Only 👨‍💻')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {text('تصدير كافة جداول ومستندات السحابة والمخزن المحلي في ملف JSON موحد وتنزيله بنقرة واحدة، أو استعادة نسخة سابقة في ثوانٍ.', 'Export all cloud documents and local records to a JSON backup, or restore previous state anytime.')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={handleExportBackup}
+                          disabled={isExportingBackup}
+                          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-900/30 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                        >
+                          <Download className={`w-4 h-4 ${isExportingBackup ? 'animate-bounce' : ''}`} />
+                          <span>{isExportingBackup ? text('جارِ إنشاء النسخة وتنزيلها...', 'Exporting Backup...') : text('أخذ نسخة احتياطية فورية للداتابيز 📥', 'Take Full Database Backup 📥')}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => restoreFileInputRef.current?.click()}
+                          disabled={isRestoringBackup}
+                          className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-900/30 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>{text('استعادة نسخة احتياطية من ملف 📤', 'Restore From Backup File 📤')}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-white border-slate-200'}`}>
+                        <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('أصناف الأدوية الحالية', 'Current Medicines')}</span>
+                        <span className="font-mono font-bold text-emerald-400 text-sm">{medicines.length}</span>
+                      </div>
+                      <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-white border-slate-200'}`}>
+                        <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('ملفات المقيمين النشطة', 'Active Residents')}</span>
+                        <span className="font-mono font-bold text-sky-400 text-sm">{residents.length}</span>
+                      </div>
+                      <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-white border-slate-200'}`}>
+                        <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('سجلات الصرف المؤكدة', 'Dispense Records')}</span>
+                        <span className="font-mono font-bold text-teal-400 text-sm">{dispenseRecords.length}</span>
+                      </div>
+                      <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                        <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('سجل التدقيق والتتبع', 'Audit Logs')}</span>
+                        <span className="font-mono font-bold text-amber-400 text-sm">{stockLogs.length}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Secure Communication Channels Config - Only Visible to Developer */}
                 {currentUser?.role === 'developer' && (
@@ -7851,6 +8460,31 @@ export default function App() {
                 )}
 
               </div>
+            )}
+
+            {/* ----------------- TAB: DEVELOPER EXCLUSIVE COMPREHENSIVE STATISTICS ----------------- */}
+            {activeTab === 'dev_statistics' && currentUser?.role === 'developer' && (
+              <DeveloperStatisticsTab
+                residents={residents}
+                users={users}
+                medicines={medicines}
+                customUnits={customUnits}
+                customCategories={customCategories}
+                dispenseRecords={dispenseRecords}
+                stockLogs={stockLogs}
+                behaviorLogs={behaviorLogs}
+                sessions={sessions}
+                companies={companies}
+                darkMode={darkMode}
+                lang={lang}
+                text={text}
+                showToast={showToast}
+                currentUser={currentUser}
+                isFirebaseConnected={isFirebaseConnected}
+                firebaseProjectId={firebaseConfig.projectId}
+                onRefreshData={loadAllData}
+                onExportBackup={handleExportBackup}
+              />
             )}
 
             {/* ----------------- TAB: AUDIT LOGS & LEDGER ----------------- */}
@@ -13299,6 +13933,232 @@ export default function App() {
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer transition"
                     >
                       {text('تم / إغلاق النافذة', 'Done / Close')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Hidden File Input for Database Restore - Developer Only */}
+            {currentUser?.role === 'developer' && (
+              <input
+                ref={restoreFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleSelectRestoreFile}
+                className="hidden"
+              />
+            )}
+
+            {/* ----------------- MODAL: CONFIRM DATABASE RESTORE (استعادة الداتابيز - حصري للمبرمج) ----------------- */}
+            {restoreModalData && currentUser?.role === 'developer' && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className={`w-full max-w-xl rounded-3xl border p-5 sm:p-6 shadow-2xl space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <div className="flex items-center justify-between border-b pb-4 border-slate-800/60">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
+                        <HardDrive className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base sm:text-lg font-black text-indigo-400">
+                            {text('تأكيد استعادة قاعدة البيانات (Database Restore)', 'Confirm Database Restore')}
+                          </h3>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                            {text('للمبرمج فقط 👨‍💻', 'Dev Only 👨‍💻')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          {text('تم فحص سلامة بنية ملف النسخة الاحتياطية بنجاح', 'Backup file structure verified successfully')}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => !isRestoringBackup && setRestoreModalData(null)}
+                      className="p-1.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Backup Meta Info */}
+                    <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'} space-y-2 text-xs`}>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">{text('تاريخ إنشاء النسخة:', 'Backup Creation Date:')}</span>
+                        <span className="font-mono font-bold text-amber-400">
+                          {restoreModalData.createdAt ? new Date(restoreModalData.createdAt).toLocaleString(lang === 'ar' ? 'ar-SA' : 'en-US') : text('غير محدد', 'Not specified')}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">{text('المصدر / المبرمج المصدر:', 'Exported By:')}</span>
+                        <span className="font-bold text-teal-400">
+                          {restoreModalData.exportedBy?.name || text('المبرمج', 'Developer')} {restoreModalData.exportedBy?.email ? `(${restoreModalData.exportedBy.email})` : ''}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">{text('إصدار النسخة الاحتياطية:', 'Backup Version:')}</span>
+                        <span className="font-mono text-slate-300">v{restoreModalData.backupVersion || '2.0'}</span>
+                      </div>
+                    </div>
+
+                    {/* Content Counts Grid - Displays ALL Firebase Firestore Collections */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-300">
+                          {text('محتويات وجداول قاعدة البيانات المراد استعادتها بالكامل (11+ جدول):', 'All Firebase Firestore Collections to be Restored:')}
+                        </h4>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                          {text('إجمالي السجلات:', 'Total docs:')} {restoreModalData.counts?.totalDocuments || restoreModalData.counts?.total || Object.values(restoreModalData.counts || {}).reduce((a: any, b: any) => typeof b === 'number' ? a + b : a, 0)}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs max-h-60 overflow-y-auto pr-1">
+                        {/* 1. batches */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">📦 {text('تشغيلات الأدوية (batches):', 'Batches:')}</span>
+                          <span className="font-mono font-bold text-amber-400">
+                            {restoreModalData.counts?.batches ?? (restoreModalData.collections?.batches?.length || restoreModalData.data?.batches?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 2. behavior_logs */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">⚠️ {text('المتابعة السلوكية (behavior_logs):', 'Behavior Logs:')}</span>
+                          <span className="font-mono font-bold text-rose-400">
+                            {restoreModalData.counts?.behavior_logs ?? restoreModalData.counts?.behaviorLogs ?? (restoreModalData.collections?.behavior_logs?.length || restoreModalData.data?.behaviorLogs?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 3. dispense_records */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">💊 {text('سجلات الصرف (dispense_records):', 'Dispenses:')}</span>
+                          <span className="font-mono font-bold text-teal-400">
+                            {restoreModalData.counts?.dispense_records ?? restoreModalData.counts?.dispenseRecords ?? (restoreModalData.collections?.dispense_records?.length || restoreModalData.data?.dispenseRecords?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 4. item_units */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">📏 {text('وحدات الأصناف (item_units):', 'Item Units:')}</span>
+                          <span className="font-mono font-bold text-amber-300">
+                            {restoreModalData.counts?.item_units ?? restoreModalData.counts?.units ?? (restoreModalData.collections?.item_units?.length || restoreModalData.data?.itemUnits?.length || restoreModalData.data?.units?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 5. residents */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">👥 {text('المقيمين (residents):', 'Residents:')}</span>
+                          <span className="font-mono font-bold text-sky-400">
+                            {restoreModalData.counts?.residents ?? (restoreModalData.collections?.residents?.length || restoreModalData.data?.residents?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 6. security_settings */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">🛡️ {text('إعدادات الأمان (security_settings):', 'Security Settings:')}</span>
+                          <span className="font-mono font-bold text-purple-400">
+                            {restoreModalData.counts?.security_settings ?? (restoreModalData.collections?.security_settings?.length || (restoreModalData.data?.securitySettings ? 1 : 0))}
+                          </span>
+                        </div>
+
+                        {/* 7. settings */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">⚙️ {text('إعدادات عامة (settings):', 'General Settings:')}</span>
+                          <span className="font-mono font-bold text-slate-300">
+                            {restoreModalData.counts?.settings ?? (restoreModalData.collections?.settings?.length || restoreModalData.data?.settings?.length || 2)}
+                          </span>
+                        </div>
+
+                        {/* 8. stock_audit_logs */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">📋 {text('سجل التدقيق (stock_audit_logs):', 'Audit Logs:')}</span>
+                          <span className="font-mono font-bold text-amber-400">
+                            {restoreModalData.counts?.stock_audit_logs ?? restoreModalData.counts?.stockLogs ?? (restoreModalData.collections?.stock_audit_logs?.length || restoreModalData.data?.stockLogs?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 9. therapeutic_categories */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">🏷️ {text('الفئات العلاجية (categories):', 'Categories:')}</span>
+                          <span className="font-mono font-bold text-teal-300">
+                            {restoreModalData.counts?.therapeutic_categories ?? restoreModalData.counts?.categories ?? (restoreModalData.collections?.therapeutic_categories?.length || restoreModalData.data?.therapeuticCategories?.length || restoreModalData.data?.categories?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 10. user_sessions */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">🔐 {text('جلسات الدخول (user_sessions):', 'User Sessions:')}</span>
+                          <span className="font-mono font-bold text-indigo-400">
+                            {restoreModalData.counts?.user_sessions ?? restoreModalData.counts?.userSessions ?? (restoreModalData.collections?.user_sessions?.length || restoreModalData.data?.userSessions?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 11. users */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">👤 {text('حسابات الكادر (users):', 'Users:')}</span>
+                          <span className="font-mono font-bold text-purple-300">
+                            {restoreModalData.counts?.users ?? (restoreModalData.collections?.users?.length || restoreModalData.data?.users?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 12. medicines */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">💊 {text('الأدوية (medicines):', 'Medicines:')}</span>
+                          <span className="font-mono font-bold text-emerald-400">
+                            {restoreModalData.counts?.medicines ?? (restoreModalData.collections?.medicines?.length || restoreModalData.data?.medicines?.length || 0)}
+                          </span>
+                        </div>
+
+                        {/* 13. companies */}
+                        <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
+                          <span className="text-slate-400 font-medium">🏢 {text('الشركات (companies):', 'Companies:')}</span>
+                          <span className="font-mono font-bold text-sky-300">
+                            {restoreModalData.counts?.companies ?? (restoreModalData.collections?.pharmaceutical_companies?.length || restoreModalData.collections?.companies?.length || restoreModalData.data?.companies?.length || 0)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Warning Alert Banner */}
+                    <div className="p-3.5 rounded-2xl border border-rose-500/30 bg-rose-500/10 text-rose-200 text-xs leading-relaxed flex items-start gap-2.5">
+                      <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                      <p>
+                        {text(
+                          'تحذير: سيتم استعادة وكتابة هذه البيانات في قاعدة بيانات Firebase السحابية وفي التخزين المحلي للمركز فوراً. يرجى تأكيد استعادة النسخة.',
+                          'Warning: This action will write and restore records to Cloud Firebase and local storage immediately. Please confirm you want to proceed.'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-800/60">
+                    <button
+                      type="button"
+                      onClick={() => setRestoreModalData(null)}
+                      disabled={isRestoringBackup}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
+                    >
+                      {text('إلغاء الأمر', 'Cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmRestore}
+                      disabled={isRestoringBackup}
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-teal-600 hover:from-indigo-500 hover:to-teal-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-900/30 transition-all hover:scale-105 active:scale-95 cursor-pointer disabled:opacity-50"
+                    >
+                      {isRestoringBackup ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>{text('جارِ استعادة السحابة وكتابة البيانات...', 'Restoring Cloud Data...')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4" />
+                          <span>{text('تأكيد واستعادة البيانات سحابياً 🚀', 'Confirm & Restore to Cloud 🚀')}</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>

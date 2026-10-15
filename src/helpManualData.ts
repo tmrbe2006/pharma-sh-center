@@ -769,6 +769,84 @@ export const SYSTEM_HELP_SECTIONS: ScreenGuide[] = [
     ]
   },
   {
+    id: 'dev_statistics',
+    icon: '📈',
+    titleAr: 'إحصائيات النظام الشاملة والأعداد الحية (خاص بالمبرمج فقط)',
+    titleEn: 'Developer Live System Statistics & Entity Counts (Developer Only)',
+    shortDescAr: 'شاشة قياس وتحليل حصرية للمبرمج تعرض رصداً فورياً لأعداد المقيمين، المستخدمين، الأصناف الدوائية، وحدات القياس، الفئات العلاجية، وحالة المزامنة وقاعدة البيانات.',
+    shortDescEn: 'Developer-exclusive telemetry and analytics dashboard tracking exact counts of residents, users, medicines, units, therapeutic classes, and cloud sync.',
+    categoryAr: 'التحكم والمبرمج',
+    categoryEn: 'Developer & Governance',
+    kpisAr: [
+      'إحصائيات أعداد المقيمين (العدد الإجمالي، التوزيع حسب الأجنحة والغرف، المواعيد المستحقة، متوسط الأعمار).',
+      'إحصائيات أعداد المستخدمين وتوزيع الصلاحيات (المبرمجين، مدراء النظام، الصيادلة، فنيي الصيدلة).',
+      'إحصائيات الأدوية والمخزون الحي (الأصناف المسجلة، الرصيد المستودعي، الأدوية الحرجة، النافدة، ومنتهية الصلاحية).',
+      'إحصائيات وحدات القياس والفئات العلاجية ونسبة الربط الفعلي بأصناف المستودع.',
+      'تصدير فوري للتقرير الإحصائي بصيغة Excel / CSV مع إمكانية الطباعة الرسمية.'
+    ],
+    kpisEn: [
+      'Residents demographics, total count, ward/room distribution, age averages, and active dosage schedules.',
+      'Staff user accounts breakdown by RBAC roles (Developers, Admins, Pharmacists, Technicians).',
+      'Live medicine inventory telemetry: registered medicines, warehouse units, out-of-stock, and low-stock alerts.',
+      'Measurement units and therapeutic classes utilization and assignment rates.',
+      'One-click export of comprehensive metrics to CSV/Excel and formatted print layout.'
+    ],
+    featuresAr: [
+      {
+        title: 'الرصد الخماسي الأساسي (الأعداد الحية)',
+        desc: 'عرض بطاقات إحصائية تفاعلية للأعداد الخمسة الجوهرية: المقيمين، المستخدمين، الأدوية، الوحدات، والفئات العلاجية مع مؤشرات فرعية دقيقة.'
+      },
+      {
+        title: 'الرسوم البيانية التفاعلية لحالة المخزون والفئات',
+        desc: 'مخططات بيانية فورية توضح توزيع الأدوية بحسب الفئات العلاجية ونسبة صحة المخزون الدوائي (متوفر، منخفض، نافد).'
+      },
+      {
+        title: 'كشف تفصيلي بالوحدات والفئات العلاجية',
+        desc: 'جداول تفاعلية تستعرض كافة وحدات القياس والفئات العلاجية مع عدد الأصناف المرتبطة بكل منها لضمان خلو الداتابيز من الفئات اليتيمة.'
+      },
+      {
+        title: 'تكامل صحة قاعدة البيانات والتصدير',
+        desc: 'مؤشرات اتصال Firebase وتعداد وثائق المجموعات مع أزرار تنزيل نسخة احتياطية فورية وتصدير تقرير إحصائي بملف Excel.'
+      }
+    ],
+    featuresEn: [
+      {
+        title: 'Core 5 Entity Real-Time Counters',
+        desc: 'High-contrast summary cards for Residents, Users, Medicines, Units, and Therapeutic Classes.'
+      },
+      {
+        title: 'Interactive Inventory & Category Charts',
+        desc: 'Visual bar and donut charts illustrating category density and inventory health ratios.'
+      },
+      {
+        title: 'Detailed Units & Categories Breakdown',
+        desc: 'Tabular views displaying linked medicine counts per measurement unit and therapeutic category.'
+      },
+      {
+        title: 'Database Telemetry & Reporting',
+        desc: 'Firestore status, document counts, quick backup triggering, and instant Excel export.'
+      }
+    ],
+    stepsAr: [
+      'تأكد من تسجيل الدخول بحساب يحمل صلاحية "المبرمج" لتظهر أيقونة الشاشة في الشريط العلوي وقائمة التنقل.',
+      'انقر على شاشة "إحصائيات المبرمج 📈" لاستعراض لوحة التحليل الشاملة.',
+      'استخدم التبويبات الفرعية للتبديل بين الرسوم البيانية، تفاصيل الوحدات والفئات، كشف الأدوية، وتوزيع المقيمين.',
+      'اضغط "تصدير CSV / Excel 📥" لتنزيل تقرير إحصائي رسمي متكامل للأرقام.'
+    ],
+    stepsEn: [
+      'Ensure you are logged in as a Developer to access the statistics screen.',
+      'Click the "Developer Stats 📈" tab to view real-time metrics.',
+      'Switch between sub-tabs to view charts, units/categories breakdowns, medicine audits, and demographics.',
+      'Click "Export CSV 📥" to download a complete statistical ledger.'
+    ],
+    tipsAr: [
+      'هذه الشاشة محمية بصلاحية المبرمج الصارمة (Developer Only) ولا تظهر لأي مستخدم آخر حفاظاً على خصوصية البيانات البرمجية وهيكلية النظام.'
+    ],
+    tipsEn: [
+      'This screen is strictly protected and hidden from non-developer roles.'
+    ]
+  },
+  {
     id: 'audit_logs',
     icon: '📋',
     titleAr: 'سجل التدقيق والمراقبة العامة (Comprehensive Audit Trail)',

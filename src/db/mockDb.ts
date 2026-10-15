@@ -24,7 +24,10 @@ export interface DispenseRecord {
   id: string;
   medicineId: string;
   medicineName: string;
+  medicineNameEn?: string;
+  residentId?: string;
   residentName: string; // اسم المقيم المعاق المستفيد
+  residentNameEn?: string; // اسم المقيم بالإنجليزي
   quantityDispensed: number; // الكمية المطلوبة
   unit: string;
   totalPrice: number;
@@ -225,27 +228,31 @@ const INITIAL_DISPENSES: DispenseRecord[] = [
     id: "disp-1",
     medicineId: "med-1",
     medicineName: "بنادول اكسترا",
+    medicineNameEn: "Panadol Extra",
     residentName: "أحمد عبد الله المري",
+    residentNameEn: "Ahmed Abdullah Al-Marri",
     quantityDispensed: 2,
     unit: "علبة",
     totalPrice: 31.0,
     actualQuantityDispensed: 2,
-    dispensedBy: "صيدلي المركز",
+    dispensedBy: "د. طارق اليوسف",
     dispensedById: "pharmacist-1",
     dispensedAt: "2026-09-22T10:30:00.000Z"
   },
   {
     id: "disp-2",
-    medicineId: "med-5",
-    medicineName: "ديباكين كرونو 500 ملجم",
-    residentName: "سارة محمد العتيبي",
+    medicineId: "med-1",
+    medicineName: "بنادول اكسترا",
+    medicineNameEn: "Panadol Extra",
+    residentName: "عبد الرحمن بن سليمان",
+    residentNameEn: "Abdulrahman Bin Sulaiman",
     quantityDispensed: 1,
     unit: "علبة",
-    totalPrice: 110.0,
+    totalPrice: 0.0,
     actualQuantityDispensed: 1,
-    dispensedBy: "صيدلي المركز",
-    dispensedById: "pharmacist-1",
-    dispensedAt: "2026-09-23T08:15:00.000Z"
+    dispensedBy: "د. عبد الرحيم محمد محجوب",
+    dispensedById: "pharmacist-2",
+    dispensedAt: "2026-09-29T16:29:24.000Z"
   }
 ];
 
@@ -453,6 +460,25 @@ export const saveLocalCategories = (categories: string[]): void => {
 };
 
 export const INITIAL_RESIDENTS = [
+  {
+    id: "res-0",
+    name: "أحمد عبد الله المري",
+    nameAr: "أحمد عبد الله المري",
+    nameEn: "Ahmed Abdullah Al-Marri",
+    birthDate: "1960-03-12",
+    referralDate: "2025-01-15",
+    referralFacility: "مستشفى شقراء العام - عيادة الرعاية المتخصصة",
+    referralReason: "متابعة دورية وتأهيل شامل وتنسيق صرف العلاج",
+    roomNumber: "غرفة 101 - جناح أ",
+    nationalId: "1076543219",
+    age: 66,
+    notes: "مقيم يحتاج رعاية ومتابعة منتظمة لجرعات الصرف",
+    allergies: "لا توجد حساسية معروفة",
+    bloodGroup: "A+",
+    attendingPhysician: "د. طارق اليوسف",
+    chronicDiseases: "آلام المفاصل المزمنة",
+    dosageSchedule: []
+  },
   {
     id: "res-1",
     name: "عبد الرحمن بن سليمان",
@@ -668,6 +694,21 @@ export const getLocalCustomSideEffects = (): { key: string; label: string }[] =>
 
 export const saveLocalCustomSideEffects = (effects: { key: string; label: string }[]): void => {
   localStorage.setItem('care_pharmacy_custom_side_effects', JSON.stringify(effects));
+};
+
+export const getLocalBatches = (): any[] => {
+  const saved = localStorage.getItem('care_pharmacy_batches');
+  if (!saved) return [];
+  try {
+    const list = JSON.parse(saved);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveLocalBatches = (batches: any[]): void => {
+  localStorage.setItem('care_pharmacy_batches', JSON.stringify(batches));
 };
 
 // Helper to prevent Firestore operations from hanging indefinitely
@@ -957,7 +998,10 @@ export const DbService = {
         await setDoc(doc(db, "dispense_records", newRec.id), {
           medicineId: newRec.medicineId,
           medicineName: newRec.medicineName,
+          medicineNameEn: newRec.medicineNameEn || '',
+          residentId: newRec.residentId || '',
           residentName: newRec.residentName,
+          residentNameEn: newRec.residentNameEn || '',
           quantityDispensed: newRec.quantityDispensed,
           unit: newRec.unit,
           totalPrice: newRec.totalPrice,
@@ -1826,5 +1870,386 @@ export const DbService = {
       }
     } catch (e) {}
     return effects;
+  },
+
+  // --- Helper to fetch any Firestore collection with exact document IDs and ISO timestamps ---
+  async fetchCollectionRaw(colName: string, timeoutMs: number = 12000): Promise<any[]> {
+    if (!isFirebaseConnected) return [];
+    try {
+      const qSnap = await withTimeout(getDocs(collection(db, colName)), timeoutMs);
+      const items: any[] = [];
+      qSnap.forEach(docSnap => {
+        const raw = docSnap.data();
+        const cleaned: any = {};
+        for (const [k, v] of Object.entries(raw)) {
+          if (v && typeof v === 'object' && typeof (v as any).toDate === 'function') {
+            cleaned[k] = (v as any).toDate().toISOString();
+          } else {
+            cleaned[k] = v;
+          }
+        }
+        items.push({ id: docSnap.id, ...cleaned });
+      });
+      return items;
+    } catch (e) {
+      console.warn(`Firestore fetchCollectionRaw '${colName}' failed/timed out:`, e);
+      return [];
+    }
+  },
+
+  // --- Developer Backup & Restore Suite (Complete backup of ALL Firebase Firestore Collections) ---
+  async createFullBackup(actor?: { name: string; email: string }): Promise<any> {
+    // 1. Concurrently fetch all 13 Firestore collections shown in the Firebase Console
+    const [
+      batchesRaw,
+      behaviorLogsRaw,
+      dispenseRecordsRaw,
+      itemUnitsRaw,
+      residentsRaw,
+      securitySettingsRaw,
+      settingsRaw,
+      stockLogsRaw,
+      therapeuticCategoriesRaw,
+      userSessionsRaw,
+      usersRaw,
+      medicinesRaw,
+      companiesRaw
+    ] = await Promise.all([
+      this.fetchCollectionRaw("batches", 10000),
+      this.fetchCollectionRaw("behavior_logs", 10000),
+      this.fetchCollectionRaw("dispense_records", 12000),
+      this.fetchCollectionRaw("item_units", 10000),
+      this.fetchCollectionRaw("residents", 15000),
+      this.fetchCollectionRaw("security_settings", 8000),
+      this.fetchCollectionRaw("settings", 8000),
+      this.fetchCollectionRaw("stock_audit_logs", 15000),
+      this.fetchCollectionRaw("therapeutic_categories", 10000),
+      this.fetchCollectionRaw("user_sessions", 15000),
+      this.fetchCollectionRaw("users", 10000),
+      this.fetchCollectionRaw("medicines", 10000),
+      this.fetchCollectionRaw("pharmaceutical_companies", 8000)
+    ]);
+
+    // 2. High-fidelity fallbacks to local cache if any collection was empty or device was offline
+    const batches = batchesRaw.length > 0 ? batchesRaw : getLocalBatches();
+    const behavior_logs = behaviorLogsRaw.length > 0 ? behaviorLogsRaw : getLocalBehaviorLogs();
+    const dispense_records = dispenseRecordsRaw.length > 0 ? dispenseRecordsRaw : getLocalDispenses();
+    const residents = residentsRaw.length > 0 ? residentsRaw : getLocalResidents();
+    const stock_audit_logs = stockLogsRaw.length > 0 ? stockLogsRaw : getLocalStockLogs();
+    const users = usersRaw.length > 0 ? usersRaw : (() => {
+      try { return JSON.parse(localStorage.getItem('care_pharmacy_all_users') || '[]'); } catch { return []; }
+    })();
+    const user_sessions = userSessionsRaw.length > 0 ? userSessionsRaw : getLocalSessions();
+    const medicines = medicinesRaw.length > 0 ? medicinesRaw : getLocalMedicines();
+    const companies = companiesRaw.length > 0 ? companiesRaw : getLocalCompanies();
+
+    // item_units: either from item_units collection or local units array
+    const item_units = itemUnitsRaw.length > 0 ? itemUnitsRaw : getLocalUnits().map(u => ({ id: u, name: u }));
+
+    // therapeutic_categories: either from therapeutic_categories collection or local categories array
+    const therapeutic_categories = therapeuticCategoriesRaw.length > 0 
+      ? therapeuticCategoriesRaw 
+      : getLocalCategories().map(c => ({ id: c, name: c }));
+
+    // security_settings
+    const security_settings = securitySettingsRaw.length > 0 
+      ? securitySettingsRaw 
+      : [{ ...getLocalSecuritySettings() }];
+
+    // settings documents (units_and_categories, custom_side_effects, etc.)
+    const settings = settingsRaw.length > 0 
+      ? settingsRaw 
+      : [
+          { id: "custom_side_effects", items: getLocalCustomSideEffects() },
+          { id: "units_and_categories", units: getLocalUnits(), categories: getLocalCategories() }
+        ];
+
+    // Compute exact counts for every single collection
+    const counts = {
+      batches: batches.length,
+      behavior_logs: behavior_logs.length,
+      dispense_records: dispense_records.length,
+      item_units: item_units.length,
+      residents: residents.length,
+      security_settings: security_settings.length,
+      settings: settings.length,
+      stock_audit_logs: stock_audit_logs.length,
+      therapeutic_categories: therapeutic_categories.length,
+      user_sessions: user_sessions.length,
+      users: users.length,
+      medicines: medicines.length,
+      companies: companies.length,
+      totalDocuments: (
+        batches.length +
+        behavior_logs.length +
+        dispense_records.length +
+        item_units.length +
+        residents.length +
+        security_settings.length +
+        settings.length +
+        stock_audit_logs.length +
+        therapeutic_categories.length +
+        user_sessions.length +
+        users.length +
+        medicines.length +
+        companies.length
+      )
+    };
+
+    const backupPayload = {
+      appId: "care-center-pharmacy-v2",
+      appName: "صيدلية مركز التأهيل الشامل للذكور بشقراء",
+      backupVersion: "3.0.0",
+      createdAt: new Date().toISOString(),
+      exportedBy: {
+        name: actor?.name || "المبرمج",
+        email: actor?.email || "tmrbe2006@gmail.com",
+        role: "developer"
+      },
+      counts,
+      // Full collection map reflecting exact Firebase Firestore tables
+      collections: {
+        batches,
+        behavior_logs,
+        dispense_records,
+        item_units,
+        residents,
+        security_settings,
+        settings,
+        stock_audit_logs,
+        therapeutic_categories,
+        user_sessions,
+        users,
+        medicines,
+        pharmaceutical_companies: companies
+      },
+      // Convenience data payload supporting legacy formats
+      data: {
+        batches,
+        medicines,
+        dispenseRecords: dispense_records,
+        residents,
+        companies,
+        stockLogs: stock_audit_logs,
+        users,
+        userSessions: user_sessions,
+        behaviorLogs: behavior_logs,
+        itemUnits: item_units,
+        therapeuticCategories: therapeutic_categories,
+        units: item_units.map((u: any) => u.name || u.id).filter(Boolean),
+        categories: therapeutic_categories.map((c: any) => c.name || c.id).filter(Boolean),
+        customSideEffects: settings.find((s: any) => s.id === 'custom_side_effects')?.items || getLocalCustomSideEffects(),
+        securitySettings: security_settings.find((s: any) => s.id === 'config') || security_settings[0] || getLocalSecuritySettings(),
+        settings
+      }
+    };
+
+    return backupPayload;
+  },
+
+  async restoreFullBackup(backupData: any, actor?: { name: string; email: string; id: string }): Promise<{ success: boolean; counts: any }> {
+    if (!backupData) {
+      throw new Error("ملف النسخة الاحتياطية فارغ أو غير صالح");
+    }
+
+    // Support both new `collections` format, `data` wrapper, or raw object
+    const collectionsSource = backupData.collections || {};
+    const dataSource = backupData.data || backupData;
+
+    const batches = collectionsSource.batches || dataSource.batches || [];
+    const behavior_logs = collectionsSource.behavior_logs || dataSource.behaviorLogs || dataSource.behavior_logs || [];
+    const dispense_records = collectionsSource.dispense_records || dataSource.dispenseRecords || dataSource.dispense_records || [];
+    const item_units = collectionsSource.item_units || dataSource.itemUnits || dataSource.item_units || [];
+    const residents = collectionsSource.residents || dataSource.residents || [];
+    const security_settings = collectionsSource.security_settings || (dataSource.securitySettings ? [dataSource.securitySettings] : []);
+    const settings = collectionsSource.settings || dataSource.settings || [];
+    const stock_audit_logs = collectionsSource.stock_audit_logs || dataSource.stockLogs || dataSource.stock_audit_logs || [];
+    const therapeutic_categories = collectionsSource.therapeutic_categories || dataSource.therapeuticCategories || dataSource.therapeutic_categories || [];
+    const user_sessions = collectionsSource.user_sessions || dataSource.userSessions || dataSource.user_sessions || [];
+    const users = collectionsSource.users || dataSource.users || [];
+    const medicines = collectionsSource.medicines || dataSource.medicines || [];
+    const companies = collectionsSource.pharmaceutical_companies || collectionsSource.companies || dataSource.companies || dataSource.pharmaceutical_companies || [];
+
+    // Extract units and categories lists
+    const unitsList: string[] = item_units.length > 0 
+      ? item_units.map((u: any) => (typeof u === 'string' ? u : u.name || u.id)).filter(Boolean)
+      : Array.isArray(dataSource.units) ? dataSource.units : [];
+
+    const categoriesList: string[] = therapeutic_categories.length > 0
+      ? therapeutic_categories.map((c: any) => (typeof c === 'string' ? c : c.name || c.id)).filter(Boolean)
+      : Array.isArray(dataSource.categories) ? dataSource.categories : [];
+
+    // 1. Immediately persist to LocalStorage for instant hydration
+    if (Array.isArray(batches)) saveLocalBatches(batches);
+    if (Array.isArray(medicines)) saveLocalMedicines(medicines);
+    if (Array.isArray(dispense_records)) saveLocalDispenses(dispense_records);
+    if (Array.isArray(residents)) saveLocalResidents(residents);
+    if (Array.isArray(companies)) saveLocalCompanies(companies);
+    if (Array.isArray(stock_audit_logs)) saveLocalStockLogs(stock_audit_logs);
+    if (Array.isArray(behavior_logs)) saveLocalBehaviorLogs(behavior_logs);
+    if (Array.isArray(user_sessions)) localStorage.setItem('care_pharmacy_sessions', JSON.stringify(user_sessions));
+    if (Array.isArray(users)) localStorage.setItem('care_pharmacy_all_users', JSON.stringify(users));
+    if (unitsList.length > 0) localStorage.setItem('care_pharmacy_custom_units', JSON.stringify(unitsList));
+    if (categoriesList.length > 0) localStorage.setItem('care_pharmacy_custom_categories', JSON.stringify(categoriesList));
+
+    const secObj = Array.isArray(security_settings) ? (security_settings.find((s: any) => s.id === 'config') || security_settings[0]) : security_settings;
+    if (secObj) saveLocalSecuritySettings(secObj);
+
+    // 2. Write to Firebase Firestore in chunks of concurrent promises
+    if (isFirebaseConnected) {
+      const allWrites: Promise<any>[] = [];
+
+      // Helper to batch setDoc
+      const queueDoc = (col: string, docId: string, data: any) => {
+        if (!docId) return;
+        const docRef = doc(db, col, docId);
+        // Remove undefined values
+        const cleanData: any = {};
+        for (const [k, v] of Object.entries(data)) {
+          if (v !== undefined) cleanData[k] = v;
+        }
+        allWrites.push(setDoc(docRef, cleanData));
+      };
+
+      // Restore batches
+      if (Array.isArray(batches)) {
+        batches.forEach((b: any) => queueDoc("batches", b.id || b.batchNumber, b));
+      }
+
+      // Restore behavior_logs
+      if (Array.isArray(behavior_logs)) {
+        behavior_logs.forEach((b: any) => queueDoc("behavior_logs", b.id, b));
+      }
+
+      // Restore dispense_records
+      if (Array.isArray(dispense_records)) {
+        dispense_records.forEach((r: any) => queueDoc("dispense_records", r.id, r));
+      }
+
+      // Restore item_units
+      if (Array.isArray(item_units)) {
+        item_units.forEach((u: any) => {
+          const uId = typeof u === 'string' ? u : (u.id || u.name);
+          const uName = typeof u === 'string' ? u : (u.name || u.id);
+          if (uId) queueDoc("item_units", uId, { name: uName, updatedAt: new Date().toISOString() });
+        });
+      }
+
+      // Restore residents
+      if (Array.isArray(residents)) {
+        residents.forEach((r: any) => queueDoc("residents", r.id, r));
+      }
+
+      // Restore security_settings
+      if (Array.isArray(security_settings)) {
+        security_settings.forEach((s: any) => queueDoc("security_settings", s.id || "config", s));
+      } else if (secObj) {
+        queueDoc("security_settings", "config", secObj);
+      }
+
+      // Restore settings
+      if (Array.isArray(settings)) {
+        settings.forEach((s: any) => queueDoc("settings", s.id, s));
+      }
+      if (unitsList.length > 0 || categoriesList.length > 0) {
+        queueDoc("settings", "units_and_categories", {
+          units: unitsList,
+          categories: categoriesList,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      // Restore stock_audit_logs
+      if (Array.isArray(stock_audit_logs)) {
+        stock_audit_logs.forEach((l: any) => queueDoc("stock_audit_logs", l.id, l));
+      }
+
+      // Restore therapeutic_categories
+      if (Array.isArray(therapeutic_categories)) {
+        therapeutic_categories.forEach((c: any) => {
+          const cId = typeof c === 'string' ? c : (c.id || c.name);
+          const cName = typeof c === 'string' ? c : (c.name || c.id);
+          if (cId) queueDoc("therapeutic_categories", cId, { name: cName, updatedAt: new Date().toISOString() });
+        });
+      }
+
+      // Restore user_sessions
+      if (Array.isArray(user_sessions)) {
+        user_sessions.forEach((s: any) => queueDoc("user_sessions", s.id, s));
+      }
+
+      // Restore users
+      if (Array.isArray(users)) {
+        users.forEach((u: any) => queueDoc("users", u.uid || u.id, u));
+      }
+
+      // Restore medicines
+      if (Array.isArray(medicines)) {
+        medicines.forEach((m: any) => queueDoc("medicines", m.id, m));
+      }
+
+      // Restore companies
+      if (Array.isArray(companies)) {
+        companies.forEach((comp: any) => {
+          queueDoc("pharmaceutical_companies", comp.id, comp);
+          queueDoc("companies", comp.id, comp);
+        });
+      }
+
+      // Execute all write promises in chunks of 50 to avoid network congestion
+      const CHUNK_SIZE = 50;
+      for (let i = 0; i < allWrites.length; i += CHUNK_SIZE) {
+        const chunk = allWrites.slice(i, i + CHUNK_SIZE);
+        await Promise.allSettled(chunk);
+      }
+    }
+
+    // 3. Document restore action in audit trail
+    await this.addStockLog({
+      medicineId: "backup-restore-operation",
+      medicineName: "استعادة قاعدة البيانات الشاملة لجميع الجداول",
+      actionType: "استعادة نسخة احتياطية",
+      quantityChanged: 0,
+      previousQuantity: 0,
+      newQuantity: 0,
+      performedByName: actor?.name || "المبرمج",
+      performedByEmail: actor?.email || "tmrbe2006@gmail.com",
+      performedById: actor?.id || "user-tmrbe",
+      notes: `تمت استعادة كافة جداول قاعدة البيانات (${batches.length} تشغيلة، ${residents.length} مقيم، ${dispense_records.length} صرف، ${stock_audit_logs.length} تدقيق، ${user_sessions.length} جلسة، ${item_units.length} وحدة، ${therapeutic_categories.length} فئة)`
+    });
+
+    return {
+      success: true,
+      counts: {
+        batches: batches.length,
+        behavior_logs: behavior_logs.length,
+        dispense_records: dispense_records.length,
+        item_units: item_units.length,
+        residents: residents.length,
+        security_settings: security_settings.length,
+        settings: settings.length,
+        stock_audit_logs: stock_audit_logs.length,
+        therapeutic_categories: therapeutic_categories.length,
+        user_sessions: user_sessions.length,
+        users: users.length,
+        medicines: medicines.length,
+        companies: companies.length,
+        total: (
+          batches.length +
+          behavior_logs.length +
+          dispense_records.length +
+          item_units.length +
+          residents.length +
+          security_settings.length +
+          settings.length +
+          stock_audit_logs.length +
+          therapeutic_categories.length +
+          user_sessions.length +
+          users.length +
+          medicines.length +
+          companies.length
+        )
+      }
+    };
   }
 };
