@@ -47,6 +47,18 @@ export interface UserSession {
   loginTime: string;
 }
 
+export interface ActiveSessionRecord {
+  sessionId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userRole: string;
+  ipAddress: string;
+  userAgent: string;
+  loginTime: string;
+  lastHeartbeat: string;
+}
+
 export interface StockAuditLog {
   id: string;
   medicineId: string;
@@ -1083,6 +1095,151 @@ export const DbService = {
     list.unshift(newSession);
     saveLocalSessions(list);
     return newSession;
+  },
+
+  // --- Single Active Session Enforcement (منع تسجيل الدخول المتزامن لنفس الحساب) ---
+  getLocalActiveSessions(): Record<string, ActiveSessionRecord> {
+    try {
+      const raw = localStorage.getItem('care_pharmacy_active_sessions');
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  },
+
+  saveActiveSessionLocally(session: ActiveSessionRecord) {
+    const sessions = this.getLocalActiveSessions();
+    sessions[session.userEmail.trim().toLowerCase()] = session;
+    try {
+      localStorage.setItem('care_pharmacy_active_sessions', JSON.stringify(sessions));
+    } catch (e) {}
+  },
+
+  async claimActiveSession(session: ActiveSessionRecord, force: boolean = false): Promise<{ success: boolean; conflict?: boolean; activeSession?: ActiveSessionRecord; session?: ActiveSessionRecord }> {
+    const cleanEmail = session.userEmail.trim().toLowerCase();
+
+    // 1. Try server API first (cross-device & cross-browser synchronization)
+    try {
+      const res = await fetch('/api/sessions/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          userId: session.userId,
+          userName: session.userName,
+          userRole: session.userRole,
+          sessionId: session.sessionId,
+          force: force
+        })
+      });
+      const data = await res.json();
+      if (!res.ok && res.status === 409) {
+        return { success: false, conflict: true, activeSession: data.activeSession };
+      }
+      if (res.ok && data.success) {
+        this.saveActiveSessionLocally(session);
+        return { success: true, session: data.session };
+      }
+    } catch (e) {
+      console.warn("Server sessions API unreachable, using local & Firestore check:", e);
+    }
+
+    // 2. LocalStorage & Firestore fallback
+    const localSessions = this.getLocalActiveSessions();
+    const existing = localSessions[cleanEmail];
+    const now = Date.now();
+    const EXPIRY_MS = 120000; // 2 minutes
+
+    if (existing && existing.sessionId !== session.sessionId) {
+      const lastHb = new Date(existing.lastHeartbeat).getTime();
+      if ((now - lastHb < EXPIRY_MS) && !force) {
+        return {
+          success: false,
+          conflict: true,
+          activeSession: existing
+        };
+      }
+    }
+
+    // Register locally
+    localSessions[cleanEmail] = {
+      ...session,
+      lastHeartbeat: new Date().toISOString()
+    };
+    try {
+      localStorage.setItem('care_pharmacy_active_sessions', JSON.stringify(localSessions));
+    } catch (e) {}
+
+    // Firestore sync if connected
+    try {
+      if (isFirebaseConnected) {
+        await setDoc(doc(db, "active_sessions", cleanEmail), {
+          ...session,
+          lastHeartbeat: new Date().toISOString()
+        });
+      }
+    } catch (e) {}
+
+    return { success: true, session };
+  },
+
+  async heartbeatActiveSession(email: string, sessionId: string): Promise<{ active: boolean; displaced?: boolean; message?: string }> {
+    const cleanEmail = email.trim().toLowerCase();
+    // 1. Try server
+    try {
+      const res = await fetch('/api/sessions/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, sessionId })
+      });
+      const data = await res.json();
+      if (data && data.reason === 'displaced') {
+        return { active: false, displaced: true, message: data.message };
+      }
+      if (data && data.active) {
+        return { active: true };
+      }
+    } catch (e) {}
+
+    // 2. Local fallback
+    const localSessions = this.getLocalActiveSessions();
+    const existing = localSessions[cleanEmail];
+    if (existing && existing.sessionId === sessionId) {
+      existing.lastHeartbeat = new Date().toISOString();
+      localSessions[cleanEmail] = existing;
+      try {
+        localStorage.setItem('care_pharmacy_active_sessions', JSON.stringify(localSessions));
+      } catch (e) {}
+      return { active: true };
+    } else if (existing && existing.sessionId !== sessionId) {
+      return { active: false, displaced: true, message: 'تم فتح الحساب من جهاز أو نافذة أخرى.' };
+    }
+    return { active: false };
+  },
+
+  async releaseActiveSession(email: string, sessionId: string): Promise<void> {
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+      fetch('/api/sessions/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, sessionId })
+      }).catch(() => {});
+    } catch (e) {}
+
+    const localSessions = this.getLocalActiveSessions();
+    if (localSessions[cleanEmail] && (!sessionId || localSessions[cleanEmail].sessionId === sessionId)) {
+      delete localSessions[cleanEmail];
+      try {
+        localStorage.setItem('care_pharmacy_active_sessions', JSON.stringify(localSessions));
+      } catch (e) {}
+    }
+
+    try {
+      if (isFirebaseConnected) {
+        await deleteDoc(doc(db, "active_sessions", cleanEmail));
+      }
+    } catch (e) {}
   },
 
   // --- Stock Audit Logs CRUD ---

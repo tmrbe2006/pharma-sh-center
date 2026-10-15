@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Users, UserCheck, Pill, Layers, FolderTree, Database, Shield, Download,
   Activity, AlertTriangle, CheckCircle2, Clock, FileSpreadsheet, Printer,
@@ -58,6 +58,13 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'entities' | 'medicines' | 'residents' | 'database'>('overview');
   const [searchFilter, setSearchFilter] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Enforce developer-only access for Database Health tab
+  useEffect(() => {
+    if (activeSubTab === 'database' && currentUser?.role !== 'developer') {
+      setActiveSubTab('overview');
+    }
+  }, [currentUser?.role, activeSubTab]);
 
   // 1. Calculations for Core 5 Entities
   // Residents Stats
@@ -348,7 +355,7 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               <span className="px-3 py-1 rounded-full text-xs font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1.5">
                 <Shield className="w-3.5 h-3.5 text-purple-400" />
-                {text('خاص بالمبرمج فقط 🛡️', 'Developer Exclusive 🛡️')}
+                {text('خاص بالمبرمج ومدير النظام 🛡️', 'Developer & Admin Only 🛡️')}
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-slate-800 text-teal-300 border border-slate-700">
                 {currentUser?.name || text('المبرمج الرئيسي', 'Lead Developer')}
@@ -669,7 +676,9 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
           { id: 'entities', icon: '🏷️', label: text('تفصيل الوحدات والفئات العلاجية', 'Units & Categories Breakdown') },
           { id: 'medicines', icon: '💊', label: text('تفصيل حالة الأدوية والمخزون', 'Medicines & Inventory Audit') },
           { id: 'residents', icon: '👥', label: text('توزيع المقيمين والأجنحة', 'Residents & Rooms Demographics') },
-          { id: 'database', icon: '🗄️', label: text('صحة الداتابيز ومجموعات البيانات', 'Database Health & Collections') }
+          ...(currentUser?.role === 'developer' ? [
+            { id: 'database', icon: '🗄️', label: text('صحة الداتابيز ومجموعات البيانات', 'Database Health & Collections') }
+          ] : [])
         ].map((tab) => {
           const isActive = activeSubTab === tab.id;
           return (
@@ -1184,8 +1193,8 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
         </div>
       )}
 
-      {/* 5.5 DATABASE HEALTH & TELEMETRY */}
-      {activeSubTab === 'database' && (
+      {/* 5.5 DATABASE HEALTH & TELEMETRY - DEVELOPER ONLY */}
+      {activeSubTab === 'database' && currentUser?.role === 'developer' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Database Collections Snapshot */}

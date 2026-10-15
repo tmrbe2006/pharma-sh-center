@@ -34,6 +34,169 @@ async function startServer() {
     }
   });
 
+  // Active Sessions Tracking (Single Active Session per User & Prevention of Concurrent Logins)
+  interface ServerActiveSession {
+    sessionId: string;
+    userId: string;
+    userEmail: string;
+    userName: string;
+    userRole: string;
+    ipAddress: string;
+    userAgent: string;
+    loginTime: string;
+    lastHeartbeat: number;
+  }
+
+  const activeSessions = new Map<string, ServerActiveSession>();
+  const SESSION_EXPIRY_MS = 120000; // 2 minutes heartbeat expiration window
+
+  // Clean up stale sessions periodically (every 60 seconds)
+  setInterval(() => {
+    const now = Date.now();
+    for (const [email, sess] of activeSessions.entries()) {
+      if (now - sess.lastHeartbeat > SESSION_EXPIRY_MS) {
+        activeSessions.delete(email);
+      }
+    }
+  }, 60000);
+
+  // API 1.2: Check and Claim User Session (Enforces single active user login on system)
+  app.post('/api/sessions/claim', (req, res) => {
+    try {
+      const { email, userId, userName, userRole, sessionId, force } = req.body;
+      if (!email || !sessionId) {
+        return res.status(400).json({ error: 'برجاء تزويد النظام بمعلومات الجلسة والبريد.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      let ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+      if (Array.isArray(ip)) ip = ip[0];
+      if (ip.startsWith('::ffff:')) ip = ip.substring(7);
+
+      const userAgent = req.headers['user-agent'] || 'Unknown Device';
+      const now = Date.now();
+      const existing = activeSessions.get(cleanEmail);
+
+      // Check if another active session exists that is still alive and has a different sessionId
+      if (existing && (now - existing.lastHeartbeat < SESSION_EXPIRY_MS) && existing.sessionId !== sessionId) {
+        if (!force) {
+          return res.status(409).json({
+            success: false,
+            conflict: true,
+            message: 'تنبيه أمني: هذا الحساب مسجل دخول حالياً بالفعل على جلسة أخرى نشطة.',
+            activeSession: {
+              sessionId: existing.sessionId,
+              userEmail: existing.userEmail,
+              userName: existing.userName,
+              userRole: existing.userRole,
+              ipAddress: existing.ipAddress,
+              userAgent: existing.userAgent,
+              loginTime: existing.loginTime,
+              lastHeartbeat: new Date(existing.lastHeartbeat).toISOString(),
+              secondsSinceLastHeartbeat: Math.round((now - existing.lastHeartbeat) / 1000)
+            }
+          });
+        }
+      }
+
+      // Claim / create new session
+      const newSession: ServerActiveSession = {
+        sessionId,
+        userId: userId || '',
+        userEmail: cleanEmail,
+        userName: userName || cleanEmail,
+        userRole: userRole || '',
+        ipAddress: String(ip),
+        userAgent: String(userAgent),
+        loginTime: new Date().toISOString(),
+        lastHeartbeat: now
+      };
+
+      activeSessions.set(cleanEmail, newSession);
+
+      res.json({
+        success: true,
+        message: 'تم تسجيل الجلسة بنجاح وتأكيد ملكية الحساب للجلسة النشطة.',
+        session: newSession
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: 'فشل فحص جلسة المستخدم النشطة', details: e.message });
+    }
+  });
+
+  // API 1.3: Active Session Heartbeat
+  app.post('/api/sessions/heartbeat', (req, res) => {
+    try {
+      const { email, sessionId } = req.body;
+      if (!email || !sessionId) {
+        return res.status(400).json({ error: 'برجاء تزويد النظام بمعرف الجلسة والبريد.' });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      const existing = activeSessions.get(cleanEmail);
+      const now = Date.now();
+
+      if (!existing) {
+        return res.json({ success: false, active: false, reason: 'not_found' });
+      }
+
+      if (existing.sessionId !== sessionId) {
+        // Another session took over!
+        return res.json({
+          success: false,
+          active: false,
+          reason: 'displaced',
+          displacedBy: existing.ipAddress,
+          message: 'تم تسجيل الدخول لهذا الحساب من موقع أو جلسة أخرى، وتم إنهاء هذه الجلسة تلقائياً.'
+        });
+      }
+
+      existing.lastHeartbeat = now;
+      res.json({ success: true, active: true });
+    } catch (e: any) {
+      res.status(500).json({ error: 'فشل تحديث نبضة الجلسة', details: e.message });
+    }
+  });
+
+  // API 1.4: Active Session Logout / Release
+  app.post('/api/sessions/logout', (req, res) => {
+    try {
+      const { email, sessionId } = req.body;
+      if (!email) {
+        return res.json({ success: true });
+      }
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      const existing = activeSessions.get(cleanEmail);
+
+      if (existing && (!sessionId || existing.sessionId === sessionId)) {
+        activeSessions.delete(cleanEmail);
+      }
+
+      res.json({ success: true, message: 'تم إخلاء الجلسة النشطة بنجاح.' });
+    } catch (e: any) {
+      res.status(500).json({ error: 'فشل إنهاء الجلسة', details: e.message });
+    }
+  });
+
+  // API 1.5: Query active session status
+  app.get('/api/sessions/active', (req, res) => {
+    try {
+      const email = String(req.query.email || '').trim().toLowerCase();
+      if (!email) {
+        return res.json({ activeSessions: Array.from(activeSessions.values()) });
+      }
+      const existing = activeSessions.get(email);
+      const now = Date.now();
+      if (existing && (now - existing.lastHeartbeat < SESSION_EXPIRY_MS)) {
+        return res.json({ isActive: true, session: existing });
+      }
+      res.json({ isActive: false });
+    } catch (e: any) {
+      res.status(500).json({ error: 'فشل الاستعلام عن الجلسة', details: e.message });
+    }
+  });
+
   // API 2: Secure White-labeled Medical Pharmacy AI report generator using Gemini API
   app.post('/api/ai/report', async (req, res) => {
     const { medicines, alertSettingsDays } = req.body;

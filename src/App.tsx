@@ -4,13 +4,13 @@ import {
   Search, Shield, ShieldAlert, FileText, UserCheck, Bell, Printer, Sparkles, RefreshCw, 
   Smartphone, Monitor, Moon, Sun, Info, CheckCircle2, User, HelpCircle, Eye, LogOut, X,
   Lock, EyeOff, Mail, Copy, TrendingUp, TrendingDown, Download, BookOpen, Database, Clock,
-  Stethoscope, Upload, HardDrive, ArrowUpDown, ArrowUp, ArrowDown
+  Stethoscope, Upload, HardDrive, ArrowUpDown, ArrowUp, ArrowDown, Key
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
   PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
-import { DbService, Medicine, DispenseRecord, UserSession, StockAuditLog, SecuritySettings, DEFAULT_SECURITY_SETTINGS, getLocalSecuritySettings, DEFAULT_UNITS, DEFAULT_CATEGORIES, getLocalUnits, getLocalCategories, getLocalMedicines, getLocalDispenses, getLocalSessions, getLocalStockLogs, getLocalResidents, saveLocalResidents, getLocalCompanies, saveLocalCompanies, getLocalBehaviorLogs, saveLocalBehaviorLogs, getLocalCustomSideEffects, saveLocalCustomSideEffects } from './db/mockDb';
+import { DbService, Medicine, DispenseRecord, UserSession, ActiveSessionRecord, StockAuditLog, SecuritySettings, DEFAULT_SECURITY_SETTINGS, getLocalSecuritySettings, DEFAULT_UNITS, DEFAULT_CATEGORIES, getLocalUnits, getLocalCategories, getLocalMedicines, getLocalDispenses, getLocalSessions, getLocalStockLogs, getLocalResidents, saveLocalResidents, getLocalCompanies, saveLocalCompanies, getLocalBehaviorLogs, saveLocalBehaviorLogs, getLocalCustomSideEffects, saveLocalCustomSideEffects } from './db/mockDb';
 import { isFirebaseConnected, firebaseConfig } from './firebase';
 import { PWAInstallButton } from './PWAInstallButton';
 import { OfflineIndicator } from './OfflineIndicator';
@@ -32,7 +32,7 @@ const ROLES: Record<string, RoleConfig> = {
   },
   admin: {
     name: "مدير النظام",
-    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'ai_reports', 'audit_logs', 'behavioral_tracker']
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'dev_statistics', 'ai_reports', 'audit_logs', 'behavioral_tracker']
   },
   pharmacist: {
     name: "صيدلي ممارس",
@@ -969,6 +969,54 @@ export default function App() {
   const [loginShowPassword, setLoginShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
 
+  // Active Tab Session ID for Single-Login Concurrency Control (منع تسجيل الدخول المتزامن للحساب)
+  const [activeSessionId] = useState<string>(() => {
+    try {
+      let id = sessionStorage.getItem('care_pharmacy_tab_session_id');
+      if (!id) {
+        id = 'sess_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now().toString(36);
+        sessionStorage.setItem('care_pharmacy_tab_session_id', id);
+      }
+      return id;
+    } catch {
+      return 'sess_' + Math.random().toString(36).substring(2, 11);
+    }
+  });
+
+  // Concurrent Login Conflict Modal State
+  const [sessionConflictModal, setSessionConflictModal] = useState<{
+    show: boolean;
+    activeSession: ActiveSessionRecord | null;
+    pendingUser: any | null;
+  }>({
+    show: false,
+    activeSession: null,
+    pendingUser: null
+  });
+
+  // Displaced Session Modal (when user account logs in elsewhere)
+  const [displacedModal, setDisplacedModal] = useState<{
+    show: boolean;
+    message: string;
+  }>({
+    show: false,
+    message: ''
+  });
+
+  // Change Password Modal & Form State (إمكانية تغيير المستخدم لكلمة المرور الخاصة به)
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+    showCurrent: false,
+    showNew: false,
+    showConfirm: false,
+    error: '',
+    success: '',
+    isSubmitting: false
+  });
+
   // Settings state
   const [alertDays, setAlertDays] = useState(30);
 
@@ -1399,31 +1447,50 @@ export default function App() {
 
   // Helper to extract Resident Arabic & English names reliably from database
   const getResidentInfoForDispense = (residentName: string, residentId?: string) => {
-    if (!residentName) return { ar: '', en: '' };
+    if (!residentName && !residentId) return { ar: '', en: '' };
     const clean = (s: string) => (s || '').replace(/[\s\u064B-\u065F\u0670\u0640]/g, '').toLowerCase();
     const target = clean(residentName);
     const matched = residents.find(r => 
       (residentId && r.id === residentId) ||
       clean(r.name) === target || 
       clean(r.nameAr || '') === target || 
-      clean(r.nameEn || '') === target
+      clean(r.nameEn || '') === target ||
+      (r.name && residentName && (r.name.includes(residentName) || residentName.includes(r.name))) ||
+      (r.nameAr && residentName && (r.nameAr.includes(residentName) || residentName.includes(r.nameAr)))
     );
 
     const ar = matched ? (matched.nameAr || matched.name) : residentName;
-    let en = matched?.nameEn || '';
-    if (!en && (residentName.includes('المري') || residentName.includes('أحمد عبد الله'))) {
+    let en = matched?.nameEn || (matched as any)?.englishName || '';
+    if (!en && (residentName.includes('المري') || residentName.includes('أحمد عبد الله') || (matched?.name || '').includes('أحمد'))) {
       en = 'Ahmed Abdullah Al-Marri';
     }
     return { ar, en };
   };
 
-  // Helper to extract Medicine Arabic & English / Scientific names reliably from database
+  // Helper to extract Medicine Commercial Name (الاسم التجاري) & Active Ingredient (المادة الفعالة) reliably from database
   const getMedicineInfoForDispense = (medicineName: string, medicineId?: string) => {
-    if (!medicineName) return { ar: '', en: '' };
-    const matched = medicines.find(m => (medicineId && m.id === medicineId) || m.commercialName === medicineName || m.commercialNameAr === medicineName);
-    const ar = matched?.commercialNameAr || matched?.commercialName || medicineName;
-    const en = matched?.commercialNameEn || matched?.scientificName || '';
-    return { ar, en };
+    if (!medicineName && !medicineId) return { ar: '', en: '', commercial: '', commercialEn: '', activeIngredient: '' };
+    const clean = (s: string) => (s || '').replace(/[\s\u064B-\u065F\u0670\u0640]/g, '').toLowerCase();
+    const target = clean(medicineName);
+    const matched = medicines.find(m => 
+      (medicineId && m.id === medicineId) || 
+      clean(m.commercialName) === target || 
+      clean(m.commercialNameAr || '') === target ||
+      clean(m.commercialNameEn || '') === target ||
+      clean(m.scientificName) === target ||
+      (m.commercialName && medicineName && (m.commercialName.includes(medicineName) || medicineName.includes(m.commercialName))) ||
+      (m.commercialNameAr && medicineName && (m.commercialNameAr.includes(medicineName) || medicineName.includes(m.commercialNameAr)))
+    );
+    const commercial = matched?.commercialNameAr || matched?.commercialName || medicineName;
+    const commercialEn = matched?.commercialNameEn || '';
+    const activeIngredient = matched?.scientificName || '';
+    return { 
+      ar: commercial, 
+      en: activeIngredient || commercialEn,
+      commercial,
+      commercialEn,
+      activeIngredient
+    };
   };
 
   const handleDispenseSortToggle = (field: DispenseSortField) => {
@@ -1435,7 +1502,91 @@ export default function App() {
     }
   };
 
+  // Sorting state for Residents table (شاشة المقيمين)
+  type ResidentSortField = 'name' | 'roomNumber' | 'wing' | 'nationalId' | 'age';
+  const [residentSortField, setResidentSortField] = useState<ResidentSortField>('name');
+  const [residentSortDirection, setResidentSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleResidentSortToggle = (field: ResidentSortField) => {
+    if (residentSortField === field) {
+      setResidentSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setResidentSortField(field);
+      setResidentSortDirection('asc');
+    }
+  };
+
   const [residentsSearchQuery, setResidentsSearchQuery] = useState('');
+
+  // Filter and sort residents according to search query and selected criteria (الاسم، رقم الغرفة، الجناح)
+  const getFilteredAndSortedResidents = () => {
+    const filtered = residents.filter(res => {
+      const query = residentsSearchQuery.trim().toLowerCase();
+      if (!query) return true;
+      return (
+        (res.name || '').toLowerCase().includes(query) ||
+        (res.nameAr || '').toLowerCase().includes(query) ||
+        (res.nameEn || '').toLowerCase().includes(query) ||
+        (res.birthDate || '').toLowerCase().includes(query) ||
+        (res.roomNumber || '').toLowerCase().includes(query) ||
+        (res.nationalId || '').toLowerCase().includes(query) ||
+        (res.notes || '').toLowerCase().includes(query)
+      );
+    });
+
+    const extractNumber = (val: any) => {
+      const match = String(val || '').match(/\d+/);
+      return match ? parseInt(match[0], 10) : 0;
+    };
+
+    const extractWing = (str: string) => {
+      const s = String(str || '');
+      if (s.includes('جناح')) return s.substring(s.indexOf('جناح')).trim();
+      if (s.includes('-')) return s.split('-')[1]?.trim() || s;
+      return s;
+    };
+
+    return [...filtered].sort((a, b) => {
+      let comparison = 0;
+      switch (residentSortField) {
+        case 'name': {
+          const nameA = a.nameAr || a.name || '';
+          const nameB = b.nameAr || b.name || '';
+          comparison = nameA.localeCompare(nameB, lang === 'ar' ? 'ar' : 'en');
+          break;
+        }
+        case 'roomNumber': {
+          const numA = extractNumber(a.roomNumber);
+          const numB = extractNumber(b.roomNumber);
+          if (numA !== 0 && numB !== 0 && numA !== numB) {
+            comparison = numA - numB;
+          } else {
+            comparison = String(a.roomNumber || '').localeCompare(String(b.roomNumber || ''), undefined, { numeric: true });
+          }
+          break;
+        }
+        case 'wing': {
+          const wingA = extractWing(a.roomNumber);
+          const wingB = extractWing(b.roomNumber);
+          comparison = wingA.localeCompare(wingB, lang === 'ar' ? 'ar' : 'en');
+          break;
+        }
+        case 'nationalId': {
+          comparison = String(a.nationalId || '').localeCompare(String(b.nationalId || ''));
+          break;
+        }
+        case 'age': {
+          const ageA = Number(a.age) || 0;
+          const ageB = Number(b.age) || 0;
+          comparison = ageA - ageB;
+          break;
+        }
+        default:
+          comparison = 0;
+      }
+      return residentSortDirection === 'asc' ? comparison : -comparison;
+    });
+  };
   const [usersSearchQuery, setUsersSearchQuery] = useState('');
   const [filterBehavior, setFilterBehavior] = useState('all');
   const [filterSeverity, setFilterSeverity] = useState('all');
@@ -1587,9 +1738,12 @@ export default function App() {
       // Construct native Excel HTML table with explicit UTF-8 charset, borders, and RTL/LTR styling
       const rowsHtml = recordsToExport.map((rec, idx) => {
         const resInfo = getResidentInfoForDispense(rec.residentName, rec.residentId);
-        const residentDisplay = resInfo.en ? `${resInfo.ar} (${resInfo.en})` : resInfo.ar;
+        const resEn = resInfo.en || rec.residentNameEn;
+        const residentDisplay = resEn ? `${resInfo.ar || rec.residentName} (${resEn})` : (resInfo.ar || rec.residentName);
         const medInfo = getMedicineInfoForDispense(rec.medicineName, rec.medicineId);
-        const medDisplay = medInfo.en ? `${medInfo.ar} (${medInfo.en})` : medInfo.ar;
+        const medDisplay = medInfo.activeIngredient 
+          ? `${medInfo.commercial || medInfo.ar} (${isAr ? 'المادة الفعالة: ' : 'Active: '}${medInfo.activeIngredient})` 
+          : (medInfo.en ? `${medInfo.ar} (${medInfo.en})` : medInfo.ar);
         const formattedDate = rec.dispensedAt 
           ? new Date(rec.dispensedAt).toISOString().replace('T', ' ').substring(0, 16)
           : '';
@@ -2356,8 +2510,40 @@ export default function App() {
     }
   };
 
-  // Secure and functional Arabesque Login Submission handler
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  // Complete User Login Helper
+  const completeUserLogin = (userToLogin: any) => {
+    const sessionUser = {
+      uid: userToLogin.uid,
+      name: userToLogin.name,
+      email: userToLogin.email,
+      role: userToLogin.role,
+      phone: userToLogin.phone
+    };
+
+    setCurrentUser(sessionUser);
+    if (rememberMe) {
+      localStorage.setItem('care_pharmacy_user', JSON.stringify(sessionUser));
+    } else {
+      localStorage.removeItem('care_pharmacy_user');
+    }
+
+    // Broadcast login to inform and sync other browser tabs in real-time
+    try {
+      const bus = new BroadcastChannel('care_pharmacy_session_bus');
+      bus.postMessage({
+        type: 'LOGIN_CLAIM',
+        email: sessionUser.email.toLowerCase(),
+        sessionId: activeSessionId
+      });
+      bus.close();
+    } catch (e) {}
+
+    showToast(`أهلاً بك مجدداً، ${userToLogin.name}! تم تسجيل الدخول بنجاح.`, 'success');
+    logUserSessionOnStartup(clientIp, sessionUser);
+  };
+
+  // Secure Login Submission with Single Active Session Concurrency Check (منع تكرار دخول الحساب)
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail || !loginPassword) {
       showToast('برجاء إدخال البريد الإلكتروني وكلمة المرور', 'error');
@@ -2365,53 +2551,269 @@ export default function App() {
     }
 
     const cleanEmail = loginEmail.trim().toLowerCase();
-    let matchedUser = users.find(
-      u => u.email.toLowerCase() === cleanEmail && (u.password === loginPassword || (cleanEmail === 'tmrbe2006@gmail.com' && (loginPassword === 'dev' || loginPassword === 'admin' || loginPassword === '123456')))
-    );
+    
+    // 1. Fetch current users, refreshing from DbService if user is missing or password mismatch to guarantee checking the live database
+    let currentUsersList = [...users];
+    let userInDb = currentUsersList.find(u => u.email?.trim().toLowerCase() === cleanEmail);
 
-    if (!matchedUser && cleanEmail === 'tmrbe2006@gmail.com') {
-      matchedUser = {
-        uid: "user-tmrbe",
-        name: "م. تامر (المبرمج)",
-        email: "tmrbe2006@gmail.com",
-        role: "developer",
-        phone: "+966500001122",
-        password: loginPassword || "dev"
-      };
+    if (!userInDb || userInDb.password !== loginPassword) {
+      try {
+        const freshUsers = await DbService.fetchUsers();
+        if (freshUsers && freshUsers.length > 0) {
+          setUsers(freshUsers);
+          currentUsersList = freshUsers;
+          userInDb = freshUsers.find((u: any) => u.email?.trim().toLowerCase() === cleanEmail);
+        }
+      } catch (err) {
+        console.warn("Could not refresh users from DB:", err);
+      }
     }
 
-    if (matchedUser && matchedUser.email.toLowerCase() === 'tmrbe2006@gmail.com') {
+    if (!userInDb) {
+      showToast('عذراً، البريد الإلكتروني غير مسجل في قاعدة البيانات!', 'error');
+      return;
+    }
+
+    // STRICT PASSWORD VERIFICATION: Must match userInDb.password saved in database (no bypass, no arbitrary passwords)
+    if (userInDb.password !== loginPassword) {
+      showToast('عذراً، كلمة المرور غير صحيحة! يرجى إدخال كلمة المرور الصحيحة المحفوظة في قاعدة البيانات.', 'error');
+      return;
+    }
+
+    const matchedUser = { ...userInDb };
+    if (matchedUser.email?.toLowerCase() === 'tmrbe2006@gmail.com') {
       matchedUser.role = 'developer';
     }
 
-    if (matchedUser) {
-      const sessionUser = {
-        uid: matchedUser.uid,
-        name: matchedUser.name,
-        email: matchedUser.email,
-        role: matchedUser.role,
-        phone: matchedUser.phone
-      };
+    // --- CONCURRENCY ENFORCEMENT: Check if the user is already logged in on another session/device ---
+    try {
+      const claimResult = await DbService.claimActiveSession({
+        sessionId: activeSessionId,
+        userId: matchedUser.uid,
+        userName: matchedUser.name,
+        userEmail: matchedUser.email,
+        userRole: matchedUser.role,
+        ipAddress: clientIp || '127.0.0.1',
+        userAgent: navigator.userAgent,
+        loginTime: new Date().toISOString(),
+        lastHeartbeat: new Date().toISOString()
+      }, false);
 
-      setCurrentUser(sessionUser);
-      if (rememberMe) {
-        localStorage.setItem('care_pharmacy_user', JSON.stringify(sessionUser));
-      } else {
-        localStorage.removeItem('care_pharmacy_user');
+      if (claimResult.conflict && claimResult.activeSession) {
+        // PREVENT LOGIN! The user is already logged in elsewhere
+        setSessionConflictModal({
+          show: true,
+          activeSession: claimResult.activeSession,
+          pendingUser: matchedUser
+        });
+        showToast('⚠️ تنبيه أمني: هذا الحساب مسجل دخول حالياً بالفعل على جلسة أخرى نشطة!', 'error');
+        return;
       }
+    } catch (concurrencyErr) {
+      console.warn("Session concurrency check error, proceeding safely:", concurrencyErr);
+    }
 
-      showToast(`أهلاً بك مجدداً، ${matchedUser.name}! تم تسجيل الدخول بنجاح.`, 'success');
-      logUserSessionOnStartup(clientIp, sessionUser);
-    } else {
-      showToast('عذراً، البريد الإلكتروني أو كلمة المرور غير صحيحة. يرجى تجربة النقر على خيارات الدخول السريع!', 'error');
+    // No conflict, proceed with login
+    completeUserLogin(matchedUser);
+  };
+
+  // Force Takeover Login Handler (ends previous session and authenticates on this device)
+  const handleForceTakeoverLogin = async () => {
+    if (!sessionConflictModal.pendingUser) return;
+    const targetUser = sessionConflictModal.pendingUser;
+
+    try {
+      await DbService.claimActiveSession({
+        sessionId: activeSessionId,
+        userId: targetUser.uid,
+        userName: targetUser.name,
+        userEmail: targetUser.email,
+        userRole: targetUser.role,
+        ipAddress: clientIp || '127.0.0.1',
+        userAgent: navigator.userAgent,
+        loginTime: new Date().toISOString(),
+        lastHeartbeat: new Date().toISOString()
+      }, true); // force = true
+
+      // Broadcast force displacement to kick out previous active tab/device
+      try {
+        const bus = new BroadcastChannel('care_pharmacy_session_bus');
+        bus.postMessage({
+          type: 'FORCE_DISPLACE',
+          email: targetUser.email.toLowerCase(),
+          newSessionId: activeSessionId
+        });
+        bus.close();
+      } catch (e) {}
+
+      setSessionConflictModal({ show: false, activeSession: null, pendingUser: null });
+      completeUserLogin(targetUser);
+      showToast('تم إنهاء الجلسة السابقة بنجاح وتسجيل الدخول إلى هذا الجهاز! 🛡️', 'success');
+    } catch (err: any) {
+      showToast(`فشل إنهاء الجلسة السابقة: ${err.message}`, 'error');
     }
   };
 
-  // Logout handler
+  // Logout handler with active session cleanup
   const handleLogout = () => {
+    if (currentUser?.email) {
+      DbService.releaseActiveSession(currentUser.email, activeSessionId);
+      try {
+        const bus = new BroadcastChannel('care_pharmacy_session_bus');
+        bus.postMessage({
+          type: 'LOGOUT',
+          email: currentUser.email.toLowerCase(),
+          sessionId: activeSessionId
+        });
+        bus.close();
+      } catch (e) {}
+    }
     setCurrentUser(null);
     localStorage.removeItem('care_pharmacy_user');
     showToast('تم تسجيل الخروج بنجاح. في أمان الله ورعايته!', 'success');
+  };
+
+  // Watch active session heartbeat and handle remote displacement across tabs/devices
+  useEffect(() => {
+    if (!currentUser?.email) return;
+
+    // Periodic heartbeat to keep session alive and detect remote takeovers
+    const interval = setInterval(async () => {
+      try {
+        const res = await DbService.heartbeatActiveSession(currentUser.email, activeSessionId);
+        if (res.displaced) {
+          setCurrentUser(null);
+          localStorage.removeItem('care_pharmacy_user');
+          setDisplacedModal({
+            show: true,
+            message: res.message || 'تم تسجيل الدخول إلى هذا الحساب من جلسة أو جهاز آخر، وتم إنهاء هذه الجلسة تلقائياً لمنع التكرار.'
+          });
+        }
+      } catch (e) {
+        console.warn("Session heartbeat check:", e);
+      }
+    }, 20000);
+
+    // BroadcastChannel for instant real-time multi-tab session protection
+    let bus: BroadcastChannel | null = null;
+    try {
+      bus = new BroadcastChannel('care_pharmacy_session_bus');
+      bus.onmessage = (event) => {
+        const data = event.data;
+        if (!data || !data.email) return;
+        const myEmail = currentUser.email.toLowerCase();
+        if (data.email.toLowerCase() === myEmail) {
+          if ((data.type === 'FORCE_DISPLACE' || data.type === 'LOGIN_CLAIM') && data.sessionId !== activeSessionId) {
+            // Displaced in real-time by another tab/window!
+            setCurrentUser(null);
+            localStorage.removeItem('care_pharmacy_user');
+            setDisplacedModal({
+              show: true,
+              message: 'تم تسجيل الدخول إلى حسابك من نافذة أو جهاز آخر. تم إنهاء هذه الجلسة تلقائياً لحماية خصوصية وسرية السجلات الدوائية.'
+            });
+          }
+        }
+      };
+    } catch (e) {}
+
+    return () => {
+      clearInterval(interval);
+      if (bus) bus.close();
+    };
+  }, [currentUser?.email, activeSessionId]);
+
+  // Change Password Handler (إمكانية تغيير المستخدم لكلمة المرور الخاصة به)
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+
+    const { currentPassword, newPassword, confirmPassword } = passwordForm;
+    setPasswordForm(prev => ({ ...prev, error: '', success: '', isSubmitting: true }));
+
+    // 1. Validation
+    if (!currentPassword) {
+      setPasswordForm(prev => ({ ...prev, error: 'برجاء إدخال كلمة المرور الحالية للتحقق من هويتك', isSubmitting: false }));
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 4) {
+      setPasswordForm(prev => ({ ...prev, error: 'يجب أن تتكون كلمة المرور الجديدة من 4 خانات على الأقل', isSubmitting: false }));
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordForm(prev => ({ ...prev, error: 'كلمة المرور الجديدة وتأكيدها غير متطابقين', isSubmitting: false }));
+      return;
+    }
+
+    // 2. Verify current password strictly against database record
+    let userInDb = users.find(u => u.uid === currentUser.uid || u.email?.toLowerCase() === currentUser.email?.toLowerCase());
+    if (!userInDb || userInDb.password !== currentPassword) {
+      try {
+        const freshUsers = await DbService.fetchUsers();
+        if (freshUsers && freshUsers.length > 0) {
+          setUsers(freshUsers);
+          userInDb = freshUsers.find((u: any) => u.uid === currentUser.uid || u.email?.toLowerCase() === currentUser.email?.toLowerCase());
+        }
+      } catch (err) {}
+    }
+
+    const isPassValid = userInDb && userInDb.password === currentPassword;
+
+    if (!isPassValid) {
+      setPasswordForm(prev => ({ ...prev, error: 'كلمة المرور الحالية غير صحيحة. يرجى التأكد وإعادة المحاولة', isSubmitting: false }));
+      return;
+    }
+
+    try {
+      const updatedUser = {
+        ...(userInDb || currentUser),
+        password: newPassword
+      };
+
+      await DbService.updateUser(updatedUser);
+
+      const updatedUsersList = users.map(u => 
+        (u.uid === updatedUser.uid || u.email.toLowerCase() === updatedUser.email.toLowerCase()) 
+          ? updatedUser 
+          : u
+      );
+      updateUsersList(updatedUsersList);
+
+      // Audit log
+      await DbService.addStockLog({
+        medicineId: currentUser.uid || 'usr-pwd',
+        medicineName: `حساب: ${currentUser.name}`,
+        actionType: 'تغيير كلمة المرور',
+        quantityChanged: 0,
+        previousQuantity: 0,
+        newQuantity: 0,
+        performedByName: currentUser.name,
+        performedByEmail: currentUser.email,
+        performedById: currentUser.uid || '',
+        notes: 'تحديث كلمة مرور المستخدم عبر الشاشة الشخصية بنجاح'
+      });
+
+      setPasswordForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+        showCurrent: false,
+        showNew: false,
+        showConfirm: false,
+        error: '',
+        success: 'تم تغيير كلمة المرور بنجاح!',
+        isSubmitting: false
+      });
+
+      showToast('تم تحديث كلمة المرور الخاصة بك بنجاح! 🔒 يرجى استخدام كلمة المرور الجديدة في المرات القادمة.', 'success');
+      setTimeout(() => {
+        setShowChangePasswordModal(false);
+      }, 1000);
+
+    } catch (err: any) {
+      setPasswordForm(prev => ({ ...prev, error: `فشل تحديث كلمة المرور: ${err.message}`, isSubmitting: false }));
+    }
   };
 
   // Add Behavior Log Handler
@@ -4337,15 +4739,22 @@ export default function App() {
 
   const isScreenAllowed = (tab: string) => {
     if (!currentUser) return false;
-    // Security and Developer Statistics tabs are EXCLUSIVELY for the developer
-    if (tab === 'security' || tab === 'dev_statistics') {
+    // Security tab is EXCLUSIVELY for the developer
+    if (tab === 'security') {
       return currentUser.role === 'developer';
+    }
+    // Statistics tab is for developer and system administrator (مدير النظام)
+    if (tab === 'dev_statistics') {
+      return currentUser.role === 'developer' || currentUser.role === 'admin';
     }
     return ROLES[currentUser.role]?.allowedScreens.includes(tab) ?? false;
   };
 
   useEffect(() => {
-    if ((activeTab === 'security' || activeTab === 'dev_statistics') && currentUser?.role !== 'developer') {
+    if (activeTab === 'security' && currentUser?.role !== 'developer') {
+      setActiveTab('dashboard');
+    }
+    if (activeTab === 'dev_statistics' && currentUser?.role !== 'developer' && currentUser?.role !== 'admin') {
       setActiveTab('dashboard');
     }
   }, [activeTab, currentUser]);
@@ -4503,6 +4912,114 @@ export default function App() {
             </div>
           </div>
         )}
+        {/* Session Conflict Modal: Active Session Exists on System (منع تسجيل الدخول المتزامن) */}
+        {sessionConflictModal.show && sessionConflictModal.activeSession && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+            <div className={`w-full max-w-lg rounded-3xl border p-6 sm:p-7 shadow-2xl space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-slate-950/80' : 'bg-white border-slate-200 text-slate-900 shadow-2xl'}`}>
+              
+              {/* Header Icon & Title */}
+              <div className="text-center space-y-2">
+                <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-lg shadow-amber-950/30">
+                  <ShieldAlert className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg sm:text-xl font-black text-amber-400">
+                  {lang === 'ar' ? 'تنبيه أمني: الحساب مسجل دخول حالياً بالفعل! ⚠️' : 'Security Alert: Account Already Logged In! ⚠️'}
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed font-semibold">
+                  {lang === 'ar' 
+                    ? 'تم تأكيد وجود جلسة نشطة ومفتوحة لهذا المستخدم على النظام. يمنع النظام تسجيل الدخول المتزامن والمتعدد لنفس الحساب لحماية سرية البيانات ومنع تعارض الصرف الدوائي.'
+                    : 'An active session for this user was confirmed on the system. The system enforces a single active session per user to safeguard medical data integrity.'}
+                </p>
+              </div>
+
+              {/* Active Session Details Card */}
+              <div className={`p-4 rounded-2xl border text-xs space-y-2.5 ${darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="font-bold text-slate-300 pb-1 border-b border-slate-800/60 flex items-center justify-between">
+                  <span>{lang === 'ar' ? '📌 تفاصيل الجلسة النشطة الحالية:' : '📌 Current Active Session Details:'}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    {lang === 'ar' ? 'نشطة الآن' : 'Active Now'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <span className="text-slate-500 block">{lang === 'ar' ? 'اسم المستخدم:' : 'User Name:'}</span>
+                    <span className="font-bold text-slate-200">{sessionConflictModal.activeSession.userName}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">{lang === 'ar' ? 'البريد الإلكتروني:' : 'Email Address:'}</span>
+                    <span className="font-mono text-slate-200">{sessionConflictModal.activeSession.userEmail}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">{lang === 'ar' ? 'عنوان الـ IP للجهاز:' : 'IP Address:'}</span>
+                    <span className="font-mono text-teal-400 font-bold">{sessionConflictModal.activeSession.ipAddress || '127.0.0.1'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">{lang === 'ar' ? 'وقت تسجيل الدخول:' : 'Login Time:'}</span>
+                    <span className="font-mono text-slate-300">
+                      {new Date(sessionConflictModal.activeSession.loginTime).toLocaleTimeString(lang === 'ar' ? 'ar-SA' : 'en-US')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-1 text-[11px] text-slate-400">
+                  <span className="text-slate-500 block">{lang === 'ar' ? 'بيئة التصفح / الجهاز:' : 'Browser / Device:'}</span>
+                  <span className="truncate block font-mono text-[10px] text-slate-400 bg-slate-900/50 p-1.5 rounded border border-slate-800">
+                    {sessionConflictModal.activeSession.userAgent}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleForceTakeoverLogin}
+                  className="w-full py-3 px-4 bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-950/40 transition active:scale-95 cursor-pointer"
+                >
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span>{lang === 'ar' ? 'إنهاء الجلسة السابقة وتسجيل الدخول هنا ⚡' : 'Force Disconnect Previous Session & Login ⚡'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSessionConflictModal({ show: false, activeSession: null, pendingUser: null })}
+                  className={`w-full py-2.5 px-4 rounded-xl border text-xs font-bold transition active:scale-95 cursor-pointer ${
+                    darkMode ? 'border-slate-800 bg-slate-800/50 hover:bg-slate-800 text-slate-300' : 'border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {lang === 'ar' ? 'إلغاء والرجوع' : 'Cancel & Dismiss'}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* Displaced Session Notification Modal */}
+        {displacedModal.show && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+            <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl text-center space-y-4 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-black text-rose-400">
+                {lang === 'ar' ? 'تم إنهاء الجلسة النشطة 🔒' : 'Session Terminated 🔒'}
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {displacedModal.message}
+              </p>
+              <button
+                type="button"
+                onClick={() => setDisplacedModal({ show: false, message: '' })}
+                className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                {lang === 'ar' ? 'حسناً، الانتقال لشاشة تسجيل الدخول' : 'OK, Go to Login Screen'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -4621,8 +5138,8 @@ export default function App() {
             </button>
           )}
 
-          {/* Quick Developer Stats button - Exclusive to Developer */}
-          {currentUser?.role === 'developer' && (
+          {/* Quick Statistics button - Exclusive to Developer & Admin */}
+          {(currentUser?.role === 'developer' || currentUser?.role === 'admin') && (
             <button
               type="button"
               onClick={() => setActiveTab('dev_statistics')}
@@ -4633,10 +5150,10 @@ export default function App() {
                     ? 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20' 
                     : 'border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100'
               }`}
-              title={lang === 'ar' ? 'الانتقال لشاشة إحصائيات وأعداد المبرمج الشاملة' : 'Developer Statistics & Entity Counts'}
+              title={lang === 'ar' ? 'الانتقال لشاشة إحصائيات النظام الشاملة' : 'System Statistics'}
             >
               <TrendingUp className="w-3.5 h-3.5" />
-              <span className="text-[11px]">{lang === 'ar' ? 'الإحصائيات 📈' : 'Stats 📈'}</span>
+              <span className="text-[11px]">{lang === 'ar' ? 'إحصائيات' : 'Stats'}</span>
             </button>
           )}
 
@@ -4647,6 +5164,34 @@ export default function App() {
               {lang === 'ar' ? ROLES[currentUser?.role || 'admin']?.name : (currentUser?.role || 'admin').toUpperCase()}
             </span>
           </div>
+
+          {/* Change Password button - Available to ANY logged-in user */}
+          <button
+            type="button"
+            onClick={() => {
+              setPasswordForm({
+                currentPassword: '',
+                newPassword: '',
+                confirmPassword: '',
+                showCurrent: false,
+                showNew: false,
+                showConfirm: false,
+                error: '',
+                success: '',
+                isSubmitting: false
+              });
+              setShowChangePasswordModal(true);
+            }}
+            className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+              darkMode
+                ? 'border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300'
+                : 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 shadow-xs'
+            }`}
+            title={lang === 'ar' ? 'تغيير كلمة المرور الخاصة بحسابي' : 'Change my password'}
+          >
+            <Key className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden md:inline">{lang === 'ar' ? 'تغيير كلمة المرور' : 'Password'}</span>
+          </button>
 
           {/* Logout Button */}
           <button 
@@ -4672,7 +5217,7 @@ export default function App() {
             { id: 'units', icon: '📦', label: lang === 'ar' ? 'إدارة الوحدات' : 'Units Management' },
             { id: 'categories', icon: '🏷️', label: lang === 'ar' ? 'إدارة فئات العلاج' : 'Therapeutic Classes' },
             { id: 'users', icon: '⚙️', label: t('users') },
-            { id: 'dev_statistics', icon: '📈', label: lang === 'ar' ? 'إحصائيات المبرمج' : 'Developer Stats' },
+            { id: 'dev_statistics', icon: '📈', label: lang === 'ar' ? 'إحصائيات' : 'Stats' },
             { id: 'ai_reports', icon: '✨', label: lang === 'ar' ? 'التقارير الذكية AI' : 'AI Reports' },
             { id: 'behavioral_tracker', icon: '⚠️', label: t('behavior') },
             { id: 'security', icon: '🛡️', label: lang === 'ar' ? 'الحماية والأمان' : 'Security & Protection' },
@@ -4792,6 +5337,160 @@ export default function App() {
                 {t('cancel')}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ----------------- MODAL: CHANGE PASSWORD (تغيير كلمة المرور الخاصة بالمستخدم) ----------------- */}
+      {showChangePasswordModal && currentUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+          <div className={`w-full max-w-md rounded-3xl border p-6 sm:p-7 shadow-2xl space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-slate-950/80' : 'bg-white border-slate-200 text-slate-900 shadow-2xl'}`}>
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center shadow-md">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-amber-400">
+                    {lang === 'ar' ? 'تغيير كلمة المرور الخاصة بي' : 'Change My Password'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {lang === 'ar' ? `الحساب: ${currentUser.name}` : `Account: ${currentUser.name}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowChangePasswordModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleChangePasswordSubmit} className="space-y-4 text-xs">
+              
+              {/* Field 1: Current Password */}
+              <div>
+                <label className="block font-bold mb-1.5 text-slate-300">
+                  {lang === 'ar' ? 'كلمة المرور الحالية *' : 'Current Password *'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={passwordForm.showCurrent ? "text" : "password"}
+                    required
+                    value={passwordForm.currentPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value, error: '' })}
+                    placeholder="••••••••"
+                    className={`w-full py-2.5 px-3 rounded-xl border text-xs outline-none transition ${
+                      darkMode ? 'bg-slate-950 border-slate-800 text-white focus:border-amber-500' : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-amber-500'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPasswordForm({ ...passwordForm, showCurrent: !passwordForm.showCurrent })}
+                    className={`absolute inset-y-0 ${lang === 'ar' ? 'left-0 pl-3' : 'right-0 pr-3'} flex items-center text-slate-500 hover:text-slate-300 cursor-pointer`}
+                  >
+                    {passwordForm.showCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Field 2: New Password */}
+              <div>
+                <label className="block font-bold mb-1.5 text-slate-300">
+                  {lang === 'ar' ? 'كلمة المرور الجديدة *' : 'New Password *'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={passwordForm.showNew ? "text" : "password"}
+                    required
+                    minLength={4}
+                    value={passwordForm.newPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value, error: '' })}
+                    placeholder={lang === 'ar' ? '4 خانات أو أكثر' : 'At least 4 characters'}
+                    className={`w-full py-2.5 px-3 rounded-xl border text-xs outline-none transition ${
+                      darkMode ? 'bg-slate-950 border-slate-800 text-white focus:border-teal-500' : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-teal-500'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPasswordForm({ ...passwordForm, showNew: !passwordForm.showNew })}
+                    className={`absolute inset-y-0 ${lang === 'ar' ? 'left-0 pl-3' : 'right-0 pr-3'} flex items-center text-slate-500 hover:text-slate-300 cursor-pointer`}
+                  >
+                    {passwordForm.showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Field 3: Confirm New Password */}
+              <div>
+                <label className="block font-bold mb-1.5 text-slate-300">
+                  {lang === 'ar' ? 'تأكيد كلمة المرور الجديدة *' : 'Confirm New Password *'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={passwordForm.showConfirm ? "text" : "password"}
+                    required
+                    minLength={4}
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value, error: '' })}
+                    placeholder={lang === 'ar' ? 'أعد إدخال كلمة المرور الجديدة' : 'Re-enter new password'}
+                    className={`w-full py-2.5 px-3 rounded-xl border text-xs outline-none transition ${
+                      darkMode ? 'bg-slate-950 border-slate-800 text-white focus:border-teal-500' : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-teal-500'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPasswordForm({ ...passwordForm, showConfirm: !passwordForm.showConfirm })}
+                    className={`absolute inset-y-0 ${lang === 'ar' ? 'left-0 pl-3' : 'right-0 pr-3'} flex items-center text-slate-500 hover:text-slate-300 cursor-pointer`}
+                  >
+                    {passwordForm.showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {passwordForm.error && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{passwordForm.error}</span>
+                </div>
+              )}
+
+              {/* Success Message */}
+              {passwordForm.success && (
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>{passwordForm.success}</span>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="submit"
+                  disabled={passwordForm.isSubmitting}
+                  className="flex-1 py-3 px-4 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-teal-950/30 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                >
+                  <Lock className="w-4 h-4" />
+                  <span>{passwordForm.isSubmitting ? (lang === 'ar' ? 'جارٍ الحفظ...' : 'Saving...') : (lang === 'ar' ? 'حفظ كلمة المرور الجديدة 💾' : 'Save New Password 💾')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowChangePasswordModal(false)}
+                  className={`py-3 px-4 rounded-xl border text-xs font-bold transition cursor-pointer active:scale-95 ${
+                    darkMode ? 'border-slate-800 bg-slate-800/50 hover:bg-slate-800 text-slate-300' : 'border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+              </div>
+            </form>
+
           </div>
         </div>
       )}
@@ -6538,21 +7237,28 @@ export default function App() {
                                   <div className="text-slate-100 font-bold text-sm">
                                     {resInfo.ar || rec.residentName}
                                   </div>
-                                  {resInfo.en && (
+                                  {(resInfo.en || rec.residentNameEn) ? (
                                     <div className="text-[11px] text-teal-400 font-sans font-medium mt-0.5">
-                                      {resInfo.en}
+                                      {resInfo.en || rec.residentNameEn}
                                     </div>
-                                  )}
+                                  ) : null}
                                 </td>
                                 <td className="p-4">
                                   <div className="font-bold text-teal-400 text-sm">
-                                    {medInfo.ar || rec.medicineName}
+                                    {medInfo.commercial || medInfo.ar || rec.medicineName}
                                   </div>
-                                  {medInfo.en && (
-                                    <div className="text-[11px] text-slate-400 font-sans font-medium mt-0.5">
-                                      {medInfo.en}
+                                  {medInfo.activeIngredient ? (
+                                    <div className="text-[11px] text-slate-300 font-sans font-medium mt-1 flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-[10px] text-teal-300 font-bold bg-teal-950/70 border border-teal-500/30 px-1.5 py-0.5 rounded-md">
+                                        {lang === 'ar' ? 'المادة الفعالة:' : 'Active Ingredient:'}
+                                      </span>
+                                      <span className="text-slate-200 font-semibold">{medInfo.activeIngredient}</span>
                                     </div>
-                                  )}
+                                  ) : (medInfo.en || rec.medicineNameEn) ? (
+                                    <div className="text-[11px] text-slate-400 font-sans font-medium mt-0.5">
+                                      {medInfo.en || rec.medicineNameEn}
+                                    </div>
+                                  ) : null}
                                 </td>
                                 <td className="p-4 font-mono text-slate-400">{rec.quantityDispensed}</td>
                                 <td className="p-4 font-mono">
@@ -8510,8 +9216,8 @@ export default function App() {
               </div>
             )}
 
-            {/* ----------------- TAB: DEVELOPER EXCLUSIVE COMPREHENSIVE STATISTICS ----------------- */}
-            {activeTab === 'dev_statistics' && currentUser?.role === 'developer' && (
+            {/* ----------------- TAB: SYSTEM STATISTICS ----------------- */}
+            {activeTab === 'dev_statistics' && (currentUser?.role === 'developer' || currentUser?.role === 'admin') && (
               <DeveloperStatisticsTab
                 residents={residents}
                 users={users}
@@ -9057,33 +9763,165 @@ export default function App() {
                   );
                 })()}
 
+                {/* Sorting Combobox & Controls (ترتيب المقيمين حسب الاسم ورقم الغرفة والجناح وغيرها) */}
+                <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-teal-400">
+                      <ArrowUpDown className="w-4 h-4 text-teal-400" />
+                      <span>{text('ترتيب المقيمين (Combobox):', 'Sort Residents (Combobox):')}</span>
+                    </div>
+
+                    {/* Combobox with all parameters */}
+                    <select
+                      value={`${residentSortField}:${residentSortDirection}`}
+                      onChange={(e) => {
+                        const [field, dir] = e.target.value.split(':') as [ResidentSortField, 'asc' | 'desc'];
+                        setResidentSortField(field);
+                        setResidentSortDirection(dir);
+                      }}
+                      className={`px-3 py-2 rounded-xl border text-xs font-bold outline-none cursor-pointer transition ${
+                        darkMode ? 'bg-slate-900 border-slate-700 text-teal-300 focus:border-teal-400' : 'bg-white border-slate-300 text-teal-800 focus:border-teal-500 shadow-sm'
+                      }`}
+                      title={text('اختر معيار ترتيب المقيمين والاتجاه', 'Select resident sort criteria and direction')}
+                    >
+                      <optgroup label={text('👤 اسم المقيم (أبجدي)', '👤 Resident Name')}>
+                        <option value="name:asc">{text('👤 اسم المقيم (أبجدي أ - ي)', '👤 Resident Name (A - Z)')}</option>
+                        <option value="name:desc">{text('👤 اسم المقيم (أبجدي ي - أ)', '👤 Resident Name (Z - A)')}</option>
+                      </optgroup>
+
+                      <optgroup label={text('🚪 رقم الغرفة', '🚪 Room Number')}>
+                        <option value="roomNumber:asc">{text('🚪 رقم الغرفة (تصاعدي من الأصغر للأكبر)', '🚪 Room Number (Low to High)')}</option>
+                        <option value="roomNumber:desc">{text('🚪 رقم الغرفة (تنازلي من الأكبر للأصغر)', '🚪 Room Number (High to Low)')}</option>
+                      </optgroup>
+
+                      <optgroup label={text('🏢 الجناح / القسم', '🏢 Wing / Pavilion')}>
+                        <option value="wing:asc">{text('🏢 الجناح (أبجدي أ - ي)', '🏢 Wing (A - Z)')}</option>
+                        <option value="wing:desc">{text('🏢 الجناح (أبجدي ي - أ)', '🏢 Wing (Z - A)')}</option>
+                      </optgroup>
+
+                      <optgroup label={text('🎂 العمر / تاريخ الميلاد', '🎂 Age')}>
+                        <option value="age:asc">{text('🎂 العمر (الأصغر سناً أولاً)', '🎂 Age (Youngest First)')}</option>
+                        <option value="age:desc">{text('🎂 العمر (الأكبر سناً أولاً)', '🎂 Age (Oldest First)')}</option>
+                      </optgroup>
+
+                      <optgroup label={text('🆔 رقم الهوية الوطنية', '🆔 National ID')}>
+                        <option value="nationalId:asc">{text('🆔 رقم الهوية (تصاعدي)', '🆔 National ID (Asc)')}</option>
+                        <option value="nationalId:desc">{text('🆔 رقم الهوية (تنازلي)', '🆔 National ID (Desc)')}</option>
+                      </optgroup>
+                    </select>
+
+                    {/* Direction Quick Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setResidentSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+                      className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                        darkMode ? 'bg-slate-900 border-slate-700 hover:bg-slate-800 text-slate-200' : 'bg-white border-slate-300 hover:bg-slate-100 text-slate-700 shadow-sm'
+                      }`}
+                      title={text('عكس اتجاه الترتيب (تصاعدي / تنازلي)', 'Toggle sort direction')}
+                    >
+                      {residentSortDirection === 'asc' ? (
+                        <>
+                          <ArrowUp className="w-3.5 h-3.5 text-teal-400" />
+                          <span>{text('تصاعدي ⬆', 'Ascending ⬆')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <ArrowDown className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{text('تنازلي ⬇', 'Descending ⬇')}</span>
+                        </>
+                      )}
+                    </button>
+
+                    {(residentSortField !== 'name' || residentSortDirection !== 'asc') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResidentSortField('name');
+                          setResidentSortDirection('asc');
+                        }}
+                        className="px-2.5 py-1.5 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
+                      >
+                        {text('إعادة ضبط الترتيب ↺', 'Reset Sort ↺')}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="text-[11px] text-slate-400 hidden xl:flex items-center gap-1">
+                    <span>💡</span>
+                    <span>{text('انقر على عناوين أعمدة الجدول أدناه لفرز المقيمين مباشرة', 'Click on table column headers to sort directly')}</span>
+                  </div>
+                </div>
+
                 <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="overflow-x-auto">
                     <table className="w-full text-right text-xs">
                       <thead>
-                        <tr className="border-b border-slate-800 text-slate-400 font-bold">
-                          <th className="pb-3 text-right">{text('الاسم (عربي / إنجليزي)', 'Name (Ar / En)')}</th>
-                          <th className="pb-3 text-right">{text('رقم الغرفة/الجناح', 'Room / Ward')}</th>
-                          <th className="pb-3 text-right">{text('رقم الهوية/الإقامة', 'National / Resident ID')}</th>
-                          <th className="pb-3 text-right">{text('العمر / تاريخ الميلاد', 'Age / Birth Date')}</th>
+                        <tr className="border-b border-slate-800 text-slate-400 font-bold select-none">
+                          <th 
+                            onClick={() => handleResidentSortToggle('name')}
+                            className="pb-3 text-right cursor-pointer hover:text-teal-400 transition"
+                            title={text('انقر للترتيب حسب اسم المقيم', 'Click to sort by resident name')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('الاسم (عربي / إنجليزي)', 'Name (Ar / En)')}</span>
+                              {residentSortField === 'name' ? (
+                                residentSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleResidentSortToggle(residentSortField === 'roomNumber' ? 'wing' : 'roomNumber')}
+                            className="pb-3 text-right cursor-pointer hover:text-teal-400 transition"
+                            title={text('انقر للترتيب حسب رقم الغرفة والجناح', 'Click to sort by room / wing')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('رقم الغرفة / الجناح', 'Room / Ward')}</span>
+                              {(residentSortField === 'roomNumber' || residentSortField === 'wing') ? (
+                                residentSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                              {residentSortField === 'wing' && (
+                                <span className="text-[10px] text-teal-400 font-normal">({text('جناح', 'wing')})</span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleResidentSortToggle('nationalId')}
+                            className="pb-3 text-right cursor-pointer hover:text-teal-400 transition"
+                            title={text('انقر للترتيب حسب رقم الهوية', 'Click to sort by National ID')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('رقم الهوية/الإقامة', 'National / Resident ID')}</span>
+                              {residentSortField === 'nationalId' ? (
+                                residentSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleResidentSortToggle('age')}
+                            className="pb-3 text-right cursor-pointer hover:text-teal-400 transition"
+                            title={text('انقر للترتيب حسب العمر', 'Click to sort by age')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{text('العمر / تاريخ الميلاد', 'Age / Birth Date')}</span>
+                              {residentSortField === 'age' ? (
+                                residentSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                            </div>
+                          </th>
                           <th className="pb-3 text-right">{text('ملاحظات طبية خاصة وعوارض', 'Clinical Notes & Allergies')}</th>
                           <th className="pb-3 text-left">{text('إجراءات', 'Actions')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/40">
-                        {residents.filter(res => {
-                          const query = residentsSearchQuery.trim().toLowerCase();
-                          if (!query) return true;
-                          return (
-                            (res.name || '').toLowerCase().includes(query) ||
-                            (res.nameAr || '').toLowerCase().includes(query) ||
-                            (res.nameEn || '').toLowerCase().includes(query) ||
-                            (res.birthDate || '').toLowerCase().includes(query) ||
-                            (res.roomNumber || '').toLowerCase().includes(query) ||
-                            (res.nationalId || '').toLowerCase().includes(query) ||
-                            (res.notes || '').toLowerCase().includes(query)
-                          );
-                        }).length === 0 ? (
+                        {getFilteredAndSortedResidents().length === 0 ? (
                           <tr>
                             <td colSpan={6} className="p-10 text-center text-slate-400">
                               <HelpCircle className="w-8 h-8 text-slate-600 mx-auto mb-2" />
@@ -9091,19 +9929,7 @@ export default function App() {
                             </td>
                           </tr>
                         ) : (
-                          residents.filter(res => {
-                            const query = residentsSearchQuery.trim().toLowerCase();
-                            if (!query) return true;
-                            return (
-                              (res.name || '').toLowerCase().includes(query) ||
-                              (res.nameAr || '').toLowerCase().includes(query) ||
-                              (res.nameEn || '').toLowerCase().includes(query) ||
-                              (res.birthDate || '').toLowerCase().includes(query) ||
-                              (res.roomNumber || '').toLowerCase().includes(query) ||
-                              (res.nationalId || '').toLowerCase().includes(query) ||
-                              (res.notes || '').toLowerCase().includes(query)
-                            );
-                          }).map((res) => (
+                          getFilteredAndSortedResidents().map((res) => (
                             <tr key={res.id} className="hover:bg-slate-900/25 transition">
                               <td className="py-3.5 font-bold text-slate-200">
                                 <div className="text-slate-100">{res.nameAr || res.name}</div>
