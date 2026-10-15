@@ -2509,8 +2509,15 @@ export default function App() {
     }
   };
 
-  // Open Add Medicine Modal with Clean State
+  // Open Add Medicine Modal with Clean State (Restricted to Admin, Owner, Developer, Pharmacist)
   const openAddMedicineModal = () => {
+    if (currentUser?.role === 'technician' || !['admin', 'owner', 'developer', 'pharmacist'].includes(currentUser?.role || '')) {
+      showToast(
+        text('عذراً، صلاحية إضافة أصناف أدوية جديدة مقتصرة على المدير والمالك والمبرمج والصيدلي فقط.', 'Access Denied: Adding new medications is restricted to Admin, Owner, Developer, and Pharmacist only.'),
+        'error'
+      );
+      return;
+    }
     setMedForm({
       commercialName: '',
       commercialNameAr: '',
@@ -2532,6 +2539,13 @@ export default function App() {
   const handleAddMedicine = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      if (currentUser?.role === 'technician' || !['admin', 'owner', 'developer', 'pharmacist'].includes(currentUser?.role || '')) {
+        showToast(
+          text('عذراً، لا تملك الصلاحية لإضافة دواء جديد.', 'Permission denied: Technicians cannot add new medications.'),
+          'error'
+        );
+        return;
+      }
       const comm = (medForm.commercialNameEn || medForm.commercialName || medForm.commercialNameAr || '').trim();
       const entryDt = medForm.entryDate || new Date().toISOString().split('T')[0];
 
@@ -2685,6 +2699,10 @@ export default function App() {
   // Pharmaceutical Companies CRUD Handlers
   const handleAddOrEditCompany = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (currentUser?.role === 'technician') {
+      showToast(text('عذراً، لا تملك الصلاحية لإضافة أو تعديل شركات الأدوية (غير متاح لفني الصيدلة).', 'Permission denied: Technicians cannot add or edit pharma companies.'), 'error');
+      return;
+    }
     if (!companyForm.name) {
       showToast('يرجى ملء اسم شركة الأدوية أولاً!', 'error');
       return;
@@ -2712,6 +2730,10 @@ export default function App() {
   };
 
   const openEditCompanyModal = (comp: any) => {
+    if (currentUser?.role === 'technician') {
+      showToast(text('عذراً، لا تملك الصلاحية لتعديل بيانات شركات الأدوية (غير متاح لفني الصيدلة).', 'Permission denied: Technicians cannot edit pharma companies.'), 'error');
+      return;
+    }
     setSelectedCompanyId(comp.id);
     setCompanyForm({
       name: comp.name,
@@ -5662,12 +5684,14 @@ export default function App() {
 
                 {inventorySubTab === 'medicines' ? (
                   <div className="space-y-6">
-                    {/* Search & Actions block */}
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    {/* Search & Actions block in an elegant framed card */}
+                    <div className={`p-4 rounded-3xl border flex flex-col xl:flex-row xl:items-center justify-between gap-4 transition-all shadow-sm ${
+                      darkMode ? 'bg-slate-900/50 border-slate-800 backdrop-blur-sm' : 'bg-white border-slate-200 shadow-sm'
+                    }`}>
                       
                       {/* Search Bar & Filters */}
-                      <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                        <div className={`relative flex items-center rounded-xl px-3 py-2 border w-full sm:w-80 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}>
+                      <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+                        <div className={`relative flex items-center rounded-2xl px-3.5 py-2.5 border w-full sm:w-80 transition-all ${darkMode ? 'bg-slate-950/80 border-slate-800 text-slate-100 focus-within:border-teal-500' : 'bg-slate-50 border-slate-200 text-slate-700 focus-within:border-teal-500'}`}>
                           <Search className="w-4 h-4 text-slate-400 shrink-0" />
                           <input 
                             type="text"
@@ -5681,7 +5705,7 @@ export default function App() {
                         <select
                           value={selectedCategory}
                           onChange={(e) => setSelectedCategory(e.target.value)}
-                          className={`px-3 py-2 text-xs font-semibold rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200'}`}
+                          className={`px-3.5 py-2.5 text-xs font-semibold rounded-2xl border transition-all ${darkMode ? 'bg-slate-950/80 border-slate-800 text-slate-300 focus:border-teal-500' : 'bg-slate-50 border-slate-200 focus:border-teal-500'}`}
                         >
                           <option value="all">{text('كل الفئات العلاجية', 'All Therapeutic Classes')}</option>
                           {categories.map(cat => (
@@ -5692,7 +5716,7 @@ export default function App() {
                         <select
                           value={selectedStockFilter}
                           onChange={(e) => setSelectedStockFilter(e.target.value)}
-                          className={`px-3 py-2 text-xs font-semibold rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200'}`}
+                          className={`px-3.5 py-2.5 text-xs font-semibold rounded-2xl border transition-all ${darkMode ? 'bg-slate-950/80 border-slate-800 text-slate-300 focus:border-teal-500' : 'bg-slate-50 border-slate-200 focus:border-teal-500'}`}
                         >
                           <option value="all">{text('كل المخزون', 'All Stock')}</option>
                           <option value="critical">{text('المخزون الحرج (≤ 15 وحدة)', 'Critical Stock (≤ 15 units)')}</option>
@@ -5701,8 +5725,10 @@ export default function App() {
                         </select>
                       </div>
 
-                      {/* Add item trigger & Units / Classes managers */}
-                      <div className="flex items-center gap-2">
+                      {/* Add item trigger & Units / Classes managers inside dedicated stylish frame (داخل الإطار) */}
+                      <div className={`p-1.5 sm:p-2 rounded-2xl border flex flex-wrap items-center gap-2 shadow-sm transition-all ${
+                        darkMode ? 'bg-slate-950/70 border-slate-800/90 shadow-inner' : 'bg-slate-100/90 border-slate-200 shadow-inner'
+                      }`}>
                         {currentUser?.role !== 'technician' && (
                           <>
                             <button
@@ -5711,7 +5737,7 @@ export default function App() {
                                 setUnitSearchQuery('');
                                 setShowManageUnitsModal(true);
                               }}
-                              className={`px-3 py-2 rounded-xl border font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300' : 'border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800'}`}
+                              className={`px-3.5 py-2 rounded-xl border font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 shadow-sm ${darkMode ? 'border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300' : 'border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800'}`}
                               title={text('إدارة وتخصيص وحدات الصنف (إضافة، تعديل، حذف)', 'Manage item units (Add, Edit, Delete)')}
                             >
                               <Package className="w-3.5 h-3.5 shrink-0" />
@@ -5724,7 +5750,7 @@ export default function App() {
                                 setEditingCategoryIdx(null);
                                 setShowManageCategoriesModal(true);
                               }}
-                              className={`px-3 py-2 rounded-xl border font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300' : 'border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800'}`}
+                              className={`px-3.5 py-2 rounded-xl border font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 shadow-sm ${darkMode ? 'border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300' : 'border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800'}`}
                               title={text('إدارة وتخصيص الفئات العلاجية (إضافة، تعديل، حذف)', 'Manage therapeutic classes')}
                             >
                               <Activity className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
@@ -5733,15 +5759,18 @@ export default function App() {
                           </>
                         )}
 
-                        <button
-                          type="button"
-                          onClick={openAddMedicineModal}
-                          className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-lg shadow-teal-900/20 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 border border-teal-400/30 ring-2 ring-teal-500/20"
-                          title={text('إضافة صنف دواء جديد للمستودع', 'Add new medication to stock')}
-                        >
-                          <Plus className="w-4 h-4" />
-                          <span>{text('إضافة دواء جديد 💊', 'Add New Medication 💊')}</span>
-                        </button>
+                        {/* إضافة دواء جديد - يظهر فقط للمدير والمالك والمبرمج والصيدلي، ولا يظهر لفني الصيدلة */}
+                        {currentUser?.role !== 'technician' && ['admin', 'owner', 'developer', 'pharmacist'].includes(currentUser?.role || '') && (
+                          <button
+                            type="button"
+                            onClick={openAddMedicineModal}
+                            className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-md shadow-teal-900/20 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 border border-teal-400/30 ring-2 ring-teal-500/20"
+                            title={text('إضافة صنف دواء جديد للمستودع', 'Add new medication to stock')}
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>{text('إضافة دواء جديد 💊', 'Add New Medication 💊')}</span>
+                          </button>
+                        )}
                       </div>
 
                     </div>
@@ -5869,9 +5898,11 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    {/* Companies Actions & Search bar */}
-                    <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
-                      <div className={`flex-1 max-w-md relative flex items-center rounded-xl px-3 py-2 border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-700'}`}>
+                    {/* Companies Actions & Search bar in an elegant framed card */}
+                    <div className={`p-4 rounded-3xl border flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 transition-all shadow-sm ${
+                      darkMode ? 'bg-slate-900/50 border-slate-800 backdrop-blur-sm' : 'bg-white border-slate-200 shadow-sm'
+                    }`}>
+                      <div className={`flex-1 max-w-md relative flex items-center rounded-2xl px-3.5 py-2.5 border transition-all ${darkMode ? 'bg-slate-950/80 border-slate-800 text-slate-100 focus-within:border-teal-500' : 'bg-slate-50 border-slate-200 text-slate-700 focus-within:border-teal-500'}`}>
                         <Search className="w-4 h-4 text-slate-400 shrink-0" />
                         <input 
                           type="text"
@@ -5882,17 +5913,26 @@ export default function App() {
                         />
                       </div>
 
-                      <button
-                        onClick={() => {
-                          setSelectedCompanyId(null);
-                          setCompanyForm({ name: '', country: '', contactPerson: '', phone: '', email: '', notes: '' });
-                          setShowCompanyModal(true);
-                        }}
-                        className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-lg shadow-teal-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Plus className="w-4.5 h-4.5" />
-                        <span>{text('إضافة شركة أدوية جديدة', 'Register New Company')}</span>
-                      </button>
+                      {/* Add Company button - Inside an elegant frame and hidden for pharmacy technician */}
+                      {currentUser?.role !== 'technician' && (
+                        <div className={`p-1.5 sm:p-2 rounded-2xl border flex items-center shadow-sm transition-all ${
+                          darkMode ? 'bg-slate-950/70 border-slate-800/90 shadow-inner' : 'bg-slate-100/90 border-slate-200 shadow-inner'
+                        }`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCompanyId(null);
+                              setCompanyForm({ name: '', country: '', contactPerson: '', phone: '', email: '', notes: '' });
+                              setShowCompanyModal(true);
+                            }}
+                            className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-md shadow-teal-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-105 active:scale-95 border border-teal-400/30 ring-2 ring-teal-500/20"
+                            title={text('تسجيل شركة أدوية جديدة للمستودع', 'Register new pharmaceutical company')}
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>{text('إضافة شركة أدوية جديدة 🏢', 'Register New Company 🏢')}</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Companies Table */}
@@ -5950,21 +5990,29 @@ export default function App() {
                                   <td className="p-4 font-mono text-slate-400">{c.email || '-'}</td>
                                   <td className="p-4 text-slate-400 max-w-xs truncate" title={c.notes}>{c.notes || '-'}</td>
                                   <td className="p-4 text-left">
-                                    <div className="flex gap-2 justify-end">
-                                      <button 
-                                        onClick={() => openEditCompanyModal(c)}
-                                        className="p-1.5 bg-slate-855 hover:bg-slate-800 text-teal-400 rounded-lg hover:text-white transition cursor-pointer"
-                                        title={text("تعديل بيانات الشركة", "Edit Company Details")}
-                                      >
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button 
-                                        onClick={() => setDeleteConfirmCompanyId(c.id)}
-                                        className="p-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-lg transition cursor-pointer"
-                                        title={text("حذف الشركة", "Delete Company")}
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
+                                    <div className="flex gap-2 justify-end items-center">
+                                      {currentUser?.role !== 'technician' ? (
+                                        <>
+                                          <button 
+                                            onClick={() => openEditCompanyModal(c)}
+                                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-teal-400 rounded-lg hover:text-white transition cursor-pointer"
+                                            title={text("تعديل بيانات الشركة", "Edit Company Details")}
+                                          >
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button 
+                                            onClick={() => setDeleteConfirmCompanyId(c.id)}
+                                            className="p-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-lg transition cursor-pointer"
+                                            title={text("حذف الشركة", "Delete Company")}
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <span className="text-[11px] font-bold text-slate-500 italic px-2 py-1 bg-slate-900/60 rounded-lg border border-slate-800">
+                                          {text('عرض فقط 🔒', 'Read Only 🔒')}
+                                        </span>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -10545,8 +10593,8 @@ export default function App() {
                               )}
                             </div>
 
-                            {/* توقيت الصرف بنظام 24 ساعة وكمية الصرف والوصف السريري */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {/* توقيت الصرف بنظام 24 ساعة وكمية الصرف */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                               <div>
                                 <label className="block text-slate-300 mb-1 font-bold text-xs">
                                   {text("توقيت الصرف (24 ساعة) *", "Dispense Time (24h Schedule) *")}
@@ -10555,7 +10603,7 @@ export default function App() {
                                   required
                                   value={newDoseForm.timeSlot}
                                   onChange={(e) => setNewDoseForm(p => ({ ...p, timeSlot: e.target.value }))}
-                                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white focus:border-teal-500 outline-none text-right font-mono text-xs"
+                                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white focus:border-teal-500 outline-none text-right font-mono text-xs shadow-sm"
                                 >
                                   {HOURS_OF_DAY_24.map(h => (
                                     <option key={h.value} value={h.value}>
@@ -10580,64 +10628,73 @@ export default function App() {
                                             : `${newDoseForm.quantity || 1} ${text("وحدة", "Units")}`}
                                   </span>
                                 </label>
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-1.5">
-                                    <input 
-                                      type="number"
-                                      step="0.05"
-                                      min="0.05"
-                                      max="20"
-                                      required
-                                      value={newDoseForm.quantity || 1}
-                                      onChange={(e) => {
-                                        const q = Math.max(0.05, parseFloat(e.target.value) || 1);
-                                        const roundedQ = Math.round(q * 10000) / 10000;
-                                        setNewDoseForm(p => ({ 
-                                          ...p, 
-                                          quantity: roundedQ,
-                                          dosage: p.dosage || (
-                                            roundedQ === 0.25 ? text("ربع حبة (0.25) بعد الأكل", "0.25 Tablet after meals") :
-                                            roundedQ === 0.5 ? text("نصف حبة (0.5) بعد الأكل", "0.5 Tablet after meals") :
-                                            roundedQ === 0.2 ? text("0.2 حبة بعد الأكل", "0.2 Tablet after meals") :
-                                            roundedQ === 2 ? text("حبايتين بعد الأكل", "2 Tablets after meals") :
-                                            `${roundedQ} ${text("حبة بعد الأكل", "Tablets after meal")}`
-                                          )
-                                        }));
-                                      }}
-                                      className="w-20 px-2 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white focus:border-teal-500 outline-none text-center font-bold text-xs font-mono"
-                                      placeholder="1"
-                                    />
-                                    {/* أزرار سريعة لاختيار الكسور والكميات (0.25، 0.5، 0.2، 1، 2) */}
-                                    <div className="flex items-center gap-1 flex-1 flex-wrap sm:flex-nowrap">
-                                      {[
-                                        { val: 0.25, label: text("ربع (0.25)", "¼ (0.25)"), doseText: text("ربع حبة (0.25)", "0.25 Tablet") },
-                                        { val: 0.5, label: text("نصف (0.5)", "½ (0.5)"), doseText: text("نصف حبة (0.5)", "0.5 Tablet") },
-                                        { val: 0.2, label: "0.2", doseText: text("0.2 حبة", "0.2 Tablet") },
-                                        { val: 1, label: text("1 حبة", "1 Unit"), doseText: text("حبة واحدة بعد الإفطار", "1 Tablet after breakfast") },
-                                        { val: 2, label: text("حبايتين (2)", "2 Units"), doseText: text("حبايتين بعد الأكل", "2 Tablets after meals") }
-                                      ].map(item => (
-                                        <button
-                                          key={item.val}
-                                          type="button"
-                                          onClick={() => {
-                                            setNewDoseForm(p => ({
-                                              ...p,
-                                              quantity: item.val,
-                                              dosage: item.doseText
-                                            }));
-                                          }}
-                                          className={`flex-1 py-1 px-1 rounded-lg text-[10px] font-bold transition border cursor-pointer whitespace-nowrap text-center ${
-                                            newDoseForm.quantity === item.val 
-                                              ? "bg-teal-500/20 text-teal-300 border-teal-500/40 shadow-sm" 
-                                              : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-slate-200"
-                                          }`}
-                                        >
-                                          {item.label}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
+                                <input 
+                                  type="number"
+                                  step="0.05"
+                                  min="0.05"
+                                  max="20"
+                                  required
+                                  value={newDoseForm.quantity || 1}
+                                  onChange={(e) => {
+                                    const q = Math.max(0.05, parseFloat(e.target.value) || 1);
+                                    const roundedQ = Math.round(q * 10000) / 10000;
+                                    setNewDoseForm(p => ({ 
+                                      ...p, 
+                                      quantity: roundedQ,
+                                      dosage: p.dosage || (
+                                        roundedQ === 0.25 ? text("ربع حبة (0.25) بعد الأكل", "0.25 Tablet after meals") :
+                                        roundedQ === 0.5 ? text("نصف حبة (0.5) بعد الأكل", "0.5 Tablet after meals") :
+                                        roundedQ === 0.2 ? text("0.2 حبة بعد الأكل", "0.2 Tablet after meals") :
+                                        roundedQ === 2 ? text("حبايتين بعد الأكل", "2 Tablets after meals") :
+                                        `${roundedQ} ${text("حبة بعد الأكل", "Tablets after meal")}`
+                                      )
+                                    }));
+                                  }}
+                                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white focus:border-teal-500 outline-none text-center font-bold text-xs font-mono shadow-sm"
+                                  placeholder="1"
+                                />
+                              </div>
+                            </div>
+
+                            {/* أزرار سريعة لاختيار الكسور والكميات (ربع ونصف حبة، 0.2، 1 حبة، حبتين) موضوعة بأناقة تحت الكومبو/الحقول وداخل الإطار بالكامل */}
+                            <div className="p-2.5 rounded-2xl bg-teal-950/20 border border-teal-900/40 shadow-sm">
+                              <div className="flex items-center justify-between mb-1.5 px-0.5">
+                                <span className="text-[11px] font-bold text-teal-300 flex items-center gap-1">
+                                  <span>⚡</span>
+                                  <span>{text("أزرار سريعة للجرعات (كسور الحبة والقرص):", "Quick Dose Presets (Fractions & Tablets):")}</span>
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  {text("انقر للتطبيق المباشر", "Click to set")}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                                {[
+                                  { val: 0.2, label: text("0.2 حبة", "0.2 Tab"), badge: "0.20", doseText: text("0.2 حبة بعد الأكل", "0.2 Tablet after meals") },
+                                  { val: 0.25, label: text("ربع (¼)", "¼ Tab"), badge: "0.25", doseText: text("ربع حبة (0.25) بعد الأكل", "0.25 Tablet after meals") },
+                                  { val: 0.5, label: text("نصف (½)", "½ Tab"), badge: "0.50", doseText: text("نصف حبة (0.5) بعد الأكل", "0.5 Tablet after meals") },
+                                  { val: 1, label: text("1 حبة", "1 Tab"), badge: "1.00", doseText: text("حبة واحدة بعد الإفطار", "1 Tablet after breakfast") },
+                                  { val: 2, label: text("حبتين (2)", "2 Tabs"), badge: "2.00", doseText: text("حبايتين بعد الأكل", "2 Tablets after meals") }
+                                ].map(item => (
+                                  <button
+                                    key={item.val}
+                                    type="button"
+                                    onClick={() => {
+                                      setNewDoseForm(p => ({
+                                        ...p,
+                                        quantity: item.val,
+                                        dosage: item.doseText
+                                      }));
+                                    }}
+                                    className={`px-1 py-1.5 rounded-xl border text-xs font-bold transition flex flex-col items-center justify-center cursor-pointer active:scale-95 ${
+                                      newDoseForm.quantity === item.val 
+                                        ? "bg-teal-500 border-teal-400 text-slate-950 font-black ring-1 ring-teal-400 shadow-md shadow-teal-900/30" 
+                                        : "bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-700/80 hover:border-slate-600"
+                                    }`}
+                                  >
+                                    <span className="text-[10px] sm:text-[11px] font-bold">{item.label}</span>
+                                    <span className="text-[9px] font-mono opacity-70">{item.badge}</span>
+                                  </button>
+                                ))}
                               </div>
                             </div>
 
@@ -12473,8 +12530,8 @@ export default function App() {
               </div>
             )}
 
-            {/* ----------------- MODAL: ADD MEDICINE ----------------- */}
-            {showAddMedModal && (
+            {/* ----------------- MODAL: ADD MEDICINE (Exclusive to Admin, Owner, Developer, Pharmacist) ----------------- */}
+            {showAddMedModal && currentUser?.role !== 'technician' && ['admin', 'owner', 'developer', 'pharmacist'].includes(currentUser?.role || '') && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-5 text-slate-100 animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
                 <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl relative overflow-hidden">
                   
