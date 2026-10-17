@@ -50,5 +50,8 @@ service cloud.firestore {
     match /therapeutic_categories/{categoryId} {
       allow read, write: if true;
     }
+    match /active_sessions/{sessionId} {
+      allow read, write: if true;
+    }
   }
 }

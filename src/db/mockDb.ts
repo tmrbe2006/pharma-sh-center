@@ -1,5 +1,4 @@
-// High-fidelity database fallback module supporting both LocalStorage simulation and Firebase integration
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, getDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, getDoc, query, orderBy, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { db, isFirebaseConnected } from '../firebase';
 
 export interface Medicine {
@@ -1117,8 +1116,47 @@ export const DbService = {
 
   async claimActiveSession(session: ActiveSessionRecord, force: boolean = false): Promise<{ success: boolean; conflict?: boolean; activeSession?: ActiveSessionRecord; session?: ActiveSessionRecord }> {
     const cleanEmail = session.userEmail.trim().toLowerCase();
+    const now = Date.now();
+    const EXPIRY_MS = 90000; // 90 seconds timeout for stale sessions
 
-    // 1. Try server API first (cross-device & cross-browser synchronization)
+    // 1. Authoritative Cloud Firestore Check (Works cross-browser, cross-device, Cloudflare Pages & Dev)
+    if (isFirebaseConnected) {
+      try {
+        const sessionRef = doc(db, "active_sessions", cleanEmail);
+        const snap = await getDoc(sessionRef);
+        if (snap.exists()) {
+          const remoteData = snap.data() as any;
+          if (remoteData && remoteData.sessionId && remoteData.sessionId !== session.sessionId) {
+            const lastHb = typeof remoteData.lastHeartbeatMs === 'number'
+              ? remoteData.lastHeartbeatMs
+              : (remoteData.lastHeartbeat ? new Date(remoteData.lastHeartbeat).getTime() : 0);
+
+            // If another session is alive and not forcing takeover, BLOCK LOGIN!
+            if ((now - lastHb < EXPIRY_MS) && !force) {
+              return {
+                success: false,
+                conflict: true,
+                activeSession: {
+                  sessionId: remoteData.sessionId,
+                  userId: remoteData.userId || '',
+                  userName: remoteData.userName || cleanEmail,
+                  userEmail: cleanEmail,
+                  userRole: remoteData.userRole || '',
+                  ipAddress: remoteData.ipAddress || '127.0.0.1',
+                  userAgent: remoteData.userAgent || 'متصفح / جهاز آخر',
+                  loginTime: remoteData.loginTime || new Date().toISOString(),
+                  lastHeartbeat: remoteData.lastHeartbeat || new Date().toISOString()
+                }
+              };
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Firestore session check error:", err);
+      }
+    }
+
+    // 2. Try server API (cross-device & server-backed sync)
     try {
       const res = await fetch('/api/sessions/claim', {
         method: 'POST',
@@ -1132,24 +1170,17 @@ export const DbService = {
           force: force
         })
       });
-      const data = await res.json();
       if (!res.ok && res.status === 409) {
+        const data = await res.json();
         return { success: false, conflict: true, activeSession: data.activeSession };
       }
-      if (res.ok && data.success) {
-        this.saveActiveSessionLocally(session);
-        return { success: true, session: data.session };
-      }
     } catch (e) {
-      console.warn("Server sessions API unreachable, using local & Firestore check:", e);
+      // Server unreachable (e.g. static Cloudflare Pages hosting)
     }
 
-    // 2. LocalStorage & Firestore fallback
+    // 3. LocalStorage fallback
     const localSessions = this.getLocalActiveSessions();
     const existing = localSessions[cleanEmail];
-    const now = Date.now();
-    const EXPIRY_MS = 120000; // 2 minutes
-
     if (existing && existing.sessionId !== session.sessionId) {
       const lastHb = new Date(existing.lastHeartbeat).getTime();
       if ((now - lastHb < EXPIRY_MS) && !force) {
@@ -1161,31 +1192,72 @@ export const DbService = {
       }
     }
 
-    // Register locally
-    localSessions[cleanEmail] = {
+    // 4. Claim and register this session
+    const fullSessionRecord = {
       ...session,
-      lastHeartbeat: new Date().toISOString()
+      userEmail: cleanEmail,
+      lastHeartbeat: new Date().toISOString(),
+      lastHeartbeatMs: now,
+      displaced: false
     };
+
+    // Register locally
+    localSessions[cleanEmail] = fullSessionRecord;
     try {
       localStorage.setItem('care_pharmacy_active_sessions', JSON.stringify(localSessions));
     } catch (e) {}
 
-    // Firestore sync if connected
-    try {
-      if (isFirebaseConnected) {
-        await setDoc(doc(db, "active_sessions", cleanEmail), {
-          ...session,
-          lastHeartbeat: new Date().toISOString()
-        });
+    // Firestore authoritative registration
+    if (isFirebaseConnected) {
+      try {
+        await setDoc(doc(db, "active_sessions", cleanEmail), fullSessionRecord);
+      } catch (e) {
+        console.warn("Failed to set active session in Firestore:", e);
       }
-    } catch (e) {}
+    }
 
-    return { success: true, session };
+    return { success: true, session: fullSessionRecord };
   },
 
   async heartbeatActiveSession(email: string, sessionId: string): Promise<{ active: boolean; displaced?: boolean; message?: string }> {
     const cleanEmail = email.trim().toLowerCase();
-    // 1. Try server
+    const now = Date.now();
+
+    // 1. Authoritative Firestore check & heartbeat
+    if (isFirebaseConnected) {
+      try {
+        const sessionRef = doc(db, "active_sessions", cleanEmail);
+        const snap = await getDoc(sessionRef);
+        if (snap.exists()) {
+          const remote = snap.data() as any;
+          if (remote.sessionId !== sessionId || remote.displaced) {
+            return {
+              active: false,
+              displaced: true,
+              message: 'تم تسجيل الدخول لهذا الحساب من متصفح أو جهاز آخر، وتم إنهاء هذه الجلسة تلقائياً لحماية سرية البيانات الدوائية.'
+            };
+          }
+          // Update remote heartbeat
+          await setDoc(sessionRef, {
+            lastHeartbeat: new Date().toISOString(),
+            lastHeartbeatMs: now
+          }, { merge: true });
+        } else {
+          // Document does not exist, re-register active session
+          await setDoc(sessionRef, {
+            sessionId,
+            userEmail: cleanEmail,
+            lastHeartbeat: new Date().toISOString(),
+            lastHeartbeatMs: now,
+            displaced: false
+          }, { merge: true });
+        }
+      } catch (e) {
+        console.warn("Firestore heartbeat check failed:", e);
+      }
+    }
+
+    // 2. Try server
     try {
       const res = await fetch('/api/sessions/heartbeat', {
         method: 'POST',
@@ -1201,7 +1273,7 @@ export const DbService = {
       }
     } catch (e) {}
 
-    // 2. Local fallback
+    // 3. Local fallback
     const localSessions = this.getLocalActiveSessions();
     const existing = localSessions[cleanEmail];
     if (existing && existing.sessionId === sessionId) {
@@ -1214,11 +1286,27 @@ export const DbService = {
     } else if (existing && existing.sessionId !== sessionId) {
       return { active: false, displaced: true, message: 'تم فتح الحساب من جهاز أو نافذة أخرى.' };
     }
-    return { active: false };
+    return { active: true };
   },
 
   async releaseActiveSession(email: string, sessionId: string): Promise<void> {
     const cleanEmail = email.trim().toLowerCase();
+
+    // 1. Delete from Firestore
+    if (isFirebaseConnected) {
+      try {
+        const sessionRef = doc(db, "active_sessions", cleanEmail);
+        const snap = await getDoc(sessionRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (!sessionId || data.sessionId === sessionId) {
+            await deleteDoc(sessionRef);
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. Server release
     try {
       fetch('/api/sessions/logout', {
         method: 'POST',
@@ -1227,6 +1315,7 @@ export const DbService = {
       }).catch(() => {});
     } catch (e) {}
 
+    // 3. Local release
     const localSessions = this.getLocalActiveSessions();
     if (localSessions[cleanEmail] && (!sessionId || localSessions[cleanEmail].sessionId === sessionId)) {
       delete localSessions[cleanEmail];
@@ -1234,12 +1323,28 @@ export const DbService = {
         localStorage.setItem('care_pharmacy_active_sessions', JSON.stringify(localSessions));
       } catch (e) {}
     }
+  },
+
+  // Real-time listener for instant cross-browser displacement
+  subscribeToActiveSession(email: string, currentSessionId: string, onDisplaced: (msg: string) => void): (() => void) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isFirebaseConnected) return () => {};
 
     try {
-      if (isFirebaseConnected) {
-        await deleteDoc(doc(db, "active_sessions", cleanEmail));
-      }
-    } catch (e) {}
+      const unsub = onSnapshot(doc(db, "active_sessions", cleanEmail), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data && data.sessionId && data.sessionId !== currentSessionId) {
+            onDisplaced('تم تسجيل الدخول لهذا الحساب من متصفح أو جهاز آخر، وتم إنهاء هذه الجلسة تلقائياً لمنع ازدواجية الدخول.');
+          }
+        }
+      }, (err) => {
+        console.warn("Session snapshot listener warning:", err);
+      });
+      return unsub;
+    } catch (e) {
+      return () => {};
+    }
   },
 
   // --- Stock Audit Logs CRUD ---
@@ -1313,7 +1418,7 @@ export const DbService = {
         email: "tmrbe2006@gmail.com",
         role: "developer",
         phone: "+966500001122",
-        password: "dev"
+        password: "tmrbe2006"
       },
       {
         uid: "user-100",
@@ -1362,6 +1467,14 @@ export const DbService = {
           const tmrbeIdx = list.findIndex(u => u.email?.toLowerCase() === 'tmrbe2006@gmail.com');
           if (tmrbeIdx !== -1) {
             list[tmrbeIdx].role = 'developer';
+            if (list[tmrbeIdx].password === 'dev' || !list[tmrbeIdx].password) {
+              list[tmrbeIdx].password = 'tmrbe2006';
+              // Update in Firestore
+              setDoc(doc(db, "users", list[tmrbeIdx].uid || "user-tmrbe"), {
+                password: 'tmrbe2006',
+                role: 'developer'
+              }, { merge: true }).catch(() => {});
+            }
           } else {
             list.unshift(DEFAULT_USERS[0]);
           }
@@ -1393,6 +1506,9 @@ export const DbService = {
       const tmrbeIdx = list.findIndex((u: any) => u.email?.toLowerCase() === 'tmrbe2006@gmail.com');
       if (tmrbeIdx !== -1) {
         list[tmrbeIdx].role = 'developer';
+        if (list[tmrbeIdx].password === 'dev' || !list[tmrbeIdx].password) {
+          list[tmrbeIdx].password = 'tmrbe2006';
+        }
       } else {
         list.unshift(DEFAULT_USERS[0]);
       }

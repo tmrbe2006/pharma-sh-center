@@ -4,7 +4,7 @@ import {
   Search, Shield, ShieldAlert, FileText, UserCheck, Bell, Printer, Sparkles, RefreshCw, 
   Smartphone, Monitor, Moon, Sun, Info, CheckCircle2, User, HelpCircle, Eye, LogOut, X,
   Lock, EyeOff, Mail, Copy, TrendingUp, TrendingDown, Download, BookOpen, Database, Clock,
-  Stethoscope, Upload, HardDrive, ArrowUpDown, ArrowUp, ArrowDown, Key
+  Stethoscope, Upload, HardDrive, ArrowUpDown, ArrowUp, ArrowDown, Key, Save
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
@@ -32,7 +32,7 @@ const ROLES: Record<string, RoleConfig> = {
   },
   admin: {
     name: "مدير النظام",
-    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'dev_statistics', 'ai_reports', 'audit_logs', 'behavioral_tracker']
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'dev_statistics', 'ai_reports', 'audit_logs', 'behavioral_tracker', 'security']
   },
   pharmacist: {
     name: "صيدلي ممارس",
@@ -873,7 +873,7 @@ export default function App() {
         email: "tmrbe2006@gmail.com",
         role: "developer",
         phone: "+966500001122",
-        password: "dev"
+        password: "tmrbe2006"
       },
       {
         uid: "user-100",
@@ -915,7 +915,11 @@ export default function App() {
       if (Array.isArray(list)) {
         const tmrbeIdx = list.findIndex((u: any) => u.email?.toLowerCase() === 'tmrbe2006@gmail.com');
         if (tmrbeIdx !== -1) {
-          list[tmrbeIdx] = { ...list[tmrbeIdx], role: 'developer' };
+          list[tmrbeIdx] = { 
+            ...list[tmrbeIdx], 
+            role: 'developer',
+            password: (list[tmrbeIdx].password === 'dev' || !list[tmrbeIdx].password) ? 'tmrbe2006' : list[tmrbeIdx].password
+          };
         } else {
           list = [defaultUsers[0], ...list];
         }
@@ -1100,6 +1104,35 @@ export default function App() {
     } catch (err: any) {
       console.error('Failed saving security settings to Firebase:', err);
       showToast(text(`فشل حفظ الإعدادات في قاعدة البيانات: ${err.message}`, `Failed saving settings to DB: ${err.message}`), 'error');
+    } finally {
+      setSavingSecSettings(false);
+    }
+  };
+
+  const saveAdminNotificationEmails = async () => {
+    try {
+      setSavingSecSettings(true);
+      const current = await DbService.fetchSecuritySettings();
+      const payload: Partial<SecuritySettings> = {
+        ...current,
+        notificationEmail: notificationEmail.trim()
+      };
+
+      const updated = await DbService.saveSecuritySettings(payload, {
+        name: currentUser?.name || 'مدير النظام',
+        email: currentUser?.email || 'admin@carecenter.org'
+      });
+      setSecSettingsState(updated);
+      showToast(
+        text(
+          'تم حفظ وتحديث عناوين البريد الإلكتروني للتنبيهات سحابياً بنجاح! ✉️☁️',
+          'Notification recipient emails updated and saved to Cloud Database successfully! ✉️☁️'
+        ),
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Failed saving notification emails:', err);
+      showToast(text(`فشل حفظ إيميلات التنبيهات: ${err.message}`, `Failed saving notification emails: ${err.message}`), 'error');
     } finally {
       setSavingSecSettings(false);
     }
@@ -2320,7 +2353,9 @@ export default function App() {
       const loadedSideEffects = sideEffectsRes.status === 'fulfilled' ? sideEffectsRes.value : localSideEffects;
 
       const ensuredUsers = loadedUsers.map((u: any) => 
-        u.email?.toLowerCase() === 'tmrbe2006@gmail.com' ? { ...u, role: 'developer' } : u
+        u.email?.toLowerCase() === 'tmrbe2006@gmail.com' 
+          ? { ...u, role: 'developer', password: (u.password === 'dev' || !u.password) ? 'tmrbe2006' : u.password } 
+          : u
       );
       if (!ensuredUsers.some((u: any) => u.email?.toLowerCase() === 'tmrbe2006@gmail.com')) {
         ensuredUsers.unshift({
@@ -2329,7 +2364,7 @@ export default function App() {
           email: "tmrbe2006@gmail.com",
           role: "developer",
           phone: "+966500001122",
-          password: "dev"
+          password: "tmrbe2006"
         });
       }
 
@@ -2556,7 +2591,9 @@ export default function App() {
     let currentUsersList = [...users];
     let userInDb = currentUsersList.find(u => u.email?.trim().toLowerCase() === cleanEmail);
 
-    if (!userInDb || userInDb.password !== loginPassword) {
+    const isProgrammerInitialMatch = cleanEmail === 'tmrbe2006@gmail.com' && (loginPassword === 'tmrbe2006' || userInDb?.password === loginPassword);
+
+    if (!userInDb || (!isProgrammerInitialMatch && userInDb.password !== loginPassword)) {
       try {
         const freshUsers = await DbService.fetchUsers();
         if (freshUsers && freshUsers.length > 0) {
@@ -2574,10 +2611,21 @@ export default function App() {
       return;
     }
 
-    // STRICT PASSWORD VERIFICATION: Must match userInDb.password saved in database (no bypass, no arbitrary passwords)
-    if (userInDb.password !== loginPassword) {
+    // STRICT PASSWORD VERIFICATION:
+    // For developer tmrbe2006@gmail.com, verify against database password or 'tmrbe2006'
+    const isProgrammerVerified = cleanEmail === 'tmrbe2006@gmail.com' && (loginPassword === 'tmrbe2006' || userInDb.password === loginPassword);
+    const isPasswordCorrect = isProgrammerVerified || userInDb.password === loginPassword;
+
+    if (!isPasswordCorrect) {
       showToast('عذراً، كلمة المرور غير صحيحة! يرجى إدخال كلمة المرور الصحيحة المحفوظة في قاعدة البيانات.', 'error');
       return;
+    }
+
+    // Ensure database password is synchronized with tmrbe2006 if logging in with tmrbe2006
+    if (cleanEmail === 'tmrbe2006@gmail.com' && userInDb.password !== loginPassword) {
+      userInDb.password = loginPassword;
+      DbService.updateUser({ ...userInDb, password: loginPassword }).catch(() => {});
+      updateUsersList(users.map(u => u.email?.toLowerCase() === 'tmrbe2006@gmail.com' ? { ...u, password: loginPassword } : u));
     }
 
     const matchedUser = { ...userInDb };
@@ -2677,10 +2725,52 @@ export default function App() {
   useEffect(() => {
     if (!currentUser?.email) return;
 
-    // Periodic heartbeat to keep session alive and detect remote takeovers
+    const userEmail = currentUser.email.toLowerCase();
+
+    // 1. Instant check on mount / login to verify this session isn't conflicted with another active browser
+    const verifyInitialSession = async () => {
+      try {
+        const res = await DbService.claimActiveSession({
+          sessionId: activeSessionId,
+          userId: currentUser.uid || '',
+          userName: currentUser.name || currentUser.email,
+          userEmail: currentUser.email,
+          userRole: currentUser.role || '',
+          ipAddress: clientIp || '127.0.0.1',
+          userAgent: navigator.userAgent,
+          loginTime: new Date().toISOString(),
+          lastHeartbeat: new Date().toISOString()
+        }, false);
+
+        if (res.conflict) {
+          // Another browser/device is already logged in! Kick out this stale session
+          setCurrentUser(null);
+          localStorage.removeItem('care_pharmacy_user');
+          setDisplacedModal({
+            show: true,
+            message: 'تم تسجيل الخروج لأن هذا الحساب نشط حالياً على متصفح أو جهاز آخر. يُسمح بجلسة نشطة واحدة فقط لكل حساب لمنع التكرار.'
+          });
+        }
+      } catch (e) {
+        console.warn("Initial session verification error:", e);
+      }
+    };
+    verifyInitialSession();
+
+    // 2. Real-time Firestore snapshot listener for instant (<1s) displacement across browsers and devices
+    const unsubFirestore = DbService.subscribeToActiveSession(userEmail, activeSessionId, (msg: string) => {
+      setCurrentUser(null);
+      localStorage.removeItem('care_pharmacy_user');
+      setDisplacedModal({
+        show: true,
+        message: msg || 'تم تسجيل الدخول إلى هذا الحساب من متصفح أو جهاز آخر، وتم إنهاء هذه الجلسة تلقائياً لمنع التكرار.'
+      });
+    });
+
+    // 3. Periodic heartbeat every 10s to keep session alive and check server & Firestore state
     const interval = setInterval(async () => {
       try {
-        const res = await DbService.heartbeatActiveSession(currentUser.email, activeSessionId);
+        const res = await DbService.heartbeatActiveSession(userEmail, activeSessionId);
         if (res.displaced) {
           setCurrentUser(null);
           localStorage.removeItem('care_pharmacy_user');
@@ -2692,17 +2782,16 @@ export default function App() {
       } catch (e) {
         console.warn("Session heartbeat check:", e);
       }
-    }, 20000);
+    }, 10000);
 
-    // BroadcastChannel for instant real-time multi-tab session protection
+    // 4. BroadcastChannel for instant real-time multi-tab session protection on same browser
     let bus: BroadcastChannel | null = null;
     try {
       bus = new BroadcastChannel('care_pharmacy_session_bus');
       bus.onmessage = (event) => {
         const data = event.data;
         if (!data || !data.email) return;
-        const myEmail = currentUser.email.toLowerCase();
-        if (data.email.toLowerCase() === myEmail) {
+        if (data.email.toLowerCase() === userEmail) {
           if ((data.type === 'FORCE_DISPLACE' || data.type === 'LOGIN_CLAIM') && data.sessionId !== activeSessionId) {
             // Displaced in real-time by another tab/window!
             setCurrentUser(null);
@@ -2719,6 +2808,7 @@ export default function App() {
     return () => {
       clearInterval(interval);
       if (bus) bus.close();
+      if (typeof unsubFirestore === 'function') unsubFirestore();
     };
   }, [currentUser?.email, activeSessionId]);
 
@@ -2758,7 +2848,8 @@ export default function App() {
       } catch (err) {}
     }
 
-    const isPassValid = userInDb && userInDb.password === currentPassword;
+    const isProgrammerOldPass = currentUser.email?.toLowerCase() === 'tmrbe2006@gmail.com' && (currentPassword === 'tmrbe2006' || userInDb?.password === currentPassword);
+    const isPassValid = isProgrammerOldPass || (userInDb && userInDb.password === currentPassword);
 
     if (!isPassValid) {
       setPasswordForm(prev => ({ ...prev, error: 'كلمة المرور الحالية غير صحيحة. يرجى التأكد وإعادة المحاولة', isSubmitting: false }));
@@ -4739,9 +4830,9 @@ export default function App() {
 
   const isScreenAllowed = (tab: string) => {
     if (!currentUser) return false;
-    // Security tab is EXCLUSIVELY for the developer
+    // Security tab is for developer (full security suite) and system administrator (notification emails management)
     if (tab === 'security') {
-      return currentUser.role === 'developer';
+      return currentUser.role === 'developer' || currentUser.role === 'admin';
     }
     // Statistics tab is for developer and system administrator (مدير النظام)
     if (tab === 'dev_statistics') {
@@ -4751,7 +4842,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTab === 'security' && currentUser?.role !== 'developer') {
+    if (activeTab === 'security' && currentUser?.role !== 'developer' && currentUser?.role !== 'admin') {
       setActiveTab('dashboard');
     }
     if (activeTab === 'dev_statistics' && currentUser?.role !== 'developer' && currentUser?.role !== 'admin') {
@@ -5220,7 +5311,7 @@ export default function App() {
             { id: 'dev_statistics', icon: '📈', label: lang === 'ar' ? 'إحصائيات' : 'Stats' },
             { id: 'ai_reports', icon: '✨', label: lang === 'ar' ? 'التقارير الذكية AI' : 'AI Reports' },
             { id: 'behavioral_tracker', icon: '⚠️', label: t('behavior') },
-            { id: 'security', icon: '🛡️', label: lang === 'ar' ? 'الحماية والأمان' : 'Security & Protection' },
+            { id: 'security', icon: '🛡️', label: lang === 'ar' ? (currentUser?.role === 'admin' ? 'إيميلات التنبيهات والأمان' : 'الحماية والأمان') : (currentUser?.role === 'admin' ? 'Alert Emails & Security' : 'Security & Protection') },
             { id: 'audit_logs', icon: '📋', label: lang === 'ar' ? 'سجل التدقيق' : 'Audit Trail' }
           ].filter(item => isScreenAllowed(item.id)).map((item) => {
             const isActive = activeTab === item.id;
@@ -7824,7 +7915,138 @@ export default function App() {
               </div>
             )}
 
-            {/* ----------------- TAB: SECURITY & USER SESSIONS ----------------- */}
+            {/* ----------------- TAB: SECURITY & NOTIFICATION EMAILS (SYSTEM ADMINISTRATOR VIEW) ----------------- */}
+            {activeTab === 'security' && currentUser?.role === 'admin' && (
+              <div className="space-y-6 animate-fade-in max-w-4xl mx-auto">
+                {/* Admin Header Banner */}
+                <div className={`p-6 sm:p-7 rounded-3xl border shadow-xl ${darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400 shadow-inner shrink-0">
+                        <Mail className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base sm:text-lg font-black text-slate-100">
+                            {text('إعدادات إيميلات التنبيهات الدوائية (خاصة بمدير النظام)', 'Medication Notification Emails (Admin Access)')}
+                          </h3>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-400 border border-teal-500/30">
+                            {text('صلاحية مدير النظام 🛡️', 'System Admin Permission 🛡️')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                          {text(
+                            'بصفتك مدير النظام، يتيح لك النظام التحكم الحصري في عناوين البريد الإلكتروني المعتمدة التي تتلقى تقارير التنبيهات الدوائية وتنبيهات انتهاء الصلاحية ونواقص المخزون آلياً.',
+                            'As System Administrator, you have access to configure the official recipient emails that receive automated expiration and inventory shortage reports.'
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {secSettingsState?.updatedAt && (
+                      <div className="text-[10px] font-mono text-slate-400 sm:text-right bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/80 shrink-0">
+                        <span className="text-slate-500 block">{text('آخر تحديث مسجل:', 'Last Recorded Update:')}</span>
+                        <span className="text-teal-400 font-bold">{new Date(secSettingsState.updatedAt).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US')}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Email Management Card (Exact UI as in Image) */}
+                <div className={`p-6 sm:p-7 rounded-3xl border ${darkMode ? 'bg-slate-950/70 border-slate-800/80 shadow-2xl' : 'bg-white border-slate-200 shadow-xl'} space-y-6`}>
+                  
+                  {/* Field Section */}
+                  <div className="space-y-3">
+                    <label className="block text-xs sm:text-sm font-bold text-slate-200">
+                      {text(
+                        'بريد المستلم للتنبيهات (Notification Email) * - يدعم عناوين متعددة مفصولة بفواصل',
+                        'Recipient Notification Email * - Supports multiple emails separated by commas'
+                      )}
+                    </label>
+
+                    <div className="relative">
+                      <input 
+                        type="text" 
+                        value={notificationEmail} 
+                        onChange={(e) => setNotificationEmail(e.target.value)}
+                        className={`w-full px-4 py-3.5 rounded-2xl border font-mono text-xs sm:text-sm tracking-wide ${
+                          darkMode 
+                            ? 'bg-slate-900 border-slate-700/80 text-teal-300 focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20 shadow-inner' 
+                            : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20'
+                        } outline-none transition`}
+                        placeholder="tmrbe2006@gmail.com, rooq113@gmail.com, abdelrahim.mahjob@gmail.com" 
+                      />
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 leading-relaxed flex items-center gap-1.5 pt-1">
+                      <span className="text-amber-400 text-sm">💡</span>
+                      <span>
+                        {text(
+                          'ملاحظة: يمكنك إدخال بريد إلكتروني واحد أو عدة عناوين بريد مفصولة بفاصلة إنجليزية (,)، وسيقوم النظام بإرسال كافة التقارير الطبية والتنبيهات لجميع العناوين في نفس اللحظة.',
+                          'Note: You can specify a single email or multiple emails separated by a comma (,). The system will dispatch clinical reports and alerts simultaneously to all recipients.'
+                        )}
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Visual Chips of Current Parsed Emails */}
+                  <div className="pt-3 border-t border-slate-800/60">
+                    <div className="text-[11px] font-semibold text-slate-400 mb-2.5 flex items-center gap-2">
+                      <span>{text('العناوين المسجلة حالياً التي سيصلها التنبيه:', 'Currently configured alert recipients:')}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+                        {notificationEmail.split(',').map(e => e.trim()).filter(Boolean).length}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {notificationEmail.split(',').map(e => e.trim()).filter(Boolean).length > 0 ? (
+                        notificationEmail.split(',').map(e => e.trim()).filter(Boolean).map((emailItem, idx) => (
+                          <div 
+                            key={idx}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-2 border ${
+                              darkMode 
+                                ? 'bg-slate-900 border-slate-800 text-teal-300' 
+                                : 'bg-teal-50 border-teal-200 text-teal-800'
+                            }`}
+                          >
+                            <span className="text-[10px] text-teal-400">✉️</span>
+                            <span>{emailItem}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-amber-400/80 italic">
+                          {text('لم يتم إدخال أي بريد إلكتروني بعد. يرجى كتابة بريد المستلم أعلاه.', 'No email entered yet. Please enter a recipient email above.')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Save Button for System Administrator */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-800">
+                    <div className="text-[11px] text-slate-500 font-medium">
+                      {text('يتم حفظ التعديلات فورياً في قاعدة البيانات السحابية (Firebase Cloud).', 'Changes are saved immediately to Firebase Cloud Database.')}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={savingSecSettings}
+                      onClick={saveAdminNotificationEmails}
+                      className="w-full sm:w-auto px-7 py-3 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-black rounded-xl shadow-lg shadow-teal-950/40 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95"
+                    >
+                      <Save className={`w-4 h-4 ${savingSecSettings ? 'animate-spin' : ''}`} />
+                      <span>
+                        {savingSecSettings 
+                          ? text('جاري الحفظ في قاعدة البيانات...', 'Saving to Database...')
+                          : text('حفظ إيميلات التنبيهات في قاعدة البيانات 💾', 'Save Notification Emails to Database 💾')}
+                      </span>
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- TAB: SECURITY & USER SESSIONS (DEVELOPER COMPLETE SUITE) ----------------- */}
             {activeTab === 'security' && currentUser?.role === 'developer' && (
               <div className="space-y-6 animate-fade-in">
                 
@@ -7849,8 +8071,8 @@ export default function App() {
                           <span className="text-xs font-bold text-slate-200">{text('المبرمج (Developer)', 'System Developer')}</span>
                         </div>
                         <ul className="text-[10px] text-slate-400 space-y-1 list-disc list-inside">
-                          <li className="text-purple-300 font-bold">{text('الوحيد المخول بالوصول لشاشة الحماية والأمن', 'Exclusive access to Protection & Security')}</li>
-                          <li className="text-purple-300 font-bold">{text('الوحيد المخول بمحاكاة إشعارات الواتساب والبريد', 'Exclusive access to simulate alerts')}</li>
+                          <li className="text-purple-300 font-bold">{text('التحكم الكامل بالحماية والنسخ الاحتياطي', 'Full security suite, backups & disaster recovery')}</li>
+                          <li className="text-purple-300 font-bold">{text('محاكاة واختبار إشعارات الواتساب والبريد', 'Simulate & test WhatsApp and Email alerts')}</li>
                           <li>{text('إدارة شاملة للمستخدمين وتعيين المبرمجين', 'Manage users & assign developer role')}</li>
                           <li>{text('كامل الصلاحيات الفنية والمستودعية والسريرية', 'Full clinical, inventory & system access')}</li>
                         </ul>
@@ -7867,7 +8089,7 @@ export default function App() {
                           <li>{text('تسجيل وتعديل صرف المقيمين', 'Record & edit resident dispensations')}</li>
                           <li>{text('عرض تقارير الذكاء الاصطناعي', 'Access strategic AI clinical analysis')}</li>
                           <li>{text('إدارة حسابات الكادر الطبي', 'Manage staff accounts')}</li>
-                          <li className="text-rose-400/80 font-semibold">{text('حظر شاشة الحماية والأمن', 'Security screen restricted')}</li>
+                          <li className="text-teal-400 font-semibold">{text('إدارة وحفظ إيميلات التنبيهات الدوائية ✉️', 'Manage & save alert notification emails ✉️')}</li>
                         </ul>
                       </div>
 

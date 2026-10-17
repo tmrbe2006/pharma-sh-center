@@ -35,6 +35,7 @@ async function startServer() {
   });
 
   // Active Sessions Tracking (Single Active Session per User & Prevention of Concurrent Logins)
+  // Active Sessions Tracking (Single Active Session per User & Prevention of Concurrent Logins)
   interface ServerActiveSession {
     sessionId: string;
     userId: string;
@@ -47,18 +48,48 @@ async function startServer() {
     lastHeartbeat: number;
   }
 
-  const activeSessions = new Map<string, ServerActiveSession>();
-  const SESSION_EXPIRY_MS = 120000; // 2 minutes heartbeat expiration window
+  const SESSIONS_CACHE_FILE = path.join(__dirname, '.sessions_cache.json');
+  const SESSION_EXPIRY_MS = 90000; // 90 seconds heartbeat expiration window
 
-  // Clean up stale sessions periodically (every 60 seconds)
+  function loadCachedSessions(): Map<string, ServerActiveSession> {
+    const map = new Map<string, ServerActiveSession>();
+    try {
+      if (fs.existsSync(SESSIONS_CACHE_FILE)) {
+        const raw = fs.readFileSync(SESSIONS_CACHE_FILE, 'utf8');
+        const data = JSON.parse(raw);
+        if (Array.isArray(data)) {
+          const now = Date.now();
+          data.forEach((s: ServerActiveSession) => {
+            if (s && s.userEmail && (now - s.lastHeartbeat < SESSION_EXPIRY_MS)) {
+              map.set(s.userEmail, s);
+            }
+          });
+        }
+      }
+    } catch (e) {}
+    return map;
+  }
+
+  function saveCachedSessions(map: Map<string, ServerActiveSession>) {
+    try {
+      fs.writeFileSync(SESSIONS_CACHE_FILE, JSON.stringify(Array.from(map.values())), 'utf8');
+    } catch (e) {}
+  }
+
+  const activeSessions = loadCachedSessions();
+
+  // Clean up stale sessions periodically (every 30 seconds)
   setInterval(() => {
     const now = Date.now();
+    let changed = false;
     for (const [email, sess] of activeSessions.entries()) {
       if (now - sess.lastHeartbeat > SESSION_EXPIRY_MS) {
         activeSessions.delete(email);
+        changed = true;
       }
     }
-  }, 60000);
+    if (changed) saveCachedSessions(activeSessions);
+  }, 30000);
 
   // API 1.2: Check and Claim User Session (Enforces single active user login on system)
   app.post('/api/sessions/claim', (req, res) => {
@@ -113,6 +144,7 @@ async function startServer() {
       };
 
       activeSessions.set(cleanEmail, newSession);
+      saveCachedSessions(activeSessions);
 
       res.json({
         success: true,
@@ -137,7 +169,25 @@ async function startServer() {
       const now = Date.now();
 
       if (!existing) {
-        return res.json({ success: false, active: false, reason: 'not_found' });
+        // No session registered yet, adopt this session safely
+        let ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+        if (Array.isArray(ip)) ip = ip[0];
+        if (ip.startsWith('::ffff:')) ip = ip.substring(7);
+
+        const newSession: ServerActiveSession = {
+          sessionId,
+          userId: '',
+          userEmail: cleanEmail,
+          userName: cleanEmail,
+          userRole: '',
+          ipAddress: String(ip),
+          userAgent: String(req.headers['user-agent'] || 'Unknown Device'),
+          loginTime: new Date().toISOString(),
+          lastHeartbeat: now
+        };
+        activeSessions.set(cleanEmail, newSession);
+        saveCachedSessions(activeSessions);
+        return res.json({ success: true, active: true });
       }
 
       if (existing.sessionId !== sessionId) {
@@ -152,6 +202,7 @@ async function startServer() {
       }
 
       existing.lastHeartbeat = now;
+      saveCachedSessions(activeSessions);
       res.json({ success: true, active: true });
     } catch (e: any) {
       res.status(500).json({ error: 'فشل تحديث نبضة الجلسة', details: e.message });
@@ -171,6 +222,7 @@ async function startServer() {
 
       if (existing && (!sessionId || existing.sessionId === sessionId)) {
         activeSessions.delete(cleanEmail);
+        saveCachedSessions(activeSessions);
       }
 
       res.json({ success: true, message: 'تم إخلاء الجلسة النشطة بنجاح.' });
