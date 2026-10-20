@@ -296,7 +296,7 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
 
       content += `${isAr ? '1. إحصائيات الكيانات الأساسية (الأعداد الإجمالية):' : '1. Core Entities Counts:'}\n`;
       content += `${isAr ? 'البيان' : 'Entity'},${isAr ? 'العدد الإجمالي' : 'Total Count'},${isAr ? 'تفاصيل إضافية' : 'Details'}\n`;
-      content += `${isAr ? 'المقيمين' : 'Residents'},${residentStats.total},${isAr ? `متوسط العمر: ${residentStats.avgAge} سنة | الغرف: ${residentStats.uniqueRoomsCount}` : `Avg Age: ${residentStats.avgAge} | Rooms: ${residentStats.uniqueRoomsCount}`}\n`;
+      content += `${isAr ? 'المستفيدين' : 'Beneficiaries'},${residentStats.total},${isAr ? `متوسط العمر: ${residentStats.avgAge} سنة | الغرف: ${residentStats.uniqueRoomsCount}` : `Avg Age: ${residentStats.avgAge} | Rooms: ${residentStats.uniqueRoomsCount}`}\n`;
       content += `${isAr ? 'المستخدمين' : 'Users'},${userStats.total},${isAr ? `مبرمج: ${userStats.byRole.developer} | مدير: ${userStats.byRole.admin} | صيدلي: ${userStats.byRole.pharmacist} | فني: ${userStats.byRole.technician}` : `Dev: ${userStats.byRole.developer} | Admin: ${userStats.byRole.admin} | Pharm: ${userStats.byRole.pharmacist} | Tech: ${userStats.byRole.technician}`}\n`;
       content += `${isAr ? 'الأصناف الدوائية' : 'Medicines'},${medicineStats.total},${isAr ? `إجمالي الوحدات بالمخزن: ${medicineStats.totalStockUnits} | نافد: ${medicineStats.outOfStock} | حرج: ${medicineStats.lowStock}` : `Total Warehouse Units: ${medicineStats.totalStockUnits} | Out of stock: ${medicineStats.outOfStock}`}\n`;
       content += `${isAr ? 'وحدات القياس' : 'Measurement Units'},${unitStats.total},${isAr ? `المستخدمة: ${unitStats.usedCount} | غير المستخدمة: ${unitStats.unusedCount}` : `Used: ${unitStats.usedCount} | Unused: ${unitStats.unusedCount}`}\n`;
@@ -374,8 +374,8 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
               {text(
-                'رصد فوري متزامن لأعداد المقيمين، المستخدمين، الأدوية والمخزون، الوحدات القياسية، الفئات العلاجية، وحركات التدقيق البرمجية الحية في قاعدة البيانات.',
-                'Real-time live audit of Residents, Users, Medicines, Units, Therapeutic Classes, and low-level database telemetry.'
+                'رصد فوري متزامن لأعداد المستفيدين، المستخدمين، الأدوية والمخزون، الوحدات القياسية، الفئات العلاجية، وحركات التدقيق البرمجية الحية في قاعدة البيانات.',
+                'Real-time live audit of Beneficiaries, Users, Medicines, Units, Therapeutic Classes, and low-level database telemetry.'
               )}
             </p>
           </div>
@@ -430,7 +430,7 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
 
       {/* 2. THE CORE 5 ENTITY CARDS - Exact User Request Highlight */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {/* Card 1: Residents (المقيمين) */}
+        {/* Card 1: Beneficiaries (المستفيدين) */}
         <div className={`p-5 rounded-3xl border transition-all hover:scale-[1.02] shadow-lg relative overflow-hidden ${
           darkMode ? 'bg-slate-900/60 border-blue-500/30' : 'bg-white border-blue-200'
         }`}>
@@ -439,14 +439,14 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
               <Users className="w-5 h-5" />
             </span>
             <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400/80 bg-blue-500/10 px-2 py-0.5 rounded-full">
-              {text('المقيمين', 'Residents')}
+              {text('المستفيدين', 'Beneficiaries')}
             </span>
           </div>
           <div className="text-3xl font-black text-slate-100 font-mono tracking-tight">
             {residentStats.total}
           </div>
           <div className="text-xs font-bold text-slate-300 mt-1">
-            {text('إجمالي نزلاء المركز', 'Total Residents')}
+            {text('إجمالي مستفيدي المركز', 'Total Beneficiaries')}
           </div>
           <div className="mt-3 pt-3 border-t border-slate-800/60 text-[11px] text-slate-400 space-y-1">
             <div className="flex justify-between">
@@ -675,7 +675,7 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
           { id: 'overview', icon: '📊', label: text('لوحة التحليل والرسوم البيانية', 'Charts & Analytics') },
           { id: 'entities', icon: '🏷️', label: text('تفصيل الوحدات والفئات العلاجية', 'Units & Categories Breakdown') },
           { id: 'medicines', icon: '💊', label: text('تفصيل حالة الأدوية والمخزون', 'Medicines & Inventory Audit') },
-          { id: 'residents', icon: '👥', label: text('توزيع المقيمين والأجنحة', 'Residents & Rooms Demographics') },
+          { id: 'residents', icon: '👥', label: text('توزيع المستفيدين والأجنحة', 'Beneficiaries & Rooms Demographics') },
           ...(currentUser?.role === 'developer' ? [
             { id: 'database', icon: '🗄️', label: text('صحة الداتابيز ومجموعات البيانات', 'Database Health & Collections') }
           ] : [])
@@ -1132,30 +1132,30 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
               <div className="flex items-center gap-2 mb-4">
                 <Users className="w-5 h-5 text-blue-400" />
                 <h3 className="font-bold text-sm text-slate-100">
-                  {text('توزيع المقيمين حسب الأجنحة والغرف', 'Residents per Room/Ward')}
+                  {text('توزيع المستفيدين حسب الأجنحة والغرف', 'Beneficiaries per Room/Ward')}
                 </h3>
               </div>
               <div className="space-y-2 max-h-80 overflow-y-auto">
                 {Object.entries(residentStats.roomMap).map(([room, count], idx) => (
                   <div key={idx} className="p-2.5 rounded-xl bg-slate-800/30 border border-slate-800 flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-200">{text(`غرفة / جناح: ${room}`, `Room/Ward: ${room}`)}</span>
-                    <span className="font-mono font-bold text-xs text-blue-400">{count} {text('نزلاء', 'residents')}</span>
+                    <span className="font-mono font-bold text-xs text-blue-400">{count} {text('مستفيدين', 'beneficiaries')}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Residents quick audit list */}
+            {/* Beneficiaries quick audit list */}
             <div className={`p-5 rounded-3xl border lg:col-span-2 ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-teal-400" />
                   <h3 className="font-bold text-sm text-slate-100">
-                    {text('قائمة المقيمين المسجلين في النظام', 'Registered Residents List')}
+                    {text('قائمة المستفيدين المسجلين في النظام', 'Registered Beneficiaries List')}
                   </h3>
                 </div>
                 <span className="text-[10px] font-mono text-slate-400">
-                  {residentStats.total} {text('مقيم', 'residents')}
+                  {residentStats.total} {text('مستفيد', 'beneficiaries')}
                 </span>
               </div>
 
@@ -1163,7 +1163,7 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
                 <table className="w-full text-right text-xs">
                   <thead className="sticky top-0 bg-slate-900/90 backdrop-blur-xs">
                     <tr className="border-b border-slate-800 text-slate-400 font-bold">
-                      <th className="pb-2.5 text-right">{text('اسم المقيم', 'Resident Name')}</th>
+                      <th className="pb-2.5 text-right">{text('اسم المستفيد', 'Beneficiary Name')}</th>
                       <th className="pb-2.5 text-right">{text('الغرفة', 'Room')}</th>
                       <th className="pb-2.5 text-right">{text('العمر', 'Age')}</th>
                       <th className="pb-2.5 text-left">{text('الهوية الوطنية', 'ID')}</th>
@@ -1181,7 +1181,7 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
                     {residents.length === 0 && (
                       <tr>
                         <td colSpan={4} className="py-8 text-center text-slate-500">
-                          {text('لا يوجد مقيمين مسجلين في النظام', 'No residents registered yet')}
+                          {text('لا يوجد مستفيدين مسجلين في النظام', 'No beneficiaries registered yet')}
                         </td>
                       </tr>
                     )}
@@ -1212,7 +1212,7 @@ export const DeveloperStatisticsTab: React.FC<DeveloperStatisticsTabProps> = ({
                   { name: 'behavior_logs (المتابعة السلوكية)', count: extraStats.totalBehavior, color: 'text-rose-400' },
                   { name: 'dispense_records (سجلات الصرف)', count: extraStats.totalDispenses, color: 'text-cyan-400' },
                   { name: 'item_units (وحدات الأصناف)', count: unitStats.total, color: 'text-amber-300' },
-                  { name: 'residents (ملفات المقيمين)', count: residentStats.total, color: 'text-blue-400' },
+                  { name: 'residents (ملفات المستفيدين)', count: residentStats.total, color: 'text-blue-400' },
                   { name: 'security_settings (إعدادات الأمان)', count: 1, color: 'text-purple-400' },
                   { name: 'settings (إعدادات النظام العامة)', count: 2, color: 'text-slate-300' },
                   { name: 'stock_audit_logs (سجل التدقيق)', count: extraStats.totalLogs, color: 'text-indigo-400' },

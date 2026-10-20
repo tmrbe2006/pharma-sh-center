@@ -1,5 +1,28 @@
 @import "tailwindcss";
 
+/* Prevent horizontal overflow across all screens and viewports */
+html, body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Elegant Power BI & Slicers internal scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 184, 166, 0.5);
+}
+
 /* ==========================================================================
    THEME SKINS ENGINE FOR CARE PHARMACY
    ========================================================================== */

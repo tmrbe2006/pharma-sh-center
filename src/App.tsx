@@ -4,13 +4,15 @@ import {
   Search, Shield, ShieldAlert, FileText, UserCheck, Bell, Printer, Sparkles, RefreshCw, 
   Smartphone, Monitor, Moon, Sun, Info, CheckCircle2, User, HelpCircle, Eye, LogOut, X,
   Lock, EyeOff, Mail, Copy, TrendingUp, TrendingDown, Download, BookOpen, Database, Clock,
-  Stethoscope, Upload, HardDrive, ArrowUpDown, ArrowUp, ArrowDown, Key, Save
+  Stethoscope, Upload, HardDrive, ArrowUpDown, ArrowUp, ArrowDown, Key, Save,
+  LayoutDashboard, Layers, Boxes, ShieldCheck, BarChart3, ClipboardList, Menu, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen, Building, Users,
+  ChevronDown, Zap, MoreVertical
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
   PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
-import { DbService, Medicine, DispenseRecord, UserSession, ActiveSessionRecord, StockAuditLog, SecuritySettings, DEFAULT_SECURITY_SETTINGS, getLocalSecuritySettings, DEFAULT_UNITS, DEFAULT_CATEGORIES, getLocalUnits, getLocalCategories, getLocalMedicines, getLocalDispenses, getLocalSessions, getLocalStockLogs, getLocalResidents, saveLocalResidents, getLocalCompanies, saveLocalCompanies, getLocalBehaviorLogs, saveLocalBehaviorLogs, getLocalCustomSideEffects, saveLocalCustomSideEffects } from './db/mockDb';
+import { DbService, Medicine, DispenseRecord, UserSession, ActiveSessionRecord, StockAuditLog, SecuritySettings, DEFAULT_SECURITY_SETTINGS, getLocalSecuritySettings, saveLocalSecuritySettings, DEFAULT_UNITS, DEFAULT_CATEGORIES, getLocalUnits, getLocalCategories, getLocalMedicines, getLocalDispenses, getLocalSessions, getLocalStockLogs, getLocalResidents, saveLocalResidents, getLocalCompanies, saveLocalCompanies, getLocalBehaviorLogs, saveLocalBehaviorLogs, getLocalCustomSideEffects, saveLocalCustomSideEffects, Doctor, getLocalDoctors, isMedicalSuppliesCategory } from './db/mockDb';
 import { isFirebaseConnected, firebaseConfig } from './firebase';
 import { PWAInstallButton } from './PWAInstallButton';
 import { OfflineIndicator } from './OfflineIndicator';
@@ -28,19 +30,19 @@ interface RoleConfig {
 const ROLES: Record<string, RoleConfig> = {
   developer: {
     name: "المبرمج",
-    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'dev_statistics', 'security', 'ai_reports', 'audit_logs', 'behavioral_tracker']
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'dev_statistics', 'security', 'ai_reports', 'audit_logs', 'behavioral_tracker', 'doctors']
   },
   admin: {
     name: "مدير النظام",
-    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'dev_statistics', 'ai_reports', 'audit_logs', 'behavioral_tracker', 'security']
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'users', 'ai_reports', 'behavioral_tracker', 'security', 'doctors']
   },
   pharmacist: {
     name: "صيدلي ممارس",
-    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'ai_reports', 'audit_logs', 'behavioral_tracker']
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'ai_reports', 'behavioral_tracker', 'doctors']
   },
   technician: {
     name: "فني صيدلة",
-    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'audit_logs', 'behavioral_tracker']
+    allowedScreens: ['dashboard', 'inventory', 'dispense', 'residents', 'units', 'categories', 'behavioral_tracker', 'doctors']
   }
 };
 
@@ -315,7 +317,7 @@ export const generateFormattedEmailReports = (meds: Medicine[], thresholdDays: n
   ar += `البند الرابع: التوصيات الإدارية والرقابية المعتمدة\n`;
   ar += `1. الالتزام بتطبيق قاعدة الصرف الدوائي للأقرب انتهاءً لضمان كفاءة المخزون.\n`;
   ar += `2. المراجعة المستمرة لدرجات حرارة الثلاجات وغرف التخزين لحفظ الفعالية الحيوية.\n`;
-  ar += `3. استمرار التنسيق بين الصيدلية والأقسام الطبية لضمان سلامة مقيمي المركز.\n\n`;
+  ar += `3. استمرار التنسيق بين الصيدلية والأقسام الطبية لضمان سلامة مستفيدي المركز.\n\n`;
   ar += `صادر رسمي عن صيدلية مركز التأهيل الشامل للذكور بشقراء`;
 
   // ================= ENGLISH REPORT =================
@@ -513,7 +515,7 @@ export const generateFormattedEmailHtmlReport = (meds: Medicine[], thresholdDays
     </table>` : `<div class="empty-note">✅ الحالة آمنة: مستويات المخزون متوفرة بكميات كافية وتتجاوز حدود الأمان المقررة.</div>`}
 
     <div class="footer">
-      صادر رسمياً عن صيدلية مركز التأهيل الشامل للذكور بشقراء • تم إصدار هذا التقرير آلياً لحماية وصحة المقيمين
+      صادر رسمياً عن صيدلية مركز التأهيل الشامل للذكور بشقراء • تم إصدار هذا التقرير آلياً لحماية وصحة المستفيدين
     </div>
   </div>
 </body>
@@ -603,19 +605,19 @@ export const generateReferralAlertsReports = (residentsList: any[]) => {
   // ================= ARABIC REFERRAL REPORT =================
   let ar = `مركز التأهيل الشامل للذكور بشقراء\n`;
   ar += `إدارة الرعاية الطبية والصيدلية\n`;
-  ar += `تقرير تنبيهات الإحالات الطبية للمقيمين (إشعار وقائي قبل الموعد بيوم)\n`;
+  ar += `تقرير تنبيهات الإحالات الطبية للمستفيدين (إشعار وقائي قبل الموعد بيوم)\n`;
   ar += `________________________________________________________\n\n`;
   ar += `بيانات التقرير الإداري:\n`;
   ar += `الجهة: مركز التأهيل الشامل للذكور بشقراء\n`;
   ar += `تاريخ ووقت إصدار التقرير: ${dateStrAr}\n`;
   ar += `تاريخ الإحالة المستهدفة بالتنبيه الوقائي: ${tomorrowStr} (متبقي يوم واحد • 24 ساعة)\n`;
-  ar += `عدد المقيمين أصحاب الإحالات المستحقة غداً: ${dueTomorrow.length} مقيم\n`;
+  ar += `عدد المستفيدين أصحاب الإحالات المستحقة غداً: ${dueTomorrow.length} مستفيد\n`;
   if (dueToday.length > 0) {
-    ar += `عدد المقيمين أصحاب إحالات اليوم الحالي: ${dueToday.length} مقيم\n`;
+    ar += `عدد المستفيدين أصحاب إحالات اليوم الحالي: ${dueToday.length} مستفيد\n`;
   }
-  ar += `إجمالي النزلاء المسجلين بالمركز: ${(residentsList || []).length} مقيم\n\n`;
+  ar += `إجمالي المستفيدين المسجلين بالمركز: ${(residentsList || []).length} مستفيد\n\n`;
 
-  ar += `البند الأول: قائمة المقيمين أصحاب الإحالات الطبية المستحقة غداً (قبلها بيوم)\n`;
+  ar += `البند الأول: قائمة المستفيدين أصحاب الإحالات الطبية المستحقة غداً (قبلها بيوم)\n`;
   if (dueTomorrow.length > 0) {
     dueTomorrow.forEach((r, i) => {
       const name = r.nameAr || r.name;
@@ -623,7 +625,7 @@ export const generateReferralAlertsReports = (residentsList: any[]) => {
         .map((ds: any) => `${ds.medicineName} (${ds.dosage || ds.timeSlot})`)
         .join('، ') || 'لا توجد أدوية مجدولة مسجلة';
 
-      ar += `[${i + 1}] اسم المقيم: ${name}${r.nameEn ? ` (${r.nameEn})` : ''}\n`;
+      ar += `[${i + 1}] اسم المستفيد: ${name}${r.nameEn ? ` (${r.nameEn})` : ''}\n`;
       ar += `رقم الهوية: ${r.nationalId || 'غير مسجل'} | الغرفة والجناح: ${r.roomNumber || 'غير محدد'}\n`;
       ar += `تاريخ الإحالة الطبي: ${cleanDate(r.referralDate)} | الحالة: موعد الإحالة غداً (متبقي 24 ساعة)\n`;
       ar += `الجهة المحال إليها: ${r.referralFacility || 'مستشفى شقراء العام - عيادة الرعاية المتخصصة'}\n`;
@@ -642,13 +644,13 @@ export const generateReferralAlertsReports = (residentsList: any[]) => {
     ar += `البند الثاني: إحالات طبية مستحقة خلال اليوم الحالي (${todayStr})\n`;
     dueToday.forEach((r, i) => {
       const name = r.nameAr || r.name;
-      ar += `[${i + 1}] المقيم: ${name} | رقم الهوية: ${r.nationalId || 'غير مسجل'} | الغرفة: ${r.roomNumber} | تاريخ اليوم: ${cleanDate(r.referralDate)} | التوجيه: مراجعة خروج المريض وتأمين الأدوية فوراً\n`;
+      ar += `[${i + 1}] المستفيد: ${name} | رقم الهوية: ${r.nationalId || 'غير مسجل'} | الغرفة: ${r.roomNumber} | تاريخ اليوم: ${cleanDate(r.referralDate)} | التوجيه: مراجعة خروج المريض وتأمين الأدوية فوراً\n`;
     });
     ar += `\n`;
   }
 
   ar += `البند الثالث: التوصيات الإدارية والصيدلانية المعتمدة\n`;
-  ar += `1. صرف وتأمين الأدوية للمقيم المحال قبل موعد الإحالة بـ 24 ساعة لضمان استمرارية الخطة العلاجية.\n`;
+  ar += `1. صرف وتأمين الأدوية للمستفيد المحال قبل موعد الإحالة بـ 24 ساعة لضمان استمرارية الخطة العلاجية.\n`;
   ar += `2. تزويد الكادر الطبي المرافق بتقرير الحساسيات الدوائية والجرعات المعتمدة وتوقيتاتها.\n`;
   ar += `3. التنسيق المسبق مع عيادة جهة الإحالة لضمان جاهزية الاستقبال والملف الصحي.\n\n`;
   ar += `صادر رسمي عن صيدلية مركز التأهيل الشامل للذكور بشقراء`;
@@ -1021,8 +1023,80 @@ export default function App() {
     isSubmitting: false
   });
 
-  // Settings state
-  const [alertDays, setAlertDays] = useState(30);
+  // Sidebar state (collapsible horizontal bar)
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem('care_pharmacy_sidebar_open');
+    if (saved !== null) return saved === 'true';
+    return true; // Default open
+  });
+
+  // Side Drawer Menu state (Opens from side with 3 dots ⋮ icon as requested by user)
+  const [sideDrawerOpen, setSideDrawerOpen] = useState<boolean>(false);
+
+  const toggleSidebar = () => {
+    setSidebarOpen(prev => {
+      const next = !prev;
+      localStorage.setItem('care_pharmacy_sidebar_open', String(next));
+      return next;
+    });
+  };
+
+  // Smart Action Group Ribbon State (Power BI style responsive command bar)
+  const [showActionGroup, setShowActionGroup] = useState<boolean>(false);
+  const actionGroupRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (actionGroupRef.current && !actionGroupRef.current.contains(event.target as Node)) {
+        setShowActionGroup(false);
+      }
+    };
+    if (showActionGroup) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showActionGroup]);
+
+  // Settings state: alertDays with persistent localStorage & Firestore sync
+  const [alertDays, setAlertDays] = useState<number>(() => {
+    const localDays = localStorage.getItem('care_pharmacy_alert_days');
+    if (localDays && !isNaN(Number(localDays)) && Number(localDays) >= 5) return Number(localDays);
+    const sec = getLocalSecuritySettings();
+    return (sec.alertDays && sec.alertDays >= 5) ? sec.alertDays : 30;
+  });
+  const [isSavingAlertDays, setIsSavingAlertDays] = useState(false);
+
+  const handleSaveAlertDays = async (overrideDays?: number) => {
+    const rawVal = overrideDays !== undefined ? overrideDays : alertDays;
+    const daysToSave = parseInt(String(rawVal), 10);
+    if (isNaN(daysToSave) || daysToSave < 5) {
+      showToast(text('يرجى تحديد عدد أيام تنبيه صحيح (5 أيام على الأقل)', 'Please specify valid alert days (at least 5 days)'), 'error');
+      return;
+    }
+    setIsSavingAlertDays(true);
+    try {
+      localStorage.setItem('care_pharmacy_alert_days', String(daysToSave));
+      setAlertDays(daysToSave);
+
+      const currentSec = getLocalSecuritySettings();
+      const updatedSec = { ...currentSec, alertDays: daysToSave };
+      saveLocalSecuritySettings(updatedSec);
+
+      await DbService.saveSecuritySettings({ alertDays: daysToSave }, {
+        name: currentUser?.name || 'مدير النظام',
+        email: currentUser?.email || 'admin@carecenter.org'
+      });
+
+      showToast(text(`✅ تم حفظ وتثبيت أيام تنبيه الصلاحية (${daysToSave} يوماً) في قاعدة البيانات بنجاح!`, `✅ Expiry alert threshold (${daysToSave} days) saved to database successfully!`), 'success');
+    } catch (err: any) {
+      console.warn("Failed saving alertDays to cloud:", err);
+      showToast(text(`تم حفظ أيام التنبيه محلياً (${daysToSave} يوماً)`, `Alert days saved locally (${daysToSave} days)`), 'success');
+    } finally {
+      setIsSavingAlertDays(false);
+    }
+  };
 
   // WhatsApp UltraMsg & Email Settings State with localStorage persistence
   const [whatsAppEnabled, setWhatsAppEnabled] = useState(() => {
@@ -1115,7 +1189,8 @@ export default function App() {
       const current = await DbService.fetchSecuritySettings();
       const payload: Partial<SecuritySettings> = {
         ...current,
-        notificationEmail: notificationEmail.trim()
+        notificationEmail: notificationEmail.trim(),
+        alertDays: alertDays
       };
 
       const updated = await DbService.saveSecuritySettings(payload, {
@@ -1223,7 +1298,7 @@ export default function App() {
       await loadAllData();
       showToast(
         text(
-          `تمت استعادة كافة جداول الداتابيز سحابياً ومحلياً بنجاح! (${result.counts.total} وثيقة تشمل: ${result.counts.residents} مقيم، ${result.counts.stock_audit_logs} تدقيق، ${result.counts.user_sessions} جلسة، ${result.counts.dispense_records} صرف، ${result.counts.batches} تشغيلة، ${result.counts.item_units} وحدة، ${result.counts.therapeutic_categories} فئة) 🔄🎉`,
+          `تمت استعادة كافة جداول الداتابيز سحابياً ومحلياً بنجاح! (${result.counts.total} وثيقة تشمل: ${result.counts.residents} مستفيد، ${result.counts.stock_audit_logs} تدقيق، ${result.counts.user_sessions} جلسة، ${result.counts.dispense_records} صرف، ${result.counts.batches} تشغيلة، ${result.counts.item_units} وحدة، ${result.counts.therapeutic_categories} فئة) 🔄🎉`,
           `Database restored successfully to cloud and local cache! (${result.counts.total} documents across all tables) 🔄🎉`
         ),
         'success'
@@ -1535,7 +1610,7 @@ export default function App() {
     }
   };
 
-  // Sorting state for Residents table (شاشة المقيمين)
+  // Sorting state for Residents table (شاشة المستفيدين)
   type ResidentSortField = 'name' | 'roomNumber' | 'wing' | 'nationalId' | 'age';
   const [residentSortField, setResidentSortField] = useState<ResidentSortField>('name');
   const [residentSortDirection, setResidentSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -1744,7 +1819,7 @@ export default function App() {
       const headers = isAr ? [
         'م',
         'رقم السجل',
-        'اسم المقيم المستفيد',
+        'اسم المستفيد المستفيد',
         'اسم الدواء المصروف',
         'الكمية المقررة',
         'الكمية المصروفة فعلياً',
@@ -1910,6 +1985,21 @@ export default function App() {
   });
   const [selectedMedId, setSelectedMedId] = useState<string | null>(null);
 
+  // Doctors Directory States (جدول الأطباء الجديد)
+  const [doctors, setDoctors] = useState<Doctor[]>(() => getLocalDoctors());
+  const [doctorsSearchQuery, setDoctorsSearchQuery] = useState('');
+  const [showDoctorModal, setShowDoctorModal] = useState(false);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
+  const [doctorForm, setDoctorForm] = useState({
+    nameAr: '',
+    nameEn: '',
+    specialty: '',
+    phone: '',
+    email: ''
+  });
+  const [dispenseDoctorId, setDispenseDoctorId] = useState('');
+  const [dispenseDoctorSearch, setDispenseDoctorSearch] = useState('');
+
   const [dispenseForm, setDispenseForm] = useState({
     medicineId: '',
     residentName: '',
@@ -1920,9 +2010,11 @@ export default function App() {
   const [dispenseMedSearch, setDispenseMedSearch] = useState('');
   const [dispenseResidentSearch, setDispenseResidentSearch] = useState('');
 
-  const openDispenseModal = (preset?: { medicineId?: string; residentName?: string; unit?: string }) => {
+  const openDispenseModal = (preset?: { medicineId?: string; residentName?: string; unit?: string; doctorId?: string }) => {
     setDispenseMedSearch('');
     setDispenseResidentSearch('');
+    setDispenseDoctorSearch('');
+    setDispenseDoctorId(preset?.doctorId || '');
     const firstAvail = preset?.medicineId 
       ? medicines.find(m => m.id === preset.medicineId) 
       : medicines.find(m => m.quantity > 0);
@@ -2051,7 +2143,7 @@ export default function App() {
       const attachments = [
         {
           name: 'Shaqra_Center_Resident_Refills_AR.txt',
-          displayName: 'تقرير_إحالات_المقيمين_مركز_التأهيل_الشامل_شقراء.txt',
+          displayName: 'تقرير_إحالات_المستفيدين_مركز_التأهيل_الشامل_شقراء.txt',
           content: arReferralReport,
           base64: toBase64Utf8(arReferralReport),
           mimeType: 'text/plain;charset=utf-8'
@@ -2065,7 +2157,7 @@ export default function App() {
         }
       ];
 
-      const emailSubject = `🔔 تنبيه استباقي: تقرير الإحالات الطبية للمقيمين (قبل الموعد بيوم • ${dueTomorrowCount} إحالات) - ${OFFICIAL_CENTER_NAME}`;
+      const emailSubject = `🔔 تنبيه استباقي: تقرير الإحالات الطبية للمستفيدين (قبل الموعد بيوم • ${dueTomorrowCount} إحالات) - ${OFFICIAL_CENTER_NAME}`;
 
       let sentSuccess = false;
       let errorMsg = '';
@@ -2329,7 +2421,8 @@ export default function App() {
         residentsRes,
         companiesRes,
         behaviorLogsRes,
-        sideEffectsRes
+        sideEffectsRes,
+        doctorsRes
       ] = await Promise.allSettled([
         DbService.fetchMedicines(),
         DbService.fetchDispenseRecords(),
@@ -2339,7 +2432,8 @@ export default function App() {
         DbService.fetchResidents(),
         DbService.fetchCompanies(),
         DbService.fetchBehaviorLogs(),
-        DbService.fetchCustomSideEffects()
+        DbService.fetchCustomSideEffects(),
+        DbService.fetchDoctors()
       ]);
 
       const meds = medsRes.status === 'fulfilled' ? medsRes.value : localMeds;
@@ -2351,6 +2445,7 @@ export default function App() {
       const loadedCompanies = companiesRes.status === 'fulfilled' ? companiesRes.value : localCompanies;
       const loadedBehaviorLogs = behaviorLogsRes.status === 'fulfilled' ? behaviorLogsRes.value : localBehaviorLogs;
       const loadedSideEffects = sideEffectsRes.status === 'fulfilled' ? sideEffectsRes.value : localSideEffects;
+      const loadedDoctors = doctorsRes.status === 'fulfilled' ? doctorsRes.value : getLocalDoctors();
 
       const ensuredUsers = loadedUsers.map((u: any) => 
         u.email?.toLowerCase() === 'tmrbe2006@gmail.com' 
@@ -2377,6 +2472,7 @@ export default function App() {
       if (loadedCompanies !== undefined) setCompanies(loadedCompanies);
       if (loadedBehaviorLogs !== undefined) setBehaviorLogs(loadedBehaviorLogs);
       if (loadedSideEffects !== undefined) setCustomSideEffects(loadedSideEffects);
+      if (loadedDoctors !== undefined && loadedDoctors.length > 0) setDoctors(loadedDoctors);
 
       // Load Units and Categories directly from Database (Firestore) in parallel
       try {
@@ -2912,13 +3008,13 @@ export default function App() {
     e.preventDefault();
     try {
       if (!behaviorForm.residentId) {
-        showToast(text('يرجى اختيار المقيم أولاً', 'Please select a resident first'), 'error');
+        showToast(text('يرجى اختيار المستفيد أولاً', 'Please select a resident first'), 'error');
         return;
       }
       
       const res = residents.find(r => r.id === behaviorForm.residentId);
       if (!res) {
-        showToast(text('المقيم غير موجود', 'Resident not found'), 'error');
+        showToast(text('المستفيد غير موجود', 'Resident not found'), 'error');
         return;
       }
 
@@ -2949,7 +3045,7 @@ export default function App() {
         updateBehaviorLogs(updatedLogs);
         setShowAddBehaviorModal(false);
         setSelectedBehaviorLogId(null);
-        showToast(text(`تم تعديل الملاحظة السلوكية بنجاح للمقيم: ${res.name}`, `Behavioral observation updated successfully for: ${res.name}`), 'success');
+        showToast(text(`تم تعديل الملاحظة السلوكية بنجاح للمستفيد: ${res.name}`, `Behavioral observation updated successfully for: ${res.name}`), 'success');
       } else {
         // Creating new log
         const newLog = {
@@ -2969,7 +3065,7 @@ export default function App() {
         const updated = [newLog, ...behaviorLogs];
         updateBehaviorLogs(updated);
         setShowAddBehaviorModal(false);
-        showToast(text(`تم تسجيل الملاحظة السلوكية بنجاح للمقيم: ${res.name}`, `Behavioral observation logged successfully for: ${res.name}`), 'success');
+        showToast(text(`تم تسجيل الملاحظة السلوكية بنجاح للمستفيد: ${res.name}`, `Behavioral observation logged successfully for: ${res.name}`), 'success');
       }
 
       // Reset Form
@@ -3239,6 +3335,97 @@ export default function App() {
     setShowCompanyModal(true);
   };
 
+  // Doctors Directory Handlers (التعديل أو الحذف في سجل الأطباء يكون فقط لمديرين النظام وللصيادلة، ويتم منع فني الصيدلة)
+  const isDoctorManager = (currentUser?.role === 'developer' || currentUser?.role === 'admin' || currentUser?.role === 'pharmacist') && currentUser?.role !== 'technician';
+
+  const handleOpenDoctorModal = (doc?: Doctor) => {
+    if (!isDoctorManager || currentUser?.role === 'technician') {
+      showToast(text('عذراً، التعديل أو الحذف في سجل الأطباء يكون فقط لمديرين النظام وللصيادلة، ويتم منع فني الصيدلة.', 'Access Denied: Modifying physicians is restricted strictly to System Admins & Pharmacists. Technicians are prohibited.'), 'error');
+      return;
+    }
+    if (doc) {
+      setSelectedDoctorId(doc.id);
+      setDoctorForm({
+        nameAr: doc.nameAr || '',
+        nameEn: doc.nameEn || '',
+        specialty: doc.specialty || '',
+        phone: doc.phone || '',
+        email: doc.email || ''
+      });
+    } else {
+      setSelectedDoctorId(null);
+      setDoctorForm({
+        nameAr: '',
+        nameEn: '',
+        specialty: '',
+        phone: '',
+        email: ''
+      });
+    }
+    setShowDoctorModal(true);
+  };
+
+  const handleAddOrEditDoctor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isDoctorManager || currentUser?.role === 'technician') {
+      showToast(text('عذراً، التعديل أو الحذف في سجل الأطباء يكون فقط لمديرين النظام وللصيادلة، ويتم منع فني الصيدلة.', 'Access Denied: Modifying physicians is restricted strictly to System Admins & Pharmacists. Technicians are prohibited.'), 'error');
+      return;
+    }
+    if (!doctorForm.nameAr.trim()) {
+      showToast(text('يرجى إدخال اسم الطبيب باللغة العربية', 'Please enter physician Arabic name'), 'error');
+      return;
+    }
+    if (!doctorForm.specialty.trim()) {
+      showToast(text('يرجى تحديد تخصص الطبيب', 'Please enter physician specialty'), 'error');
+      return;
+    }
+
+    try {
+      if (selectedDoctorId) {
+        const updated = await DbService.updateDoctor(selectedDoctorId, {
+          nameAr: doctorForm.nameAr.trim(),
+          nameEn: doctorForm.nameEn.trim(),
+          specialty: doctorForm.specialty.trim(),
+          phone: doctorForm.phone.trim(),
+          email: doctorForm.email.trim()
+        });
+        setDoctors(prev => prev.map(d => d.id === selectedDoctorId ? updated : d));
+        showToast(text(`تم تعديل بيانات الطبيب "${updated.nameAr}" بنجاح`, `Physician "${updated.nameAr}" updated successfully`), 'success');
+      } else {
+        const newDoc = await DbService.addDoctor({
+          nameAr: doctorForm.nameAr.trim(),
+          nameEn: doctorForm.nameEn.trim(),
+          specialty: doctorForm.specialty.trim(),
+          phone: doctorForm.phone.trim(),
+          email: doctorForm.email.trim()
+        });
+        setDoctors(prev => [newDoc, ...prev]);
+        showToast(text(`تمت إضافة الطبيب "${newDoc.nameAr}" إلى جدول الأطباء بنجاح`, `Physician "${newDoc.nameAr}" added successfully`), 'success');
+      }
+      setShowDoctorModal(false);
+      setSelectedDoctorId(null);
+      setDoctorForm({ nameAr: '', nameEn: '', specialty: '', phone: '', email: '' });
+    } catch (err) {
+      showToast(text('حدث خطأ أثناء حفظ بيانات الطبيب', 'Error saving physician details'), 'error');
+    }
+  };
+
+  const handleDeleteDoctor = async (id: string, name: string) => {
+    if (!isDoctorManager || currentUser?.role === 'technician') {
+      showToast(text('عذراً، التعديل أو الحذف في سجل الأطباء يكون فقط لمديرين النظام وللصيادلة، ويتم منع فني الصيدلة.', 'Access Denied: Deleting physicians is restricted strictly to System Admins & Pharmacists. Technicians are prohibited.'), 'error');
+      return;
+    }
+    if (confirm(text(`هل أنت متأكد من حذف الطبيب "${name}" من جدول الأطباء؟`, `Are you sure you want to delete physician "${name}"?`))) {
+      try {
+        await DbService.deleteDoctor(id);
+        setDoctors(prev => prev.filter(d => d.id !== id));
+        showToast(text(`تم حذف الطبيب "${name}" بنجاح`, `Physician "${name}" deleted`), 'success');
+      } catch (e) {
+        showToast(text('حدث خطأ أثناء حذف الطبيب', 'Error deleting physician'), 'error');
+      }
+    }
+  };
+
   // Dispense Form Handler (Updates Medicine quantity, and adds DispenseRecord)
   const handleAddDispense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3262,7 +3449,7 @@ export default function App() {
       }
 
       if (!dispenseForm.residentName.trim()) {
-        showToast('يرجى كتابة اسم المقيم المعاق المستفيد', 'error');
+        showToast('يرجى كتابة اسم المستفيد المعاق المستفيد', 'error');
         return;
       }
 
@@ -3274,6 +3461,7 @@ export default function App() {
       const totalCost = med.price * dispenseForm.actualQuantityDispensed;
       const resInfo = getResidentInfoForDispense(dispenseForm.residentName);
       const selectedResident = residents.find(r => r.name === dispenseForm.residentName || r.nameAr === dispenseForm.residentName);
+      const selectedDoctor = doctors.find(d => d.id === dispenseDoctorId);
 
       const record = await DbService.addDispenseRecord({
         medicineId: med.id,
@@ -3287,7 +3475,11 @@ export default function App() {
         totalPrice: totalCost,
         actualQuantityDispensed: Number(dispenseForm.actualQuantityDispensed),
         dispensedBy: currentUser.name,
-        dispensedById: currentUser.uid
+        dispensedById: currentUser.uid,
+        doctorId: selectedDoctor?.id || '',
+        doctorName: selectedDoctor ? (lang === 'en' ? (selectedDoctor.nameEn || selectedDoctor.nameAr) : selectedDoctor.nameAr) : '',
+        doctorNameEn: selectedDoctor?.nameEn || '',
+        doctorSpecialty: selectedDoctor?.specialty || ''
       });
 
       // Update state
@@ -3296,7 +3488,7 @@ export default function App() {
       loadAllData();
 
       setShowDispenseModal(false);
-      showToast(`تم تسجيل عملية صرف الدواء ومراجعة الكمية المصروفة فعلياً بنجاح للمريض: ${dispenseForm.residentName}`, 'success');
+      showToast(`تم تسجيل عملية صرف الدواء ومراجعة الكمية المصروفة فعلياً بنجاح للمستفيد: ${dispenseForm.residentName}${selectedDoctor ? ` بإشراف: ${selectedDoctor.nameAr}` : ''}`, 'success');
 
       // Reset
       setDispenseForm({
@@ -3308,6 +3500,8 @@ export default function App() {
       });
       setDispenseMedSearch('');
       setDispenseResidentSearch('');
+      setDispenseDoctorId('');
+      setDispenseDoctorSearch('');
     } catch (err) {
       showToast('فشل تسجيل علمية الصرف. يرجى محاولة الصرف مرة أخرى.', 'error');
     }
@@ -3519,7 +3713,7 @@ export default function App() {
       reportStr += `\nرابعاً: خطة العمل والتوصيات السريرية المقترحة\n`;
       reportStr += `1. إعادة توجيه الاستخدام الفوري: يوصى بتسريع صرف الأدوية في القائمة قريبة الانتهاء لتجنب الخسائر المالية والهدر السريري.\n`;
       if (lowStock.length > 0) {
-        reportStr += `2. أمر شراء عاجل: يرجى إرسال طلب تزويد فوري للأدوية التي تقل عن 15 وحدة لضمان عدم انقطاع الرعاية الدوائية للمقيمين.\n`;
+        reportStr += `2. أمر شراء عاجل: يرجى إرسال طلب تزويد فوري للأدوية التي تقل عن 15 وحدة لضمان عدم انقطاع الرعاية الدوائية للمستفيدين.\n`;
       }
       reportStr += `3. تطبيق سياسة FIFO (ما يدخل أولاً يخرج أولاً): يجب مراجعة ترتيب الأرفف بالصيدلية لوضع الأدوية الأقدم صلاحية في المقدمة.\n`;
       reportStr += `4. ضبط المراقبة اليومية: تم تفعيل نظام الفحص الصباحي الآمن بنجاح لإرسال كشف النقص اليومي للبريد الإلكتروني المعتمد.\n`;
@@ -3840,7 +4034,7 @@ export default function App() {
       }
       if (isAutoPilot) {
         if (emailEnabled) {
-          showToast('🛡️ تم فحص صلاحيات الأدوية وإحالات المقيمين تلقائياً كبداية لليوم الجديد، وتم إرسال التقارير لبريدك الإلكتروني! ✉️📋', 'success');
+          showToast('🛡️ تم فحص صلاحيات الأدوية وإحالات المستفيدين تلقائياً كبداية لليوم الجديد، وتم إرسال التقارير لبريدك الإلكتروني! ✉️📋', 'success');
         } else {
           showToast('🛡️ تم فحص صلاحية الأدوية والكميات تلقائياً للبداية اليومية بنجاح!', 'success');
         }
@@ -4099,6 +4293,9 @@ export default function App() {
 
     medicines.forEach(m => {
       const cat = m.category || "عام";
+      // Exclude Medical supplies from this general category chart (has its own dedicated chart below)
+      if (isMedicalSuppliesCategory(cat)) return;
+
       if (!dataMap[cat]) {
         dataMap[cat] = { totalStock: 0, dispensedQty: 0, itemsCount: 0, value: 0 };
       }
@@ -4110,6 +4307,9 @@ export default function App() {
     dispenseRecords.forEach(r => {
       const med = medicines.find(m => m.id === r.medicineId);
       const cat = med?.category || "عام";
+      // Exclude Medical supplies from this general category chart
+      if (isMedicalSuppliesCategory(cat)) return;
+
       if (!dataMap[cat]) {
         dataMap[cat] = { totalStock: 0, dispensedQty: 0, itemsCount: 0, value: 0 };
       }
@@ -4135,6 +4335,58 @@ export default function App() {
         color: COLORS[index % COLORS.length]
       };
     }).sort((a, b) => b["الكمية الكلية للمخزون"] - a["الكمية الكلية للمخزون"]);
+  };
+
+  // Dedicated data generator exclusively for Medical Supplies (فئة المستلزمات الطبية)
+  const getMedicalSuppliesDistributionData = () => {
+    const suppliesMeds = medicines.filter(m => isMedicalSuppliesCategory(m.category));
+
+    let totalStock = 0;
+    let totalDispensed = 0;
+    let totalValue = 0;
+
+    const COLORS = ['#0284c7', '#38bdf8', '#0ea5e9', '#6366f1', '#8b5cf6', '#14b8a6', '#06b6d4'];
+
+    const itemsData = suppliesMeds.map((med, index) => {
+      const dispensed = dispenseRecords
+        .filter(r => r.medicineId === med.id)
+        .reduce((sum, r) => sum + Number(r.actualQuantityDispensed || r.quantityDispensed || 0), 0);
+      
+      const stock = Number(med.quantity || 0);
+      const val = stock * Number(med.price || 0);
+      const totalUnits = stock + dispensed;
+      const withdrawPct = totalUnits > 0 ? Math.round((dispensed / totalUnits) * 100) : 0;
+
+      totalStock += stock;
+      totalDispensed += dispensed;
+      totalValue += val;
+
+      return {
+        id: med.id,
+        name: lang === 'en' ? (med.commercialNameEn || med.commercialName) : (med.commercialNameAr || med.commercialName),
+        commercialName: med.commercialName,
+        "الكمية الكلية للمخزون": stock,
+        "كمية السحب": dispensed,
+        value: stock,
+        cost: Math.round(val),
+        itemsCount: 1,
+        withdrawPct,
+        unit: med.unit,
+        color: COLORS[index % COLORS.length]
+      };
+    }).sort((a, b) => b["الكمية الكلية للمخزون"] - a["الكمية الكلية للمخزون"]);
+
+    const overallTotal = totalStock + totalDispensed;
+    const overallWithdrawPct = overallTotal > 0 ? Math.round((totalDispensed / overallTotal) * 100) : 0;
+
+    return {
+      itemsData,
+      totalStock,
+      totalDispensed,
+      totalValue: Math.round(totalValue),
+      itemsCount: suppliesMeds.length,
+      withdrawPct: overallWithdrawPct
+    };
   };
 
   const getBehaviorChartData = () => {
@@ -4230,6 +4482,7 @@ export default function App() {
 
   const monthlyChartData = getMonthlyDispenseData();
   const categoryChartData = getCategoryDistributionData();
+  const medicalSuppliesChartData = getMedicalSuppliesDistributionData();
   const predictiveForecasts = getPredictiveDepletionForecasting();
   const manufacturerStockData = getManufacturerStockData();
   const manufacturerDispenseData = getManufacturerDispenseData();
@@ -4575,7 +4828,7 @@ export default function App() {
 
       showToast(
         text(
-          `تم صرف الجرعة (${qtyToDispense} ${med.unit} من ${med.commercialName}) وخصمها من المخزن آلياً وتوثيقها في السجل الطبي للمقيم: ${recipientName}! 💊✅`,
+          `تم صرف الجرعة (${qtyToDispense} ${med.unit} من ${med.commercialName}) وخصمها من المخزن آلياً وتوثيقها في السجل الطبي للمستفيد: ${recipientName}! 💊✅`,
           `Dose dispensed and deducted from inventory successfully for resident: ${recipientName}! 💊✅`
         ),
         "success"
@@ -4830,22 +5083,33 @@ export default function App() {
 
   const isScreenAllowed = (tab: string) => {
     if (!currentUser) return false;
+    // Audit logs tab is EXCLUSIVELY for the developer
+    if (tab === 'audit_logs') {
+      return currentUser.role === 'developer';
+    }
     // Security tab is for developer (full security suite) and system administrator (notification emails management)
     if (tab === 'security') {
       return currentUser.role === 'developer' || currentUser.role === 'admin';
     }
-    // Statistics tab is for developer and system administrator (مدير النظام)
+    // Statistics tab is EXCLUSIVELY for the developer (المبرمج الوحيد)
     if (tab === 'dev_statistics') {
-      return currentUser.role === 'developer' || currentUser.role === 'admin';
+      return currentUser.role === 'developer';
+    }
+    // Doctors Directory tab (Accessible for viewing to all pharmacy roles, editing/deleting restricted to admin/pharmacist)
+    if (tab === 'doctors') {
+      return true;
     }
     return ROLES[currentUser.role]?.allowedScreens.includes(tab) ?? false;
   };
 
   useEffect(() => {
+    if (activeTab === 'audit_logs' && currentUser?.role !== 'developer') {
+      setActiveTab('dashboard');
+    }
     if (activeTab === 'security' && currentUser?.role !== 'developer' && currentUser?.role !== 'admin') {
       setActiveTab('dashboard');
     }
-    if (activeTab === 'dev_statistics' && currentUser?.role !== 'developer' && currentUser?.role !== 'admin') {
+    if (activeTab === 'dev_statistics' && currentUser?.role !== 'developer') {
       setActiveTab('dashboard');
     }
   }, [activeTab, currentUser]);
@@ -5120,52 +5384,109 @@ export default function App() {
     <div data-skin={skin} className={`min-h-screen transition-colors duration-200 skin-${skin} ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
       
       {/* 1. Header: Sleek, responsive, un-crowded top bar with all primary tools always accessible */}
-      <header className={`sticky top-0 z-40 border-b px-3 sm:px-5 py-2.5 flex items-center justify-between transition-colors backdrop-blur-md ${darkMode ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200 shadow-sm'} print:hidden`}>
-        {/* Zone 1: Brand title and active screen badge */}
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="p-1.5 sm:p-2 bg-teal-600 rounded-xl text-white shadow-lg shadow-teal-900/20">
+      {/* 1. Power BI Responsive Command Bar (Compact Ribbon that NEVER overflows horizontally) */}
+      <header className={`sticky top-0 z-40 border-b px-2.5 sm:px-4 py-2 flex items-center justify-between gap-2 max-w-full transition-colors backdrop-blur-md ${darkMode ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200 shadow-sm'} print:hidden`}>
+        {/* Zone 1: Brand title, active screen badge, and Side Menu (3 Dots ⋮) button */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
+          {/* 3-Dots Side Menu Button (قائمة على الجنب نقط ⋮ - يفتح القائمة الكاملة على الجنب) */}
+          <button
+            type="button"
+            onClick={() => setSideDrawerOpen(true)}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95 shadow-sm shrink-0 ${
+              sideDrawerOpen
+                ? 'bg-teal-600 border-teal-500 text-white shadow-md ring-2 ring-teal-400/40'
+                : (darkMode ? 'bg-teal-500/15 border-teal-500/40 text-teal-300 hover:bg-teal-500/25 ring-1 ring-teal-500/30' : 'bg-teal-50 border-teal-300 text-teal-800 hover:bg-teal-100 ring-1 ring-teal-200')
+            }`}
+            title={lang === 'ar' ? 'فتح القائمة الجانبية الكاملة للنظام (نقط ⋮)' : 'Open Full Side Menu (⋮)'}
+          >
+            <MoreVertical className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="font-bold">{lang === 'ar' ? 'القائمة ⋮' : 'Menu ⋮'}</span>
+          </button>
+
+          {/* Collapsible Ribbon Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className={`hidden md:flex items-center gap-1 px-2 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95 shadow-xs shrink-0 ${
+              sidebarOpen
+                ? (darkMode ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800' : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200')
+                : (darkMode ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30' : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100')
+            }`}
+            title={sidebarOpen ? (lang === 'ar' ? 'إخفاء الشريط الأفقي' : 'Hide Ribbon') : (lang === 'ar' ? 'إظهار الشريط الأفقي' : 'Show Ribbon')}
+          >
+            {sidebarOpen ? <PanelLeftClose className="w-3.5 h-3.5 text-teal-400 shrink-0" /> : <Menu className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+          </button>
+
+          <div className="p-1.5 sm:p-2 bg-teal-600 rounded-xl text-white shadow-lg shadow-teal-900/20 shrink-0">
             <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
-          <div className="flex flex-col">
-            <span className="text-sm sm:text-base font-black tracking-tight text-teal-400 leading-tight">{t('app_title')}</span>
-            <span className="text-[10px] text-slate-400 font-semibold hidden sm:inline leading-tight">
+
+          <div className="flex flex-col min-w-0 max-w-[130px] sm:max-w-xs md:max-w-sm truncate">
+            <span className="text-xs sm:text-sm md:text-base font-black tracking-tight text-teal-400 leading-tight truncate">{t('app_title')}</span>
+            <span className="text-[10px] text-slate-400 font-semibold hidden md:inline leading-tight truncate">
               {lang === 'ar' ? 'منظومة الرقابة الدوائية والسريرية' : 'Clinical Pharmacy Management'}
             </span>
           </div>
+
+          {/* Quick Active Screen Pill (Compact) */}
+          <div className="hidden xl:flex items-center gap-1.5 px-2 py-0.5 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[11px] font-bold shrink-0">
+            <span>{
+              activeTab === 'dashboard' ? '📊' :
+              activeTab === 'inventory' ? '📦' :
+              activeTab === 'dispense' ? '💊' :
+              activeTab === 'residents' ? '👥' :
+              activeTab === 'doctors' ? '🩺' :
+              activeTab === 'units' ? '📦' :
+              activeTab === 'categories' ? '🏷️' :
+              activeTab === 'users' ? '⚙️' :
+              activeTab === 'dev_statistics' ? '📈' :
+              activeTab === 'ai_reports' ? '✨' :
+              activeTab === 'behavioral_tracker' ? '⚠️' :
+              activeTab === 'security' ? '🛡️' : '📋'
+            }</span>
+            <span>{
+              activeTab === 'dashboard' ? t('dashboard') :
+              activeTab === 'inventory' ? t('inventory') :
+              activeTab === 'dispense' ? t('dispense') :
+              activeTab === 'residents' ? t('residents') :
+              activeTab === 'doctors' ? (lang === 'ar' ? 'سجل الأطباء' : 'Doctors') :
+              activeTab === 'units' ? (lang === 'ar' ? 'إدارة الوحدات' : 'Units') :
+              activeTab === 'categories' ? (lang === 'ar' ? 'فئات العلاج' : 'Classes') :
+              activeTab === 'users' ? t('users') :
+              activeTab === 'dev_statistics' ? (lang === 'ar' ? 'إحصائيات' : 'Stats') :
+              activeTab === 'ai_reports' ? (lang === 'ar' ? 'التقارير الذكية' : 'AI Reports') :
+              activeTab === 'behavioral_tracker' ? t('behavior') :
+              activeTab === 'security' ? (lang === 'ar' ? 'الأمان' : 'Security') : (lang === 'ar' ? 'التدقيق' : 'Audit')
+            }</span>
+          </div>
         </div>
 
-        {/* Zone 2: Primary Actions (Help Manual, Theme Skins, PWA, Dark Mode, Lang Toggle, User Role, Logout) */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          {/* Help Manual & User Guide Button */}
-          <button 
-            type="button"
-            onClick={() => setShowHelpModal(true)}
-            className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300' : 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 shadow-xs'}`}
-            title={lang === 'ar' ? 'دليل الاستخدام وملف المساعدة الشامل (مع طباعة وتصدير PDF)' : 'User Guide & Help Manual (PDF Export)'}
-          >
-            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden md:inline">{lang === 'ar' ? 'دليل المساعدة 📖' : 'Help Guide 📖'}</span>
-          </button>
-
-          {/* Theme Skin Picker Button */}
-          <button 
-            type="button"
-            onClick={() => setShowSkinModal(true)}
-            className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-teal-400' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-teal-600'}`}
-            title={lang === 'ar' ? 'اختيار مظهر النظام (Skins)' : 'Select theme skin'}
-          >
-            <span>🎨</span>
-            <span className="hidden md:inline">{t('skin_selector_btn')}</span>
-          </button>
-
-          {/* PWA Button */}
-          <PWAInstallButton lang={lang} />
+        {/* Zone 2: Command Ribbon (Power BI Action Group & Essential Quick Actions) */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           
+          {/* Quick inline buttons visible only on wide screens (2xl+) */}
+          {currentUser?.role === 'developer' && (
+            <button
+              type="button"
+              onClick={handleExportBackup}
+              disabled={isExportingBackup}
+              className={`hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border font-bold text-xs transition-all cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-50 ${
+                darkMode 
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' 
+                  : 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+              }`}
+              title={lang === 'ar' ? 'أخذ نسخة احتياطية فورية للداتابيز وتنزيلها (حصري للمبرمج)' : 'Download Database Backup (Developer Only)'}
+            >
+              <Download className={`w-3.5 h-3.5 ${isExportingBackup ? 'animate-bounce' : ''}`} />
+              <span className="text-[11px]">{lang === 'ar' ? 'نسخ احتياطي 💾' : 'Backup 💾'}</span>
+            </button>
+          )}
+
           {/* Dark Mode toggle */}
           <button 
             type="button"
             onClick={handleToggleDarkMode}
-            className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer ${darkMode ? 'border-slate-800 bg-slate-800/50 hover:bg-slate-800 text-amber-400' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'}`}
+            className={`p-2 rounded-xl border transition-all cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-800 bg-slate-800/50 hover:bg-slate-800 text-amber-400' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'}`}
             title={darkMode ? (lang === 'ar' ? "التحويل للوضع النهاري (Daylight)" : "Switch to Light Mode") : (lang === 'ar' ? "التحويل للوضع الليلي (Dark Mode)" : "Switch to Dark Mode")}
           >
             {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -5180,115 +5501,375 @@ export default function App() {
               localStorage.setItem('care_pharmacy_lang', nextLang);
               showToast(nextLang === 'ar' ? 'تم تحويل النظام بالكامل إلى اللغة العربية 🇸🇦' : 'System translated to English successfully! 🇺🇸', 'success');
             }}
-            className={`px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-xl border font-bold text-xs transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-teal-400' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-teal-600'}`}
+            className={`px-2 sm:px-2.5 py-1.5 rounded-xl border font-bold text-xs transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-teal-400' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-teal-600'}`}
             title={lang === 'ar' ? "Switch to English 🇺🇸" : "التحويل للغة العربية 🇸🇦"}
           >
-            <span>{lang === 'ar' ? "EN 🇬🇧" : "عربي 🇸🇦"}</span>
+            <span className="font-sans font-bold">{lang === 'ar' ? "EN" : "عربي"}</span>
           </button>
 
-          {/* Firebase Cloud status indicator badge */}
-          <div 
-            onClick={() => {
-              if (currentUser?.role === 'developer') {
-                setActiveTab('security');
-              }
-              showToast(
-                lang === 'ar' 
-                  ? `قاعدة بيانات Firebase متصلة بالسحابة (المشروع: ${firebaseConfig.projectId})` 
-                  : `Firebase Cloud Database active (Project: ${firebaseConfig.projectId})`,
-                'success'
-              );
-            }}
-            className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-mono cursor-pointer transition-all hover:scale-105 active:scale-95 ${
-              isFirebaseConnected 
-                ? (darkMode ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100')
-                : (darkMode ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-800')
-            }`}
-            title={lang === 'ar' ? `قاعدة بيانات Firebase السحابية متصلة: ${firebaseConfig.projectId}` : `Firebase Cloud Database connected: ${firebaseConfig.projectId}`}
-          >
-            <span className={`w-2 h-2 rounded-full ${isFirebaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-            <span className="font-sans font-bold text-[11px]">Firebase:</span>
-            <span className="font-bold text-[11px] text-amber-400">{firebaseConfig.projectId}</span>
-          </div>
-
-          {/* Quick Developer Backup button - Exclusive to Developer */}
-          {currentUser?.role === 'developer' && (
+          {/* ⚡ Power BI Smart Action Group Dropdown: Groups AI Tools, User Utilities & Quick Actions without horizontal overflow */}
+          <div className="relative" ref={actionGroupRef}>
             <button
               type="button"
-              onClick={handleExportBackup}
-              disabled={isExportingBackup}
-              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border font-bold text-xs transition-all cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-50 ${
-                darkMode 
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' 
-                  : 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+              onClick={() => setShowActionGroup(prev => !prev)}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95 shadow-xs ${
+                showActionGroup
+                  ? 'border-teal-400 bg-teal-600 text-white shadow-md shadow-teal-900/30 ring-2 ring-teal-400/30'
+                  : darkMode
+                    ? 'border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 text-teal-300'
+                    : 'border-slate-300 bg-slate-100 hover:bg-slate-200 text-teal-800 shadow-xs'
               }`}
-              title={lang === 'ar' ? 'أخذ نسخة احتياطية فورية للداتابيز وتنزيلها (حصري للمبرمج)' : 'Download Database Backup (Developer Only)'}
+              title={lang === 'ar' ? 'قائمة الإجراءات والأدوات الذكية (Power BI Action Group)' : 'Quick Actions & Tools Ribbon'}
             >
-              <Download className={`w-3.5 h-3.5 ${isExportingBackup ? 'animate-bounce' : ''}`} />
-              <span className="text-[11px]">{lang === 'ar' ? 'نسخ احتياطي 💾' : 'Backup 💾'}</span>
+              <Zap className={`w-3.5 h-3.5 text-amber-400 ${showActionGroup ? 'animate-bounce' : ''}`} />
+              <span className="text-xs font-bold">{lang === 'ar' ? 'الأدوات والإجراءات' : 'Actions'}</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showActionGroup ? 'rotate-180' : ''}`} />
             </button>
-          )}
 
-          {/* Quick Statistics button - Exclusive to Developer & Admin */}
-          {(currentUser?.role === 'developer' || currentUser?.role === 'admin') && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('dev_statistics')}
-              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border font-bold text-xs transition-all cursor-pointer hover:scale-105 active:scale-95 ${
-                activeTab === 'dev_statistics'
-                  ? 'border-purple-400 bg-purple-600 text-white shadow-md shadow-purple-900/30'
-                  : darkMode 
-                    ? 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20' 
-                    : 'border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100'
-              }`}
-              title={lang === 'ar' ? 'الانتقال لشاشة إحصائيات النظام الشاملة' : 'System Statistics'}
-            >
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span className="text-[11px]">{lang === 'ar' ? 'إحصائيات' : 'Stats'}</span>
-            </button>
-          )}
+            {/* Smart Dropdown Panel: Strictly bounded with end-0 and max-w-[calc(100vw-2rem)] so it NEVER clips outside screen */}
+            {showActionGroup && (
+              <div 
+                className={`absolute top-full mt-2 z-50 rounded-2xl border shadow-2xl p-2.5 space-y-2.5 w-72 sm:w-84 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-5rem)] overflow-y-auto overscroll-contain custom-scrollbar backdrop-blur-2xl animate-fade-in ltr:right-0 rtl:left-0 end-0 ${
+                  lang === 'ar' ? 'text-right' : 'text-left'
+                } ${
+                  darkMode 
+                    ? 'bg-slate-900/98 border-slate-700 text-slate-100 shadow-slate-950/90' 
+                    : 'bg-white/98 border-slate-200 text-slate-900 shadow-2xl'
+                }`}
+                style={{ direction: lang === 'ar' ? 'rtl' : 'ltr' }}
+              >
+                {/* Header: User Profile & Role Info */}
+                <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800/80 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-bold text-xs text-slate-200 truncate">{currentUser?.name || (lang === 'ar' ? 'المستخدم الحالي' : 'Active User')}</div>
+                    <div className="text-[10px] text-teal-400 font-mono truncate">{currentUser?.email || ''}</div>
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-1">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/15 text-teal-300 border border-teal-500/30">
+                      {lang === 'ar' ? ROLES[currentUser?.role || 'admin']?.name : (currentUser?.role || 'admin').toUpperCase()}
+                    </span>
+                    <div className="flex items-center gap-1 text-[9px] font-mono text-slate-400">
+                      <span className={`w-1.5 h-1.5 rounded-full ${isFirebaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                      <span>{firebaseConfig.projectId}</span>
+                    </div>
+                  </div>
+                </div>
 
-          {/* Quick Role display */}
-          <div className="hidden sm:flex items-center gap-1 p-1 rounded-xl border border-rose-950/40 bg-rose-950/20 text-xs text-rose-300">
-            <span className="font-bold px-1 text-rose-400 text-[11px]">{lang === 'ar' ? 'الدور:' : 'Role:'}</span>
-            <span className="font-bold text-[11px] text-rose-300 px-1">
-              {lang === 'ar' ? ROLES[currentUser?.role || 'admin']?.name : (currentUser?.role || 'admin').toUpperCase()}
-            </span>
+                {/* Section: AI Tools & Predictive Analytics (أدوات الذكاء الاصطناعي والاستشارات) */}
+                <div className="space-y-1">
+                  <div className="text-[10px] font-bold text-teal-400 px-2 uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>{lang === 'ar' ? 'أدوات الذكاء الاصطناعي والاستشارات' : 'AI Tools & Predictive Analytics'}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActionGroup(false);
+                      setActiveTab('ai_reports');
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-teal-300' : 'hover:bg-teal-50 text-teal-800'
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'التقارير الذكية والاستشارات السريرية ✨' : 'AI Reports & Clinical Intelligence ✨'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'تحليل المخزون والتنبؤ بالنواقص' : 'Strategic inventory forecasts'}</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActionGroup(false);
+                      setShowReferralReportModal(true);
+                    }}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-amber-300' : 'hover:bg-amber-50 text-amber-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Bell className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'تنبيهات الإحالات الطبية للمستفيدين 🔔' : 'Beneficiary Refill Alerts (1-Day) 🔔'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'إشعار مسبق بيوم لمواعيد الصرف' : 'Advance 1-day notice for refills'}</span>
+                      </div>
+                    </div>
+                    {(() => {
+                      const { dueTomorrowCount } = generateReferralAlertsReports(residents);
+                      return dueTomorrowCount > 0 ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-mono text-[10px] font-black shrink-0">
+                          {dueTomorrowCount}
+                        </span>
+                      ) : null;
+                    })()}
+                  </button>
+
+                  {currentUser?.role === 'developer' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowActionGroup(false);
+                        triggerScheduledAlertsTest();
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-purple-300' : 'hover:bg-purple-50 text-purple-800'
+                      }`}
+                    >
+                      <Zap className="w-4 h-4 text-purple-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'محاكاة التنبيهات الصباحية والواتساب' : 'Simulate Morning Safety Alerts'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'فحص الصلاحية وإرسال الإشعارات' : 'Test expiry check & dispatches'}</span>
+                      </div>
+                    </button>
+                  )}
+                </div>
+
+                {/* Section: Quick Actions (الإجراءات السريعة للمنظومة) */}
+                <div className="space-y-1 pt-2 border-t border-slate-800/80">
+                  <div className="text-[10px] font-bold text-slate-400 px-2 uppercase tracking-wider">
+                    {lang === 'ar' ? 'إجراءات سريعة' : 'Quick Actions'}
+                  </div>
+
+                  {/* Quick Dispense Button for all authenticated roles */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActionGroup(false);
+                      openDispenseModal();
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-indigo-300' : 'hover:bg-indigo-50 text-indigo-800'
+                    }`}
+                  >
+                    <UserCheck className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'توثيق وصرف جرعة دوائية 📋💊' : 'Document & Dispense Medication 📋💊'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'صرف فوري مع تدقيق مزدوج' : 'Dual-verification dispensing'}</span>
+                    </div>
+                  </button>
+
+                  {/* Add Medication (Admin, Pharmacist, Developer) */}
+                  {currentUser?.role !== 'technician' && ['admin', 'owner', 'developer', 'pharmacist'].includes(currentUser?.role || '') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowActionGroup(false);
+                        openAddMedicineModal();
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-teal-300' : 'hover:bg-teal-50 text-teal-800'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4 text-teal-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'إضافة دواء جديد للمستودع 💊' : 'Add Medication to Inventory 💊'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'تسجيل صنف بالاسم العلمي والتجاري' : 'Register brand & scientific med'}</span>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Add Doctor (Admin, Pharmacist, Developer) */}
+                  {isDoctorManager && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowActionGroup(false);
+                        handleOpenDoctorModal();
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-cyan-300' : 'hover:bg-cyan-50 text-cyan-800'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'إضافة طبيب جديد لسجل الأطباء 🩺' : 'Add Physician to Directory 🩺'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'طبيب استشاري أو أخصائي مشرف' : 'Supervising consultant/specialist'}</span>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Register Resident (Non-technicians) */}
+                  {currentUser?.role !== 'technician' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowActionGroup(false);
+                        setResidentForm({ name: '', nameAr: '', nameEn: '', birthDate: '', referralDate: new Date().toISOString().split('T')[0], roomNumber: '', nationalId: '', age: 0, notes: '' });
+                        setSelectedResidentId(null);
+                        setShowAddResidentModal(true);
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-emerald-300' : 'hover:bg-emerald-50 text-emerald-800'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'تسجيل مستفيد جديد بالمركز 👥' : 'Register New Beneficiary 👥'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'فتح ملف رعاية طبية جديد' : 'Open new resident medical file'}</span>
+                      </div>
+                    </button>
+                  )}
+                </div>
+
+                {/* Section: Help & Customization Tools */}
+                <div className="space-y-1 pt-2 border-t border-slate-800/80">
+                  <div className="text-[10px] font-bold text-slate-400 px-2 uppercase tracking-wider">
+                    {lang === 'ar' ? 'الأدوات والمساعدة' : 'Tools & Utilities'}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActionGroup(false);
+                      setShowHelpModal(true);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-slate-200 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <BookOpen className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'دليل الاستخدام وملف المساعدة 📖' : 'Help Manual & Guide 📖'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'شرح شامل مع تصدير PDF' : 'Full manual with PDF export'}</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActionGroup(false);
+                      setShowSkinModal(true);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-slate-200 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="text-base shrink-0">🎨</span>
+                    <div className="flex flex-col text-right">
+                      <span>{t('skin_selector_title')}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'تخصيص ثيم وألوان النظام' : 'Change theme & colors'}</span>
+                    </div>
+                  </button>
+
+                  <div className="px-2 py-1">
+                    <PWAInstallButton lang={lang} />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActionGroup(false);
+                      setPasswordForm({
+                        currentPassword: '',
+                        newPassword: '',
+                        confirmPassword: '',
+                        showCurrent: false,
+                        showNew: false,
+                        showConfirm: false,
+                        error: '',
+                        success: '',
+                        isSubmitting: false
+                      });
+                      setShowChangePasswordModal(true);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-slate-200 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <Key className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'تغيير كلمة المرور الخاصة بحسابي' : 'Change My Password'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'تحديث أمان الحساب' : 'Update account credentials'}</span>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Section: Developer Exclusive Tools (if role is developer) */}
+                {currentUser?.role === 'developer' && (
+                  <div className="space-y-1 pt-2 border-t border-slate-800/80">
+                    <div className="text-[10px] font-bold text-purple-400 px-2 uppercase tracking-wider">
+                      {lang === 'ar' ? 'أدوات المطور والمبرمج (خاص)' : 'Developer Tools (Exclusive)'}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowActionGroup(false);
+                        handleExportBackup();
+                      }}
+                      disabled={isExportingBackup}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-emerald-300' : 'hover:bg-emerald-50 text-emerald-800'
+                      }`}
+                    >
+                      <Download className={`w-4 h-4 text-emerald-400 shrink-0 ${isExportingBackup ? 'animate-bounce' : ''}`} />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'أخذ وتنزيل نسخة احتياطية 💾' : 'Download DB Backup 💾'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'نسخ احتياطي شامل لقاعدة البيانات' : 'Full JSON export of Firestore'}</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowActionGroup(false);
+                        setActiveTab('dev_statistics');
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-purple-300' : 'hover:bg-purple-50 text-purple-800'
+                      }`}
+                    >
+                      <TrendingUp className="w-4 h-4 text-purple-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'لوحة إحصائيات النظام الشاملة 📈' : 'System Statistics 📈'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'رصد فوري لجميع الكيانات والسجلات' : 'Live database telemetry & analytics'}</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowActionGroup(false);
+                        setActiveTab('security');
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-cyan-300' : 'hover:bg-cyan-50 text-cyan-800'
+                      }`}
+                    >
+                      <Shield className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'إعدادات الأمان وقنوات WhatsApp 🛡️' : 'Security & WhatsApp Gateways 🛡️'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'بوابات التنبيه والبريد والجلسات' : 'Manage alert dispatches & sessions'}</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+
+                {/* Dropdown Footer: Logout */}
+                <div className="pt-2 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActionGroup(false);
+                      handleLogout();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-rose-600/15 hover:bg-rose-600 text-rose-400 hover:text-white transition font-bold text-xs cursor-pointer border border-rose-500/20 hover:border-rose-600"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>{t('logout')}</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Change Password button - Available to ANY logged-in user */}
-          <button
-            type="button"
-            onClick={() => {
-              setPasswordForm({
-                currentPassword: '',
-                newPassword: '',
-                confirmPassword: '',
-                showCurrent: false,
-                showNew: false,
-                showConfirm: false,
-                error: '',
-                success: '',
-                isSubmitting: false
-              });
-              setShowChangePasswordModal(true);
-            }}
-            className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95 ${
-              darkMode
-                ? 'border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300'
-                : 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 shadow-xs'
-            }`}
-            title={lang === 'ar' ? 'تغيير كلمة المرور الخاصة بحسابي' : 'Change my password'}
-          >
-            <Key className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden md:inline">{lang === 'ar' ? 'تغيير كلمة المرور' : 'Password'}</span>
-          </button>
-
-          {/* Logout Button */}
+          {/* Quick Logout Button (Visible on tablet/laptop screens without having to open dropdown) */}
           <button 
             type="button"
             onClick={handleLogout}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 bg-rose-600/15 hover:bg-rose-600 text-rose-400 hover:text-white rounded-xl border border-rose-500/20 hover:border-rose-600 transition-all text-xs font-bold cursor-pointer"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-rose-600/15 hover:bg-rose-600 text-rose-400 hover:text-white rounded-xl border border-rose-500/20 hover:border-rose-600 transition-all text-xs font-bold cursor-pointer hover:scale-105 active:scale-95 shrink-0"
             title={lang === 'ar' ? 'تسجيل الخروج' : 'Log out'}
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -5297,47 +5878,492 @@ export default function App() {
         </div>
       </header>
 
-      {/* 2. Unified Navigation Bar: Visible on ALL computer monitors, tablets, and laptops without dropping any menu item */}
-      <nav className={`sub-navbar sticky top-[57px] sm:top-[61px] z-30 border-b backdrop-blur-md transition-colors px-2 sm:px-4 py-1.5 flex items-center justify-start overflow-x-auto print:hidden shadow-xs ${darkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-100/95 border-slate-200'}`}>
-        <div className="flex items-center gap-1 sm:gap-1.5 min-w-max">
-          {[
-            { id: 'dashboard', icon: '📊', label: t('dashboard') },
-            { id: 'inventory', icon: '📦', label: t('inventory') },
-            { id: 'dispense', icon: '💊', label: t('dispense') },
-            { id: 'residents', icon: '👥', label: t('residents') },
-            { id: 'units', icon: '📦', label: lang === 'ar' ? 'إدارة الوحدات' : 'Units Management' },
-            { id: 'categories', icon: '🏷️', label: lang === 'ar' ? 'إدارة فئات العلاج' : 'Therapeutic Classes' },
-            { id: 'users', icon: '⚙️', label: t('users') },
-            { id: 'dev_statistics', icon: '📈', label: lang === 'ar' ? 'إحصائيات' : 'Stats' },
-            { id: 'ai_reports', icon: '✨', label: lang === 'ar' ? 'التقارير الذكية AI' : 'AI Reports' },
-            { id: 'behavioral_tracker', icon: '⚠️', label: t('behavior') },
-            { id: 'security', icon: '🛡️', label: lang === 'ar' ? (currentUser?.role === 'admin' ? 'إيميلات التنبيهات والأمان' : 'الحماية والأمان') : (currentUser?.role === 'admin' ? 'Alert Emails & Security' : 'Security & Protection') },
-            { id: 'audit_logs', icon: '📋', label: lang === 'ar' ? 'سجل التدقيق' : 'Audit Trail' }
-          ].filter(item => isScreenAllowed(item.id)).map((item) => {
-            const isActive = activeTab === item.id;
-            return (
+      {/* ----------------- SIDE DRAWER MENU (القائمة الجانبية بنظام النقط ⋮) ----------------- */}
+      {sideDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+          {/* Backdrop Overlay */}
+          <div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity cursor-pointer"
+            onClick={() => setSideDrawerOpen(false)}
+          />
+
+          {/* Sliding Drawer Panel */}
+          <div 
+            className={`relative z-10 w-80 sm:w-96 max-w-[90vw] h-full flex flex-col shadow-2xl transition-transform animate-slide-in ${
+              lang === 'ar' ? 'mr-0 ml-auto border-l' : 'ml-0 mr-auto border-r'
+            } ${
+              darkMode 
+                ? 'bg-slate-900/98 border-slate-800 text-slate-100 shadow-slate-950/90' 
+                : 'bg-white/98 border-slate-200 text-slate-900 shadow-2xl'
+            }`}
+          >
+            {/* Drawer Header */}
+            <div className={`p-4 border-b flex items-center justify-between gap-3 shrink-0 ${
+              darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-2 bg-teal-600 rounded-xl text-white shadow-md shadow-teal-900/30 shrink-0">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black text-teal-400 truncate">{t('app_title')}</h3>
+                  <p className="text-[10px] text-slate-400 truncate">
+                    {lang === 'ar' ? 'منظومة الرقابة الدوائية والسريرية' : 'Clinical Pharmacy Management'}
+                  </p>
+                </div>
+              </div>
+
               <button
-                key={item.id}
                 type="button"
-                onClick={() => setActiveTab(item.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  isActive
-                    ? (darkMode ? 'bg-teal-600 text-white shadow-md shadow-teal-900/40 ring-1 ring-teal-400/50 scale-[1.02]' : 'bg-teal-600 text-white shadow-md shadow-teal-600/20 scale-[1.02]')
-                    : (darkMode ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70')
+                onClick={() => setSideDrawerOpen(false)}
+                className={`p-2 rounded-xl transition cursor-pointer ${
+                  darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
                 }`}
+                title={lang === 'ar' ? 'إغلاق القائمة' : 'Close Menu'}
               >
-                <span className="text-sm">{item.icon}</span>
-                <span>{item.label}</span>
+                <X className="w-5 h-5" />
               </button>
-            );
-          })}
+            </div>
+
+            {/* User Profile Card inside Drawer */}
+            <div className="p-3 border-b border-slate-800/60 shrink-0">
+              <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-bold text-xs text-slate-200 truncate">{currentUser?.name || (lang === 'ar' ? 'المستخدم الحالي' : 'Active User')}</div>
+                  <div className="text-[10px] text-teal-400 font-mono truncate">{currentUser?.email || ''}</div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/15 text-teal-300 border border-teal-500/30 shrink-0">
+                  {lang === 'ar' ? ROLES[currentUser?.role || 'admin']?.name : (currentUser?.role || 'admin').toUpperCase()}
+                </span>
+              </div>
+            </div>
+
+            {/* Scrollable Navigation & Tools Content */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
+              
+              {/* SECTION 1: All System Navigation Screens */}
+              <div className="space-y-1">
+                <div className="text-[10px] font-black text-slate-400 px-2 uppercase tracking-wider flex items-center justify-between">
+                  <span>{lang === 'ar' ? 'شاشات وأقسام النظام' : 'System Screens'}</span>
+                  <span className="text-[9px] font-mono text-teal-400">{activeTab}</span>
+                </div>
+
+                <div className="space-y-1 pt-1">
+                  {[
+                    { id: 'dashboard', icon: '📊', label: t('dashboard'), desc: lang === 'ar' ? 'المؤشرات العامة والإحصائيات الحية' : 'Key metrics & live summary' },
+                    { id: 'inventory', icon: '📦', label: t('inventory'), desc: lang === 'ar' ? 'الأدوية والمخزون والشركات' : 'Medicines & stock directory' },
+                    { id: 'dispense', icon: '💊', label: t('dispense'), desc: lang === 'ar' ? 'توثيق وصرف الأدوية للمستفيدين' : 'Dispensation logs & dual verification' },
+                    { id: 'residents', icon: '👥', label: t('residents'), desc: lang === 'ar' ? 'ملفات المستفيدين ومواعيد الإحالات' : 'Resident medical files & refills' },
+                    { id: 'doctors', icon: '🩺', label: lang === 'ar' ? 'سجل الأطباء المعتمدين' : 'Doctors Directory', desc: lang === 'ar' ? 'الأطباء الاستشاريين والمشرفين' : 'Attending & supervising physicians' },
+                    { id: 'units', icon: '📦', label: lang === 'ar' ? 'إدارة وحدات الصنف' : 'Units Management', desc: lang === 'ar' ? 'كبسولة، أمبولة، شراب، مرهم...' : 'Vial, tablet, syrup, ampoule...' },
+                    { id: 'categories', icon: '🏷️', label: lang === 'ar' ? 'إدارة فئات العلاج' : 'Therapeutic Classes', desc: lang === 'ar' ? 'تصنيفات ومجموعات الأدوية' : 'Therapeutic groups & classes' },
+                    { id: 'users', icon: '⚙️', label: t('users'), desc: lang === 'ar' ? 'حسابات الكادر والصلاحيات' : 'User roles & permissions' },
+                    { id: 'dev_statistics', icon: '📈', label: lang === 'ar' ? 'إحصائيات النظام الشاملة' : 'System Statistics', desc: lang === 'ar' ? 'رصد فوري لجميع الكيانات والسجلات' : 'Live database telemetry' },
+                    { id: 'ai_reports', icon: '✨', label: lang === 'ar' ? 'التقارير الذكية AI' : 'AI Reports', desc: lang === 'ar' ? 'التحليل الاستباقي وتنبيهات الصلاحية' : 'Predictive analytics & expiry threshold' },
+                    { id: 'behavioral_tracker', icon: '⚠️', label: t('behavior'), desc: lang === 'ar' ? 'رصد الأعراض الجانبية السلوكية (BCMA)' : 'Side effects & reaction logs' },
+                    { id: 'security', icon: '🛡️', label: lang === 'ar' ? (currentUser?.role === 'admin' ? 'إيميلات التنبيهات والأمان' : 'الحماية والأمان') : 'Security & Protection', desc: lang === 'ar' ? 'إعدادات التنبيهات وقنوات WhatsApp' : 'Alert dispatches & security' },
+                    { id: 'audit_logs', icon: '📋', label: lang === 'ar' ? 'سجل التدقيق والرقابة' : 'Audit Trail', desc: lang === 'ar' ? 'تتبع كافة العمليات والتعديلات' : 'Activity tracking & changes' }
+                  ].filter(item => isScreenAllowed(item.id)).map((item) => {
+                    const isActive = activeTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveTab(item.id);
+                          setSideDrawerOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-teal-600 text-white shadow-md shadow-teal-900/30 ring-1 ring-teal-400/50'
+                            : (darkMode ? 'text-slate-300 hover:bg-slate-800/80 hover:text-white' : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900')
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-base shrink-0">{item.icon}</span>
+                          <div className="flex flex-col text-right min-w-0">
+                            <span className="truncate">{item.label}</span>
+                            <span className={`text-[10px] font-normal truncate ${isActive ? 'text-teal-100' : 'text-slate-400'}`}>{item.desc}</span>
+                          </div>
+                        </div>
+                        {isActive && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-white/20 text-white text-[9px] font-black shrink-0">
+                            {lang === 'ar' ? 'نشط' : 'Active'}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SECTION 2: AI Tools & Quick Actions */}
+              <div className="space-y-1 pt-3 border-t border-slate-800/60">
+                <div className="text-[10px] font-black text-amber-400 px-2 uppercase tracking-wider flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  <span>{lang === 'ar' ? 'إجراءات سريعة وذكية' : 'Quick Actions & AI'}</span>
+                </div>
+
+                <div className="space-y-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSideDrawerOpen(false);
+                      openDispenseModal();
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-indigo-300' : 'hover:bg-indigo-50 text-indigo-800'
+                    }`}
+                  >
+                    <UserCheck className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'توثيق وصرف جرعة دوائية 📋💊' : 'Dispense Medication 📋💊'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'صرف فوري مع تدقيق مزدوج' : 'Dual-verification dispensing'}</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSideDrawerOpen(false);
+                      setShowReferralReportModal(true);
+                    }}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-amber-300' : 'hover:bg-amber-50 text-amber-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Bell className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'تنبيهات الإحالات الطبية للمستفيدين 🔔' : 'Refill Alerts (1-Day) 🔔'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'إشعار مسبق بيوم لمواعيد الصرف' : 'Advance 1-day notice'}</span>
+                      </div>
+                    </div>
+                    {(() => {
+                      const { dueTomorrowCount } = generateReferralAlertsReports(residents);
+                      return dueTomorrowCount > 0 ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-mono text-[10px] font-black shrink-0">
+                          {dueTomorrowCount}
+                        </span>
+                      ) : null;
+                    })()}
+                  </button>
+
+                  {/* Add Medication (Admin, Pharmacist, Developer) */}
+                  {currentUser?.role !== 'technician' && ['admin', 'owner', 'developer', 'pharmacist'].includes(currentUser?.role || '') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSideDrawerOpen(false);
+                        openAddMedicineModal();
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-teal-300' : 'hover:bg-teal-50 text-teal-800'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4 text-teal-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'إضافة دواء جديد للمستودع 💊' : 'Add Medication 💊'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'تسجيل صنف بالاسم العلمي والتجاري' : 'Register medicine'}</span>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Add Doctor (Admin, Pharmacist) */}
+                  {isDoctorManager && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSideDrawerOpen(false);
+                        handleOpenDoctorModal();
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-cyan-300' : 'hover:bg-cyan-50 text-cyan-800'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'إضافة طبيب جديد لسجل الأطباء 🩺' : 'Add Physician 🩺'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'طبيب استشاري أو أخصائي مشرف' : 'Supervising doctor'}</span>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Register Resident (Non-technicians) */}
+                  {currentUser?.role !== 'technician' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSideDrawerOpen(false);
+                        setResidentForm({ name: '', nameAr: '', nameEn: '', birthDate: '', referralDate: new Date().toISOString().split('T')[0], roomNumber: '', nationalId: '', age: 0, notes: '' });
+                        setSelectedResidentId(null);
+                        setShowAddResidentModal(true);
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-emerald-300' : 'hover:bg-emerald-50 text-emerald-800'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'تسجيل مستفيد جديد بالمركز 👥' : 'Register Beneficiary 👥'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'فتح ملف رعاية طبية جديد' : 'Open new resident file'}</span>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Developer Backup */}
+                  {currentUser?.role === 'developer' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSideDrawerOpen(false);
+                        handleExportBackup();
+                      }}
+                      disabled={isExportingBackup}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                        darkMode ? 'hover:bg-slate-800 text-emerald-300' : 'hover:bg-emerald-50 text-emerald-800'
+                      }`}
+                    >
+                      <Download className={`w-4 h-4 text-emerald-400 shrink-0 ${isExportingBackup ? 'animate-bounce' : ''}`} />
+                      <div className="flex flex-col text-right">
+                        <span>{lang === 'ar' ? 'أخذ وتنزيل نسخة احتياطية 💾' : 'Download DB Backup 💾'}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'نسخ احتياطي شامل للداتابيز' : 'Full JSON export'}</span>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* SECTION 3: Utilities, Themes, Help Manual & Settings */}
+              <div className="space-y-1 pt-3 border-t border-slate-800/60">
+                <div className="text-[10px] font-black text-slate-400 px-2 uppercase tracking-wider">
+                  {lang === 'ar' ? 'الأدوات والمساعدة والتخصيص' : 'Help & Customization'}
+                </div>
+
+                <div className="space-y-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSideDrawerOpen(false);
+                      setShowHelpModal(true);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-slate-200 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <BookOpen className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'دليل الاستخدام وملف المساعدة 📖' : 'Help Manual & Guide 📖'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'شرح شامل مع تصدير PDF' : 'Full manual with PDF export'}</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSideDrawerOpen(false);
+                      setShowSkinModal(true);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-slate-200 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="text-base shrink-0">🎨</span>
+                    <div className="flex flex-col text-right">
+                      <span>{t('skin_selector_title')}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'تخصيص ثيم وألوان النظام' : 'Change theme & colors'}</span>
+                    </div>
+                  </button>
+
+                  <div className="px-2 py-1">
+                    <PWAInstallButton lang={lang} />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSideDrawerOpen(false);
+                      setPasswordForm({
+                        currentPassword: '',
+                        newPassword: '',
+                        confirmPassword: '',
+                        showCurrent: false,
+                        showNew: false,
+                        showConfirm: false,
+                        error: '',
+                        success: '',
+                        isSubmitting: false
+                      });
+                      setShowChangePasswordModal(true);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-slate-200 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <Key className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'تغيير كلمة المرور الخاصة بحسابي' : 'Change My Password'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'تحديث أمان الحساب' : 'Update account credentials'}</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Drawer Footer: Quick toggles & Logout */}
+            <div className={`p-3 border-t shrink-0 space-y-2 ${darkMode ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <button 
+                  type="button"
+                  onClick={handleToggleDarkMode}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                    darkMode ? 'border-slate-800 bg-slate-900 text-amber-400 hover:bg-slate-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {darkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+                  <span>{darkMode ? (lang === 'ar' ? 'النهاري ☀️' : 'Light ☀️') : (lang === 'ar' ? 'الليلي 🌙' : 'Dark 🌙')}</span>
+                </button>
+
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const nextLang = lang === 'ar' ? 'en' : 'ar';
+                    setLang(nextLang);
+                    localStorage.setItem('care_pharmacy_lang', nextLang);
+                    showToast(nextLang === 'ar' ? 'تم تحويل النظام بالكامل إلى اللغة العربية 🇸🇦' : 'System translated to English successfully! 🇺🇸', 'success');
+                  }}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                    darkMode ? 'border-slate-800 bg-slate-900 text-teal-400 hover:bg-slate-800' : 'border-slate-300 bg-white text-teal-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>🌐</span>
+                  <span>{lang === 'ar' ? 'English 🇺🇸' : 'العربية 🇸🇦'}</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSideDrawerOpen(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-rose-600/15 hover:bg-rose-600 text-rose-400 hover:text-white transition font-bold text-xs cursor-pointer border border-rose-500/20 hover:border-rose-600"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>{t('logout')}</span>
+              </button>
+            </div>
+
+          </div>
         </div>
-      </nav>
+      )}
+
+      {/* 2. Unified Navigation Bar: Collapsible (Show & Hide) */}
+      {sidebarOpen ? (
+        <nav className={`sub-navbar sticky top-[57px] sm:top-[61px] z-30 border-b backdrop-blur-md transition-all px-2 sm:px-4 py-1.5 flex items-center justify-between max-w-full overflow-x-auto custom-scrollbar print:hidden shadow-xs animate-fade-in ${darkMode ? 'bg-slate-900/95 border-slate-800' : 'bg-slate-100/95 border-slate-200'}`}>
+          <div className="flex items-center gap-1 sm:gap-1.5 min-w-max">
+            {[
+              { id: 'dashboard', icon: '📊', label: t('dashboard') },
+              { id: 'inventory', icon: '📦', label: t('inventory') },
+              { id: 'dispense', icon: '💊', label: t('dispense') },
+              { id: 'residents', icon: '👥', label: t('residents') },
+              { id: 'doctors', icon: '🩺', label: lang === 'ar' ? 'سجل الأطباء' : 'Doctors' },
+              { id: 'units', icon: '📦', label: lang === 'ar' ? 'إدارة الوحدات' : 'Units Management' },
+              { id: 'categories', icon: '🏷️', label: lang === 'ar' ? 'إدارة فئات العلاج' : 'Therapeutic Classes' },
+              { id: 'users', icon: '⚙️', label: t('users') },
+              { id: 'dev_statistics', icon: '📈', label: lang === 'ar' ? 'إحصائيات' : 'Stats' },
+              { id: 'ai_reports', icon: '✨', label: lang === 'ar' ? 'التقارير الذكية AI' : 'AI Reports' },
+              { id: 'behavioral_tracker', icon: '⚠️', label: t('behavior') },
+              { id: 'security', icon: '🛡️', label: lang === 'ar' ? (currentUser?.role === 'admin' ? 'إيميلات التنبيهات والأمان' : 'الحماية والأمان') : (currentUser?.role === 'admin' ? 'Alert Emails & Security' : 'Security & Protection') },
+              { id: 'audit_logs', icon: '📋', label: lang === 'ar' ? 'سجل التدقيق' : 'Audit Trail' }
+            ].filter(item => isScreenAllowed(item.id)).map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveTab(item.id)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    isActive
+                      ? (darkMode ? 'bg-teal-600 text-white shadow-md shadow-teal-900/40 ring-1 ring-teal-400/50 scale-[1.02]' : 'bg-teal-600 text-white shadow-md shadow-teal-600/20 scale-[1.02]')
+                      : (darkMode ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70')
+                  }`}
+                >
+                  <span className="text-sm">{item.icon}</span>
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Quick close button directly inside navbar */}
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className={`hidden md:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer shrink-0 mr-2 ml-2 ${
+              darkMode ? 'border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+            }`}
+            title={lang === 'ar' ? 'إخفاء شريط القائمة' : 'Hide Navigation Menu'}
+          >
+            <PanelLeftClose className="w-3.5 h-3.5" />
+            <span>{lang === 'ar' ? 'إخفاء ✕' : 'Hide ✕'}</span>
+          </button>
+        </nav>
+      ) : (
+        /* Minimized Nav Strip when menu is hidden */
+        <div className={`sticky top-[57px] sm:top-[61px] z-30 border-b transition-all px-3 sm:px-5 py-1.5 flex items-center justify-between text-xs backdrop-blur-md print:hidden ${darkMode ? 'bg-slate-900/85 border-slate-800/80 text-slate-300' : 'bg-slate-100/90 border-slate-200 text-slate-700'}`}>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 text-[11px] font-semibold">{lang === 'ar' ? 'الشاشة الحالية:' : 'Active Screen:'}</span>
+            <span className="font-bold text-teal-400 flex items-center gap-1.5 bg-teal-500/10 px-2 py-0.5 rounded-lg border border-teal-500/20">
+              <span>{
+                activeTab === 'dashboard' ? '📊' :
+                activeTab === 'inventory' ? '📦' :
+                activeTab === 'dispense' ? '💊' :
+                activeTab === 'residents' ? '👥' :
+                activeTab === 'doctors' ? '🩺' :
+                activeTab === 'units' ? '📦' :
+                activeTab === 'categories' ? '🏷️' :
+                activeTab === 'users' ? '⚙️' :
+                activeTab === 'dev_statistics' ? '📈' :
+                activeTab === 'ai_reports' ? '✨' :
+                activeTab === 'behavioral_tracker' ? '⚠️' :
+                activeTab === 'security' ? '🛡️' : '📋'
+              }</span>
+              <span>{
+                activeTab === 'dashboard' ? t('dashboard') :
+                activeTab === 'inventory' ? t('inventory') :
+                activeTab === 'dispense' ? t('dispense') :
+                activeTab === 'residents' ? t('residents') :
+                activeTab === 'doctors' ? (lang === 'ar' ? 'سجل الأطباء' : 'Doctors') :
+                activeTab === 'units' ? (lang === 'ar' ? 'إدارة الوحدات' : 'Units Management') :
+                activeTab === 'categories' ? (lang === 'ar' ? 'إدارة فئات العلاج' : 'Therapeutic Classes') :
+                activeTab === 'users' ? t('users') :
+                activeTab === 'dev_statistics' ? (lang === 'ar' ? 'إحصائيات' : 'Stats') :
+                activeTab === 'ai_reports' ? (lang === 'ar' ? 'التقارير الذكية AI' : 'AI Reports') :
+                activeTab === 'behavioral_tracker' ? t('behavior') :
+                activeTab === 'security' ? (lang === 'ar' ? 'الحماية والتنبيهات' : 'Security & Alerts') : (lang === 'ar' ? 'سجل التدقيق' : 'Audit Trail')
+              }</span>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition cursor-pointer hover:scale-105 active:scale-95 shadow-xs ${
+              darkMode ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 ring-1 ring-amber-400/40 animate-pulse' : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 ring-1 ring-amber-300'
+            }`}
+          >
+            <Menu className="w-3.5 h-3.5 text-amber-400" />
+            <span>{lang === 'ar' ? 'إظهار القائمة الكاملة ☰' : 'Show Full Menu ☰'}</span>
+          </button>
+        </div>
+      )}
 
       {/* Theme Skins Selector Modal */}
       {showSkinModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
-          <div className={`w-full max-w-2xl rounded-3xl border p-6 shadow-2xl space-y-6 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
+          <div className={`w-full max-w-2xl max-h-[calc(100vh-4rem)] overflow-y-auto rounded-3xl border p-6 shadow-2xl space-y-6 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
             <div className="flex items-center justify-between border-b pb-4 border-slate-800/60">
               <div className="flex items-center gap-2">
                 <span className="text-2xl">🎨</span>
@@ -5435,7 +6461,7 @@ export default function App() {
       {/* ----------------- MODAL: CHANGE PASSWORD (تغيير كلمة المرور الخاصة بالمستخدم) ----------------- */}
       {showChangePasswordModal && currentUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
-          <div className={`w-full max-w-md rounded-3xl border p-6 sm:p-7 shadow-2xl space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-slate-950/80' : 'bg-white border-slate-200 text-slate-900 shadow-2xl'}`}>
+          <div className={`w-full max-w-md max-h-[calc(100vh-4rem)] overflow-y-auto rounded-3xl border p-6 sm:p-7 shadow-2xl space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-slate-950/80' : 'bg-white border-slate-200 text-slate-900 shadow-2xl'}`}>
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800/60">
@@ -5850,7 +6876,7 @@ export default function App() {
                     </h2>
                     <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-teal-50'}`}>
                       {lang === 'ar' ? (
-                        <>بصفتك <strong className={darkMode ? 'text-teal-400' : 'text-slate-950 bg-white/90 px-2 py-0.5 rounded-md'}>{ROLES[currentUser.role]?.name}</strong>، لديك كامل الصلاحيات لتنظيم صرف ومخزون الأدوية وتأمين بيانات المقيمين ذوي الاحتياجات الخاصة.</>
+                        <>بصفتك <strong className={darkMode ? 'text-teal-400' : 'text-slate-950 bg-white/90 px-2 py-0.5 rounded-md'}>{ROLES[currentUser.role]?.name}</strong>، لديك كامل الصلاحيات لتنظيم صرف ومخزون الأدوية وتأمين بيانات المستفيدين ذوي الاحتياجات الخاصة.</>
                       ) : (
                         <>As a <strong className={darkMode ? 'text-teal-400' : 'text-slate-950 bg-white/90 px-2 py-0.5 rounded-md'}>{currentUser.role.toUpperCase()}</strong>, you are fully authorized to manage medicine stocks, dispense medications, and secure resident files.</>
                       )}
@@ -5871,7 +6897,7 @@ export default function App() {
                       <button 
                         onClick={() => setShowReferralReportModal(true)}
                         className={`px-4 py-3 rounded-2xl text-sm font-bold border transition-all flex items-center gap-2 active:scale-95 cursor-pointer shadow-md ${darkMode ? 'border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300' : 'border-amber-500/40 bg-amber-50 hover:bg-amber-100 text-amber-900'}`}
-                        title={text('عرض تقرير تنبيهات الإحالات الطبية للمقيمين (قبلها بيوم) وإرساله للمسؤولين بالبريد (خاص بالمبرمج)', 'View & send resident refill alerts report (1-day notice) to officials (Developer Only)')}
+                        title={text('عرض تقرير تنبيهات الإحالات الطبية للمستفيدين (قبلها بيوم) وإرساله للمسؤولين بالبريد (خاص بالمبرمج)', 'View & send resident refill alerts report (1-day notice) to officials (Developer Only)')}
                       >
                         <Bell className="w-4 h-4 text-amber-400 animate-pulse" />
                         <span>{text('تقرير الإحالات (قبلها بيوم) 🔔', 'Refill Alerts (1-Day) 🔔')}</span>
@@ -6084,8 +7110,8 @@ export default function App() {
                       </div>
                       <p className="text-xs text-slate-400 leading-relaxed">
                         {lang === 'ar' 
-                          ? 'مقارنة بيانية مباشرة بين الكمية الكلية للمخزون وكمية السحب والصرف لكل فئة علاجية' 
-                          : 'Direct graphical comparison between total stock inventory and withdrawn quantity per therapeutic class'}
+                          ? 'مقارنة بيانية مباشرة بين الكمية الكلية للمخزون وكمية السحب والصرف لكل فئة علاجية (تم فصل فئة المستلزمات الطبية في مخطط خاص مستقل أدناه)' 
+                          : 'Direct graphical comparison between total stock inventory and withdrawn quantity per therapeutic class (Medical Supplies separated into dedicated chart below)'}
                       </p>
                     </div>
 
@@ -6185,6 +7211,142 @@ export default function App() {
                     </div>
                   </div>
 
+                </div>
+
+                {/* 🩺 Special Dedicated Chart & Table for: Medical Supplies (فئة المستلزمات الطبية) */}
+                <div className={`p-6 rounded-3xl border ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800/60">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="p-2 rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/20 text-lg">🩺</span>
+                        <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                          <span>{lang === 'ar' ? 'رسم بياني خاص بفئة: المستلزمات الطبية (Medical Supplies)' : 'Dedicated Chart: Medical Supplies Class'}</span>
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/30 text-sky-300">
+                            {lang === 'ar' ? 'مخطط بياني مستقل' : 'Dedicated Chart'}
+                          </span>
+                        </h3>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        {lang === 'ar' 
+                          ? 'مقارنة بيانية مباشرة بين الكمية الكلية للمخزون وكمية السحب والصرف لأصناف المستلزمات الطبية (Medical supplies) مع جدول تفصيلي بالأرصدة والقيم المالية.' 
+                          : 'Direct graphical comparison between total stock inventory and withdrawn quantity for Medical Supplies items with detailed balance and consumption metrics.'}
+                      </p>
+                    </div>
+
+                    {/* Quick Metric Badges */}
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <div className="px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-xs font-mono">
+                        <span className="text-slate-400">{lang === 'ar' ? 'المخزون المتوفر: ' : 'Stock: '}</span>
+                        <strong className="text-sky-400 font-black">{medicalSuppliesChartData.totalStock}</strong>
+                      </div>
+                      <div className="px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-mono">
+                        <span className="text-slate-400">{lang === 'ar' ? 'كمية السحب: ' : 'Withdrawn: '}</span>
+                        <strong className="text-indigo-400 font-black">{medicalSuppliesChartData.totalDispensed}</strong>
+                      </div>
+                      <div className="px-3 py-1.5 rounded-xl bg-teal-500/10 border border-teal-500/20 text-xs font-mono">
+                        <span className="text-slate-400">{lang === 'ar' ? 'نسبة السحب: ' : 'Draw Rate: '}</span>
+                        <strong className="text-teal-400 font-black">{medicalSuppliesChartData.withdrawPct}%</strong>
+                      </div>
+                      <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-mono">
+                        <span className="text-slate-400">{lang === 'ar' ? 'القيمة: ' : 'Value: '}</span>
+                        <strong className="text-amber-400 font-black">{medicalSuppliesChartData.totalValue.toLocaleString()} {t('sar')}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Chart and Table Grid for Medical Supplies */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                    {/* BarChart */}
+                    <div className="h-72 w-full" dir="ltr">
+                      {medicalSuppliesChartData.itemsData.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                          {lang === 'ar' ? 'لا توجد أصناف مسجلة في فئة المستلزمات الطبية حالياً' : 'No items found in Medical Supplies'}
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={medicalSuppliesChartData.itemsData} margin={{ top: 10, right: 10, left: -10, bottom: 25 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} />
+                            <XAxis 
+                              dataKey="name" 
+                              stroke={darkMode ? "#94a3b8" : "#475569"} 
+                              style={{ fontSize: '9px', fontFamily: 'sans-serif' }}
+                              tickFormatter={(tick) => tick.length > 14 ? tick.substring(0, 14) + '...' : tick}
+                            />
+                            <YAxis 
+                              stroke={darkMode ? "#94a3b8" : "#475569"} 
+                              style={{ fontSize: '10px', fontFamily: 'monospace' }}
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                                borderColor: darkMode ? '#1e293b' : '#cbd5e1',
+                                borderRadius: '16px',
+                                textAlign: lang === 'ar' ? 'right' : 'left',
+                                fontSize: '11px'
+                              }}
+                              formatter={(value: any, name: any) => [
+                                `${value} ${t('unit_qty')}`,
+                                name
+                              ]}
+                            />
+                            <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
+                            <Bar 
+                              name={lang === 'ar' ? "الكمية الكلية للمخزون" : "Total Stock Quantity"} 
+                              dataKey="الكمية الكلية للمخزون" 
+                              fill="#0284c7" 
+                              radius={[6, 6, 0, 0]} 
+                            />
+                            <Bar 
+                              name={lang === 'ar' ? "كمية السحب" : "Withdrawn Quantity"} 
+                              dataKey="كمية السحب" 
+                              fill="#818cf8" 
+                              radius={[6, 6, 0, 0]} 
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+
+                    {/* Table */}
+                    <div className="overflow-x-auto max-h-72 overflow-y-auto pr-1">
+                      <table className="w-full text-right text-[11px]">
+                        <thead>
+                          <tr className={`border-b text-[10px] font-bold ${darkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-600'}`}>
+                            <th className="py-2 px-2 text-right">{lang === 'ar' ? 'الصنف / المادة الطبية' : 'Supply Item'}</th>
+                            <th className="py-2 px-2 text-center text-sky-400">{lang === 'ar' ? 'الكمية الكلية للمخزون' : 'Total Stock'}</th>
+                            <th className="py-2 px-2 text-center text-indigo-400">{lang === 'ar' ? 'كمية السحب' : 'Withdrawn'}</th>
+                            <th className="py-2 px-2 text-center">{lang === 'ar' ? 'نسبة السحب' : 'Draw Rate'}</th>
+                            <th className="py-2 px-2 text-left">{lang === 'ar' ? 'القيمة (ر.س)' : 'Value (SAR)'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40 font-mono">
+                          {medicalSuppliesChartData.itemsData.map((item, idx) => (
+                            <tr key={idx} className={`hover:bg-slate-800/30 transition ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                              <td className="py-2.5 px-2 font-sans font-bold text-slate-200 truncate max-w-44">
+                                <span className="inline-block w-2 h-2 rounded-full mr-1.5 ml-1.5" style={{ backgroundColor: item.color }} />
+                                {item.name}
+                              </td>
+                              <td className="py-2.5 px-2 text-center font-bold text-sky-400">{item["الكمية الكلية للمخزون"]} {item.unit}</td>
+                              <td className="py-2.5 px-2 text-center font-bold text-indigo-400">{item["كمية السحب"]} {item.unit}</td>
+                              <td className="py-2.5 px-2 text-center">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.withdrawPct > 50 ? 'bg-rose-500/20 text-rose-300' : 'bg-slate-800 text-slate-300'}`}>
+                                  {item.withdrawPct}%
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-2 text-left text-amber-400 font-semibold">{item.cost.toLocaleString()} {t('sar')}</td>
+                            </tr>
+                          ))}
+                          {medicalSuppliesChartData.itemsData.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="py-8 text-center text-slate-500 font-sans">
+                                {lang === 'ar' ? 'لا توجد أصناف في فئة المستلزمات الطبية حالياً' : 'No items found in Medical Supplies'}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
 
                 {/* 🏢 Pharmaceutical Companies & Manufacturers Analysis (Recharts Powered) */}
@@ -6395,7 +7557,7 @@ export default function App() {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-base font-bold flex items-center gap-2">
                       <FileText className="w-5 h-5 text-indigo-400" />
-                      {text('آخر عمليات صرف الأدوية المسجلة للمقيمين', 'Recently Recorded Medication Dispense Logs')}
+                      {text('آخر عمليات صرف الأدوية المسجلة للمستفيدين', 'Recently Recorded Medication Dispense Logs')}
                     </h3>
                     <button 
                       onClick={() => setActiveTab('dispense')} 
@@ -6409,7 +7571,7 @@ export default function App() {
                     <table className="w-full text-right text-xs">
                       <thead>
                         <tr className="border-b border-slate-800 text-slate-400 font-bold">
-                          <th className="pb-3 text-right">{text('المقيم المستفيد', 'Recipient Resident')}</th>
+                          <th className="pb-3 text-right">{text('المستفيد المستفيد', 'Recipient Beneficiary')}</th>
                           <th className="pb-3 text-right">{text('الدواء', 'Medication')}</th>
                           <th className="pb-3 text-right">{text('الكمية المقررة', 'Prescribed Qty')}</th>
                           <th className="pb-3 text-right">{text('الكمية المصروفة فعلياً', 'Actually Dispensed')}</th>
@@ -6835,7 +7997,7 @@ export default function App() {
                   <div>
                     <h3 className="text-lg font-bold text-slate-200 flex items-center gap-2">
                       <UserCheck className="w-5 h-5 text-indigo-400" />
-                      <span>{text('سجل عمليات صرف الأدوية للمقيمين بالمركز', 'Medication Dispense Log Directory')}</span>
+                      <span>{text('سجل عمليات صرف الأدوية للمستفيدين بالمركز', 'Medication Dispense Log Directory')}</span>
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
                       {text('متابعة دقيقة لكل عملية صرف مع إمكانية الفلترة المتقدمة بوقت وتاريخ الصرف والتصدير المباشر لإكسيل', 'Comprehensive dispensation tracking with advanced date/time filtering and direct Excel export')}
@@ -6859,7 +8021,7 @@ export default function App() {
                       type="button"
                       onClick={() => openDispenseModal()}
                       className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-xs font-black shadow-lg shadow-indigo-900/30 transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-105 active:scale-95 border border-indigo-400/30 ring-2 ring-indigo-500/20"
-                      title={text('فتح نافذة توثيق وصرف الأدوية للمقيمين', 'Open Medication Dispensing & Documentation Modal')}
+                      title={text('فتح نافذة توثيق وصرف الأدوية للمستفيدين', 'Open Medication Dispensing & Documentation Modal')}
                     >
                       <UserCheck className="w-4 h-4 shrink-0 text-indigo-200" />
                       <span className="whitespace-nowrap">{text('توثيق وصرف الأدوية 📋💊', 'Document & Dispense Medications 📋💊')}</span>
@@ -6875,11 +8037,11 @@ export default function App() {
                     </div>
                     <div>
                       <h4 className="text-sm font-black text-slate-100 flex items-center gap-2">
-                        <span>{text('توثيق وصرف جرعة دوائية جديدة للمقيمين', 'Document & Dispense New Medication Dose')}</span>
+                        <span>{text('توثيق وصرف جرعة دوائية جديدة للمستفيدين', 'Document & Dispense New Medication Dose')}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">{text('معتمد ونظامي', 'Authorized')}</span>
                       </h4>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {text('تدوين وتوثيق الجرعات المعتمدة، صرف كسور الأدوية (ربع حبة ونصف حبة)، وتدقيق الصرف المزدوج للمقيمين', 'Record approved doses, dispense fractions (¼ and ½ tablet), and dual safety audit.')}
+                        {text('تدوين وتوثيق الجرعات المعتمدة، صرف كسور الأدوية (ربع حبة ونصف حبة)، وتدقيق الصرف المزدوج للمستفيدين', 'Record approved doses, dispense fractions (¼ and ½ tablet), and dual safety audit.')}
                       </p>
                     </div>
                   </div>
@@ -6925,7 +8087,7 @@ export default function App() {
                       <Search className="w-4 h-4 text-slate-400 shrink-0" />
                       <input 
                         type="text"
-                        placeholder={text('ابحث باسم المقيم، اسم الدواء، أو الصيدلي...', 'Search resident, medicine, or pharmacist...')}
+                        placeholder={text('ابحث باسم المستفيد، اسم الدواء، أو الصيدلي...', 'Search resident, medicine, or pharmacist...')}
                         value={dispenseSearchQuery}
                         onChange={(e) => setDispenseSearchQuery(e.target.value)}
                         className="bg-transparent border-none outline-none pr-2.5 w-full text-xs font-semibold"
@@ -7075,9 +8237,9 @@ export default function App() {
                           <option value="dispensedAt:asc">{text('📅 التاريخ والتوقيت (الأقدم أولاً - تصاعدي)', '📅 Timestamp (Oldest First - Asc)')}</option>
                         </optgroup>
                         
-                        <optgroup label={text('👤 اسم المقيم المستفيد', '👤 Beneficiary Resident')}>
-                          <option value="residentName:asc">{text('👤 اسم المقيم المستفيد (أبجدي أ - ي)', '👤 Resident Name (A - Z)')}</option>
-                          <option value="residentName:desc">{text('👤 اسم المقيم المستفيد (أبجدي ي - أ)', '👤 Resident Name (Z - A)')}</option>
+                        <optgroup label={text('👤 اسم المستفيد المستفيد', '👤 Beneficiary Resident')}>
+                          <option value="residentName:asc">{text('👤 اسم المستفيد المستفيد (أبجدي أ - ي)', '👤 Resident Name (A - Z)')}</option>
+                          <option value="residentName:desc">{text('👤 اسم المستفيد المستفيد (أبجدي ي - أ)', '👤 Resident Name (Z - A)')}</option>
                         </optgroup>
 
                         <optgroup label={text('💊 اسم الدواء المصروف', '💊 Medication Name')}>
@@ -7195,10 +8357,10 @@ export default function App() {
                           <th 
                             onClick={() => handleDispenseSortToggle('residentName')}
                             className="p-4 text-right cursor-pointer hover:text-teal-400 transition select-none"
-                            title={text('انقر للترتيب حسب اسم المقيم', 'Click to sort by Resident Name')}
+                            title={text('انقر للترتيب حسب اسم المستفيد', 'Click to sort by Resident Name')}
                           >
                             <div className="flex items-center gap-1.5">
-                              <span>{text('اسم المقيم المستفيد', 'Recipient Resident')}</span>
+                              <span>{text('اسم المستفيد المستفيد', 'Recipient Beneficiary')}</span>
                               {dispenseSortField === 'residentName' ? (
                                 dispenseSortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-teal-400" /> : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
                               ) : (
@@ -7333,6 +8495,13 @@ export default function App() {
                                       {resInfo.en || rec.residentNameEn}
                                     </div>
                                   ) : null}
+                                  {rec.doctorName && (
+                                    <div className="text-[10px] text-teal-300 font-medium mt-1 flex items-center gap-1 bg-teal-950/60 border border-teal-500/20 px-2 py-0.5 rounded-md w-fit">
+                                      <span>🩺</span>
+                                      <span>{rec.doctorName}</span>
+                                      {rec.doctorSpecialty && <span className="text-[9px] text-teal-400/80">({rec.doctorSpecialty})</span>}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="p-4">
                                   <div className="font-bold text-teal-400 text-sm">
@@ -7369,10 +8538,11 @@ export default function App() {
                                     onClick={() => openDispenseModal({ 
                                       medicineId: rec.medicineId, 
                                       residentName: rec.residentName, 
-                                      unit: rec.unit 
+                                      unit: rec.unit,
+                                      doctorId: rec.doctorId
                                     })}
                                     className="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg border border-indigo-500/30 transition text-[11px] font-bold cursor-pointer inline-flex items-center gap-1 active:scale-95 shadow-sm"
-                                    title={text('صرف وتوثيق جرعة جديدة لهذا المقيم لنفس الدواء', 'Re-dispense & document dose for this resident')}
+                                    title={text('صرف وتوثيق جرعة جديدة لهذا المستفيد لنفس الدواء', 'Re-dispense & document dose for this resident')}
                                   >
                                     <Plus className="w-3 h-3" />
                                     <span>{text('صرف جديد', 'Re-dispense')}</span>
@@ -7799,18 +8969,75 @@ export default function App() {
                     </p>
                     
                     <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-300 mb-2">{text('أيام التنبيه المفضلة قبل انتهاء الصلاحية:', 'Notification Alert Days Threshold:')}</label>
-                        <div className="flex gap-2">
-                          <input 
-                            type="number"
-                            min={10}
-                            max={365}
-                            value={alertDays}
-                            onChange={(e) => setAlertDays(Number(e.target.value))}
-                            className={`px-3 py-2 rounded-xl border font-mono font-bold text-xs w-28 outline-none ${darkMode ? 'bg-slate-950 border-slate-800 text-teal-400' : 'bg-white border-slate-200'}`}
-                          />
-                          <span className="text-xs text-slate-400 self-center">{text('يوماً', 'Days')}</span>
+                      <div className="space-y-3">
+                        <label className="block text-xs font-bold text-slate-300">
+                          {text('أيام التنبيه المعتمدة قبل انتهاء الصلاحية:', 'Expiry Alert Days Threshold:')}
+                        </label>
+                        
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="number"
+                              min={5}
+                              max={365}
+                              value={alertDays}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setAlertDays(val);
+                                localStorage.setItem('care_pharmacy_alert_days', String(val));
+                              }}
+                              className={`px-3 py-2 rounded-xl border font-mono font-bold text-sm w-28 text-center outline-none ${
+                                darkMode ? 'bg-slate-950 border-slate-700 text-teal-400 focus:border-teal-500' : 'bg-white border-slate-300 text-slate-900 focus:border-teal-600 shadow-xs'
+                              }`}
+                            />
+                            <span className="text-xs text-slate-400 font-bold">{text('يوماً', 'Days')}</span>
+                          </div>
+
+                          {/* Save Button for Alert Days */}
+                          <button
+                            type="button"
+                            onClick={() => handleSaveAlertDays()}
+                            disabled={isSavingAlertDays}
+                            className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-black text-xs transition shadow-md shadow-teal-900/30 flex items-center gap-1.5 cursor-pointer active:scale-95 disabled:opacity-50"
+                          >
+                            <Save className={`w-3.5 h-3.5 ${isSavingAlertDays ? 'animate-spin' : ''}`} />
+                            <span>{isSavingAlertDays ? text('جاري الحفظ...', 'Saving...') : text('حفظ أيام التنبيه 💾', 'Save Alert Days 💾')}</span>
+                          </button>
+                        </div>
+
+                        {/* Quick Presets for Expiry Alert Days */}
+                        <div>
+                          <div className="text-[11px] text-slate-400 mb-1.5 flex items-center gap-1">
+                            <span>⚡</span>
+                            <span>{text('خيارات سريعة للحفظ المباشر:', 'Quick One-Click Presets:')}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[30, 60, 90, 120, 180].map((days) => (
+                              <button
+                                key={days}
+                                type="button"
+                                onClick={() => handleSaveAlertDays(days)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                                  alertDays === days
+                                    ? 'bg-teal-500/20 border-teal-500/40 text-teal-300 ring-1 ring-teal-500/30'
+                                    : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/80 text-slate-300 hover:text-white'
+                                }`}
+                              >
+                                {days} {text('يوم', 'Days')}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Saved Status Indicator */}
+                        <div className="p-2.5 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center gap-2 text-xs text-teal-300">
+                          <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+                          <span>
+                            {text(
+                              `الحالة المعتمدة: يتم تنبيه الصيدلية للأدوية التي ينتهي مفعولها خلال ${alertDays} يوماً فما دون. تم الحفظ سحابياً ومحلياً.`,
+                              `Active Threshold: Pharmacy alerted for medicines expiring within ${alertDays} days. Persisted locally & cloud.`
+                            )}
+                          </span>
                         </div>
                       </div>
 
@@ -8086,7 +9313,7 @@ export default function App() {
                         <ul className={`text-[10px] text-slate-400 space-y-1 list-disc ${lang === 'ar' ? 'list-inside' : 'list-inside'}`}>
                           <li>{text('رؤية إحصائيات لوحة التحكم', 'View dashboard analytics & metrics')}</li>
                           <li>{text('إدارة المخزن بالكامل (CRUD)', 'Full stock inventory control (CRUD)')}</li>
-                          <li>{text('تسجيل وتعديل صرف المقيمين', 'Record & edit resident dispensations')}</li>
+                          <li>{text('تسجيل وتعديل صرف المستفيدين', 'Record & edit resident dispensations')}</li>
                           <li>{text('عرض تقارير الذكاء الاصطناعي', 'Access strategic AI clinical analysis')}</li>
                           <li>{text('إدارة حسابات الكادر الطبي', 'Manage staff accounts')}</li>
                           <li className="text-teal-400 font-semibold">{text('إدارة وحفظ إيميلات التنبيهات الدوائية ✉️', 'Manage & save alert notification emails ✉️')}</li>
@@ -8101,7 +9328,7 @@ export default function App() {
                         <ul className="text-[10px] text-slate-400 space-y-1 list-disc list-inside">
                           <li>{text('رؤية إحصائيات لوحة التحكم', 'View dashboard statistics')}</li>
                           <li>{text('إضافة وتحديث الأدوية', 'Add & update medicine directory')}</li>
-                          <li>{text('صرف الأدوية للمقيمين', 'Dispense prescriptions to residents')}</li>
+                          <li>{text('صرف الأدوية للمستفيدين', 'Dispense prescriptions to residents')}</li>
                           <li>{text('رؤية التحليلات الطبية والذكاء الاصطناعي', 'Review AI analysis & clinical recommendations')}</li>
                           <li className="text-rose-400/80">{text('حظر حذف الأدوية المسجلة', 'Medication deletion restricted')}</li>
                           <li className="text-rose-400/80 font-semibold">{text('حظر شاشة الحماية والأمن', 'Security screen restricted')}</li>
@@ -8116,9 +9343,9 @@ export default function App() {
                         <ul className="text-[10px] text-slate-400 space-y-1 list-disc list-inside">
                           <li>{text('لوحة التحكم العامة ومستويات المخزون', 'General dashboard & stock overview')}</li>
                           <li>{text('صرف الأدوية وتأكيد الجرعات', 'Dispense prescriptions & confirm doses')}</li>
-                          <li>{text('عرض المقيمين والملفات الطبية فقط (يشوفهم بس)', 'View residents & medical dossiers only')}</li>
+                          <li>{text('عرض المستفيدين والملفات الطبية فقط (يشوفهم بس)', 'View residents & medical dossiers only')}</li>
                           <li className="text-rose-400/80">{text('حظر إضافة أصناف جديدة للمخزون', 'Adding new inventory items restricted')}</li>
-                          <li className="text-rose-400/80">{text('حظر إضافة أو تعديل المقيمين', 'Resident add & edit restricted')}</li>
+                          <li className="text-rose-400/80">{text('حظر إضافة أو تعديل المستفيدين', 'Resident add & edit restricted')}</li>
                           <li className="text-rose-400/80 font-semibold">{text('حظر شاشة الحماية والأمن', 'Security screen restricted')}</li>
                         </ul>
                       </div>
@@ -8153,7 +9380,7 @@ export default function App() {
                       </div>
 
                       <div className="p-3 bg-slate-900 rounded-xl text-[11px] text-slate-400 leading-relaxed">
-                        {text('يتم التقاط وحفظ هذه البيانات تلقائياً وتحديثها في مستندات Firestore الفرعية لتوفير شفافية الأمان ومكافحة تسريب البيانات الطبية للمرضى المقيمين بالمركز.', 'This metadata is captured automatically in real-time to guarantee audit compliance and protect resident health records from data leaks.')}
+                        {text('يتم التقاط وحفظ هذه البيانات تلقائياً وتحديثها في مستندات Firestore الفرعية لتوفير شفافية الأمان ومكافحة تسريب البيانات الطبية للمرضى المستفيدين بالمركز.', 'This metadata is captured automatically in real-time to guarantee audit compliance and protect resident health records from data leaks.')}
                       </div>
                     </div>
                   </div>
@@ -8356,7 +9583,7 @@ export default function App() {
                         <span className="font-mono font-bold text-emerald-400 text-sm">{medicines.length}</span>
                       </div>
                       <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-white border-slate-200'}`}>
-                        <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('ملفات المقيمين النشطة', 'Active Residents')}</span>
+                        <span className="text-slate-400 block text-[10px] mb-1 font-semibold">{text('ملفات المستفيدين النشطة', 'Active Residents')}</span>
                         <span className="font-mono font-bold text-sky-400 text-sm">{residents.length}</span>
                       </div>
                       <div className={`p-3 rounded-2xl border ${darkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-white border-slate-200'}`}>
@@ -9438,8 +10665,8 @@ export default function App() {
               </div>
             )}
 
-            {/* ----------------- TAB: SYSTEM STATISTICS ----------------- */}
-            {activeTab === 'dev_statistics' && (currentUser?.role === 'developer' || currentUser?.role === 'admin') && (
+            {/* ----------------- TAB: SYSTEM STATISTICS (Developer Only) ----------------- */}
+            {activeTab === 'dev_statistics' && currentUser?.role === 'developer' && (
               <DeveloperStatisticsTab
                 residents={residents}
                 users={users}
@@ -9483,7 +10710,7 @@ export default function App() {
                           const tableContent = stockLogs.map(log => {
                             const actionLabel = isRtl ? log.actionType : (
                               log.actionType === 'إضافة دواء جديد' ? 'New Medication Added' :
-                              log.actionType === 'صرف دواء لمقيم' ? 'Dispensed to Resident' :
+                              (log.actionType === 'صرف دواء لمستفيد' || log.actionType === 'صرف دواء لمقيم') ? 'Dispensed to Beneficiary' :
                               log.actionType === 'حذف دواء' ? 'Medication Deleted' :
                               'Manual Adjustment'
                             );
@@ -9564,7 +10791,7 @@ export default function App() {
                       <FileText className="w-4 h-4 text-blue-400" />
                     </div>
                     <div className="text-2xl font-black text-slate-100">
-                      {stockLogs.filter(l => l.actionType === 'صرف دواء لمقيم').length}
+                      {stockLogs.filter(l => (l.actionType === 'صرف دواء لمستفيد' || l.actionType === 'صرف دواء لمقيم')).length}
                     </div>
                     <p className="text-[10px] text-blue-500 mt-1">{t('audit_dispensed_stock_desc')}</p>
                   </div>
@@ -9822,7 +11049,7 @@ export default function App() {
                             const isRtl = lang === 'ar';
                             const actionBadgeText = isRtl ? log.actionType : (
                               log.actionType === 'إضافة دواء جديد' ? 'New Medication Added' :
-                              log.actionType === 'صرف دواء لمقيم' ? 'Dispensed to Resident' :
+                              (log.actionType === 'صرف دواء لمستفيد' || log.actionType === 'صرف دواء لمقيم') ? 'Dispensed to Beneficiary' :
                               log.actionType === 'حذف دواء' ? 'Medication Deleted' :
                               'Manual Adjustment'
                             );
@@ -9843,7 +11070,7 @@ export default function App() {
                                 <td className="py-3 text-center">
                                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                                     log.actionType === 'إضافة دواء جديد' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                    log.actionType === 'صرف دواء لمقيم' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                    (log.actionType === 'صرف دواء لمستفيد' || log.actionType === 'صرف دواء لمقيم') ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
                                     log.actionType === 'حذف دواء' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
                                     'bg-amber-500/10 text-amber-400 border-amber-500/20'
                                   }`}>
@@ -9895,8 +11122,8 @@ export default function App() {
               <div className="space-y-6 animate-fade-in">
                 <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
                   <div>
-                    <h2 className="text-xl font-black text-slate-200">👥 {text('إدارة المقيمين بمركز الرعاية', 'Special Needs Residents Management')}</h2>
-                    <p className="text-xs text-slate-400">{text('إضافة وتعديل وحذف بيانات نزلاء المركز وتتبع سجلات صرف أدويتهم', 'Register, edit, or delete special needs residents and monitor dosage adherence')}</p>
+                    <h2 className="text-xl font-black text-slate-200">👥 {text('إدارة المستفيدين بمركز الرعاية', 'Special Needs Beneficiaries Management')}</h2>
+                    <p className="text-xs text-slate-400">{text('إضافة وتعديل وحذف بيانات مستفيدين المركز وتتبع سجلات صرف أدويتهم', 'Register, edit, or delete special needs beneficiaries and monitor dosage adherence')}</p>
                   </div>
                   
                   <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-1 sm:flex-initial sm:min-w-[420px]">
@@ -9905,7 +11132,7 @@ export default function App() {
                       <Search className="w-4 h-4 text-slate-400 shrink-0" />
                       <input 
                         type="text"
-                        placeholder={text('ابحث باسم المقيم، رقم الغرفة، أو الهوية...', 'Search by resident name, room number, ID...')}
+                        placeholder={text('ابحث باسم المستفيد، رقم الغرفة، أو الهوية...', 'Search by resident name, room number, ID...')}
                         value={residentsSearchQuery}
                         onChange={(e) => setResidentsSearchQuery(e.target.value)}
                         className="bg-transparent border-none outline-none pr-2.5 w-full text-xs font-semibold"
@@ -9922,7 +11149,7 @@ export default function App() {
                         className="px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition active:scale-95 shadow-lg shadow-teal-900/25 cursor-pointer whitespace-nowrap"
                       >
                         <Plus className="w-4 h-4" />
-                        <span>{text('إضافة مقيم جديد', 'Register New Resident')}</span>
+                        <span>{text('إضافة مستفيد جديد', 'Register New Resident')}</span>
                       </button>
                     )}
                   </div>
@@ -9956,8 +11183,8 @@ export default function App() {
                           </div>
                           <p className="text-xs text-slate-400 mt-0.5">
                             {dueTomorrowCount > 0 
-                              ? text(`يوجد ${dueTomorrowCount} مقيمين لديهم مواعيد إحالة طبية مستحقة غداً (${dueTomorrowResidents.map((r: any) => r.nameAr || r.name).join('، ')}). يتم إرسال التقرير تلقائياً صباحاً لمسؤولي الصيدلية.`, `There are ${dueTomorrowCount} residents with refills due tomorrow.`)
-                              : text('لا توجد إحالات طبية حرجة مستحقة ليوم غد. يمكنك تعيين تاريخ إحالة من الملف الطبي للمقيم.', 'No refills due tomorrow.')}
+                              ? text(`يوجد ${dueTomorrowCount} مستفيدين لديهم مواعيد إحالة طبية مستحقة غداً (${dueTomorrowResidents.map((r: any) => r.nameAr || r.name).join('، ')}). يتم إرسال التقرير تلقائياً صباحاً لمسؤولي الصيدلية.`, `There are ${dueTomorrowCount} residents with refills due tomorrow.`)
+                              : text('لا توجد إحالات طبية حرجة مستحقة ليوم غد. يمكنك تعيين تاريخ إحالة من الملف الطبي للمستفيد.', 'No refills due tomorrow.')}
                           </p>
                         </div>
                       </div>
@@ -9985,12 +11212,12 @@ export default function App() {
                   );
                 })()}
 
-                {/* Sorting Combobox & Controls (ترتيب المقيمين حسب الاسم ورقم الغرفة والجناح وغيرها) */}
+                {/* Sorting Combobox & Controls (ترتيب المستفيدين حسب الاسم ورقم الغرفة والجناح وغيرها) */}
                 <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   <div className="flex flex-wrap items-center gap-2.5">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-teal-400">
                       <ArrowUpDown className="w-4 h-4 text-teal-400" />
-                      <span>{text('ترتيب المقيمين (Combobox):', 'Sort Residents (Combobox):')}</span>
+                      <span>{text('ترتيب المستفيدين (Combobox):', 'Sort Residents (Combobox):')}</span>
                     </div>
 
                     {/* Combobox with all parameters */}
@@ -10004,11 +11231,11 @@ export default function App() {
                       className={`px-3 py-2 rounded-xl border text-xs font-bold outline-none cursor-pointer transition ${
                         darkMode ? 'bg-slate-900 border-slate-700 text-teal-300 focus:border-teal-400' : 'bg-white border-slate-300 text-teal-800 focus:border-teal-500 shadow-sm'
                       }`}
-                      title={text('اختر معيار ترتيب المقيمين والاتجاه', 'Select resident sort criteria and direction')}
+                      title={text('اختر معيار ترتيب المستفيدين والاتجاه', 'Select resident sort criteria and direction')}
                     >
-                      <optgroup label={text('👤 اسم المقيم (أبجدي)', '👤 Resident Name')}>
-                        <option value="name:asc">{text('👤 اسم المقيم (أبجدي أ - ي)', '👤 Resident Name (A - Z)')}</option>
-                        <option value="name:desc">{text('👤 اسم المقيم (أبجدي ي - أ)', '👤 Resident Name (Z - A)')}</option>
+                      <optgroup label={text('👤 اسم المستفيد (أبجدي)', '👤 Resident Name')}>
+                        <option value="name:asc">{text('👤 اسم المستفيد (أبجدي أ - ي)', '👤 Resident Name (A - Z)')}</option>
+                        <option value="name:desc">{text('👤 اسم المستفيد (أبجدي ي - أ)', '👤 Resident Name (Z - A)')}</option>
                       </optgroup>
 
                       <optgroup label={text('🚪 رقم الغرفة', '🚪 Room Number')}>
@@ -10070,7 +11297,7 @@ export default function App() {
 
                   <div className="text-[11px] text-slate-400 hidden xl:flex items-center gap-1">
                     <span>💡</span>
-                    <span>{text('انقر على عناوين أعمدة الجدول أدناه لفرز المقيمين مباشرة', 'Click on table column headers to sort directly')}</span>
+                    <span>{text('انقر على عناوين أعمدة الجدول أدناه لفرز المستفيدين مباشرة', 'Click on table column headers to sort directly')}</span>
                   </div>
                 </div>
 
@@ -10082,7 +11309,7 @@ export default function App() {
                           <th 
                             onClick={() => handleResidentSortToggle('name')}
                             className="pb-3 text-right cursor-pointer hover:text-teal-400 transition"
-                            title={text('انقر للترتيب حسب اسم المقيم', 'Click to sort by resident name')}
+                            title={text('انقر للترتيب حسب اسم المستفيد', 'Click to sort by resident name')}
                           >
                             <div className="flex items-center gap-1.5">
                               <span>{text('الاسم (عربي / إنجليزي)', 'Name (Ar / En)')}</span>
@@ -10147,7 +11374,7 @@ export default function App() {
                           <tr>
                             <td colSpan={6} className="p-10 text-center text-slate-400">
                               <HelpCircle className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                              <span>{text('لا يوجد مقيمون يطابقون خيارات البحث المحددة.', 'No residents match the selected search criteria.')}</span>
+                              <span>{text('لا يوجد مستفيدون يطابقون خيارات البحث المحددة.', 'No beneficiaries match the selected search criteria.')}</span>
                             </td>
                           </tr>
                         ) : (
@@ -10222,6 +11449,195 @@ export default function App() {
               </div>
             )}
 
+            {/* ----------------- TAB: DOCTORS DIRECTORY (جدول الأطباء الجديد) ----------------- */}
+            {activeTab === 'doctors' && (
+              <div className="space-y-6 animate-fade-in">
+                {/* Header banner */}
+                <div className={`p-6 rounded-3xl border shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                  darkMode ? 'bg-slate-900 border-slate-800' : 'bg-gradient-to-r from-teal-700 to-cyan-800 text-white border-transparent'
+                }`}>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-3">
+                      <span className="p-2.5 rounded-2xl bg-teal-500/20 text-teal-300 border border-teal-500/30 text-2xl">
+                        🩺
+                      </span>
+                      <div>
+                        <h2 className="text-xl font-black flex items-center gap-2">
+                          <span>{text('سجل وجدول الأطباء المعتمدين', 'Attending Physicians Directory')}</span>
+                          <span className="text-xs px-2.5 py-0.5 rounded-full bg-teal-500/20 text-teal-200 border border-teal-500/30 font-mono font-bold">
+                            {doctors.length} {text('طبيب مسجل', 'doctors')}
+                          </span>
+                        </h2>
+                        <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-teal-100'} mt-0.5`}>
+                          {text(
+                            'إدارة جدول الأطباء الاستشاريين والأخصائيين المشرفين على خطط علاج وصرف أدوية مستفيدي المركز.',
+                            'Manage attending physicians and specialists overseeing beneficiary medical dossiers and prescriptions.'
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isDoctorManager ? (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDoctorModal()}
+                        className="px-4 py-2.5 rounded-2xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-xs transition shadow-lg shadow-teal-900/30 flex items-center gap-2 cursor-pointer active:scale-95"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>{text('إضافة طبيب جديد +', 'Add New Physician +')}</span>
+                      </button>
+                    ) : (
+                      <div className="px-3 py-2 rounded-2xl bg-slate-800/90 border border-slate-700/80 text-slate-400 font-bold text-xs flex items-center gap-1.5 shadow-sm">
+                        <Lock className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{text('صلاحية الإضافة لمدير النظام والصيدلي فقط', 'Add/Edit restricted to Admins & Pharmacists')}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Search & Stats Bar */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="relative w-full sm:w-96 flex items-center">
+                    <input
+                      type="text"
+                      placeholder={text('🔍 ابحث باسم الطبيب بالعربي أو الإنجليزي أو التخصص...', '🔍 Search doctor by name or specialty...')}
+                      value={doctorsSearchQuery}
+                      onChange={(e) => setDoctorsSearchQuery(e.target.value)}
+                      className={`w-full px-3.5 py-2.5 pl-9 rounded-2xl border text-xs outline-none transition ${
+                        darkMode 
+                          ? 'bg-slate-900/80 border-slate-800 text-slate-100 focus:border-teal-500 placeholder-slate-500' 
+                          : 'bg-white border-slate-300 text-slate-900 focus:border-teal-600 placeholder-slate-400 shadow-sm'
+                      }`}
+                    />
+                    {doctorsSearchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => setDoctorsSearchQuery('')}
+                        className="absolute left-3 text-slate-400 hover:text-white p-0.5 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <Search className="w-4 h-4 text-slate-500 absolute left-3 pointer-events-none" />
+                    )}
+                  </div>
+
+                  <div className="text-xs text-slate-400 font-mono">
+                    {text(`إجمالي الأطباء: ${doctors.length} طبيب`, `Total Physicians: ${doctors.length}`)}
+                  </div>
+                </div>
+
+                {/* Doctors Table */}
+                <div className={`rounded-3xl border overflow-hidden ${darkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className={`border-b ${darkMode ? 'border-slate-800 bg-slate-900/80 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'} font-bold`}>
+                          <th className="py-3 px-4 text-right">{text('اسم الطبيب بالعربي', 'Physician Name (Arabic)')}</th>
+                          <th className="py-3 px-4 text-right">{text('اسم الطبيب باللغة الإنجليزية', 'Physician Name (English)')}</th>
+                          <th className="py-3 px-4 text-right">{text('التخصص الطبي', 'Specialty')}</th>
+                          <th className="py-3 px-4 text-right">{text('هاتف / بريد التواصل', 'Contact Info')}</th>
+                          <th className="py-3 px-4 text-center">{text('عمليات الصرف المرتبطة', 'Dispenses Linked')}</th>
+                          <th className="py-3 px-4 text-left">{text('إجراءات', 'Actions')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {(() => {
+                          const filtered = doctors.filter(d => {
+                            if (!doctorsSearchQuery.trim()) return true;
+                            const q = doctorsSearchQuery.trim().toLowerCase();
+                            return (
+                              (d.nameAr && d.nameAr.toLowerCase().includes(q)) ||
+                              (d.nameEn && d.nameEn.toLowerCase().includes(q)) ||
+                              (d.specialty && d.specialty.toLowerCase().includes(q)) ||
+                              (d.phone && d.phone.toLowerCase().includes(q)) ||
+                              (d.email && d.email.toLowerCase().includes(q))
+                            );
+                          });
+
+                          if (filtered.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={6} className="py-12 text-center text-slate-500">
+                                  <div className="flex flex-col items-center justify-center gap-2">
+                                    <span className="text-3xl">🩺</span>
+                                    <span className="font-bold">{text('لا يوجد أطباء مطابقون لخيارات البحث', 'No physicians match search criteria')}</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return filtered.map((doc) => {
+                            const linkedDispenses = dispenseRecords.filter(r => r.doctorId === doc.id || r.doctorName === doc.nameAr).length;
+                            return (
+                              <tr key={doc.id} className="hover:bg-slate-800/20 transition">
+                                <td className="py-3.5 px-4 font-bold text-slate-100 flex items-center gap-2">
+                                  <span className="w-8 h-8 rounded-full bg-teal-500/15 text-teal-400 flex items-center justify-center text-xs border border-teal-500/30 shrink-0">
+                                    🩺
+                                  </span>
+                                  <span>{doc.nameAr}</span>
+                                </td>
+                                <td className="py-3.5 px-4 font-sans text-teal-400 font-medium">{doc.nameEn || '—'}</td>
+                                <td className="py-3.5 px-4">
+                                  <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                                    {doc.specialty}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px]">
+                                  {doc.phone && <div>📞 {doc.phone}</div>}
+                                  {doc.email && <div className="text-slate-400">✉️ {doc.email}</div>}
+                                  {!doc.phone && !doc.email && <span className="text-slate-500">—</span>}
+                                </td>
+                                <td className="py-3.5 px-4 text-center font-mono font-bold text-sky-400">
+                                  {linkedDispenses > 0 ? (
+                                    <span className="px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20">
+                                      {linkedDispenses} {text('عملية صرف', 'dispenses')}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-500 text-[10px]">0</span>
+                                  )}
+                                </td>
+                                <td className="py-3.5 px-4 text-left">
+                                  {isDoctorManager ? (
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenDoctorModal(doc)}
+                                        className="p-1.5 rounded-xl hover:bg-slate-800 text-teal-400 hover:text-teal-300 transition cursor-pointer"
+                                        title={text('تعديل بيانات الطبيب', 'Edit Physician')}
+                                      >
+                                        <Edit2 className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteDoctor(doc.id, doc.nameAr)}
+                                        className="p-1.5 rounded-xl hover:bg-rose-500/10 text-rose-400 hover:text-rose-300 transition cursor-pointer"
+                                        title={text('حذف الطبيب', 'Delete Physician')}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 font-bold px-2 py-1 rounded-lg bg-slate-800/60 border border-slate-700/60 flex items-center justify-center gap-1 w-fit ml-auto">
+                                      <Lock className="w-3 h-3 text-amber-400" />
+                                      <span>{text('عرض فقط', 'Read-only')}</span>
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ----------------- TAB: BEHAVIORAL & SIDE EFFECTS TRACKER ----------------- */}
             {activeTab === 'behavioral_tracker' && (
               <div className="space-y-6 animate-fade-in">
@@ -10232,7 +11648,7 @@ export default function App() {
                     <h2 className="text-xl font-black text-slate-200 flex items-center gap-2">
                       <span>⚠️ {text('لوحة رصد ومتابعة الأعراض الجانبية (BCMA Tracker)', 'Interactive Side-Effects & Adverse Drug Reactions Log (BCMA)')}</span>
                     </h2>
-                    <p className="text-xs text-slate-400">{text('توثيق ومتابعة الأعراض الجانبية وتأثيرات الأدوية النفسية والعصبية لضمان سلامة مقيمي المركز', 'Document and monitor side-effects and drug reactions of psychoactive/neuro medications')}</p>
+                    <p className="text-xs text-slate-400">{text('توثيق ومتابعة الأعراض الجانبية وتأثيرات الأدوية النفسية والعصبية لضمان سلامة مستفيدي المركز', 'Document and monitor side-effects and drug reactions of psychoactive/neuro medications')}</p>
                   </div>
                   
                   <button 
@@ -10358,7 +11774,7 @@ export default function App() {
                         <Search className="w-4 h-4 text-slate-400 shrink-0" />
                         <input 
                           type="text"
-                          placeholder={text("ابحث باسم المقيم أو تفاصيل الملاحظة...", "Search by resident name or note details...")}
+                          placeholder={text("ابحث باسم المستفيد أو تفاصيل الملاحظة...", "Search by resident name or note details...")}
                           value={behaviorSearchQuery}
                           onChange={(e) => setBehaviorSearchQuery(e.target.value)}
                           className={`bg-transparent border-none outline-none ${lang === 'ar' ? 'pr-2.5' : 'pl-2.5'} w-full text-xs font-semibold`}
@@ -10750,7 +12166,7 @@ export default function App() {
                   <div className="flex justify-between items-center pb-4 border-b border-slate-800 mb-4">
                     <h3 className="text-base font-black text-slate-200 flex items-center gap-2">
                       <User className="w-5 h-5 text-teal-400" />
-                      <span>{text('إضافة مقيم جديد لمركز الرعاية', 'Add New Resident to Care Center')}</span>
+                      <span>{text('إضافة مستفيد جديد لمركز الرعاية', 'Add New Resident to Care Center')}</span>
                     </h3>
                     <button onClick={() => setShowAddResidentModal(false)} className="text-slate-400 hover:text-white transition p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer">
                       <X className="w-4 h-4" />
@@ -10759,7 +12175,7 @@ export default function App() {
                   <form onSubmit={(e) => {
                     e.preventDefault();
                     if (currentUser?.role === 'technician') {
-                      showToast(text('ليس لديك صلاحية لإضافة مقيمين (صلاحيات فني صيدلة).', 'Pharmacy technicians are not permitted to register residents.'), 'error');
+                      showToast(text('ليس لديك صلاحية لإضافة مستفيدين (صلاحيات فني صيدلة).', 'Pharmacy technicians are not permitted to register residents.'), 'error');
                       return;
                     }
                     const primaryName = (residentForm.nameAr || residentForm.name || '').trim();
@@ -10779,7 +12195,7 @@ export default function App() {
                     };
                     updateResidentsList([...residents, newRes]);
                     setShowAddResidentModal(false);
-                    showToast(text(`تم تسجيل المقيم الجديد "${newRes.name}" بنجاح!`, `Resident "${newRes.nameEn || newRes.name}" added successfully!`), 'success');
+                    showToast(text(`تم تسجيل المستفيد الجديد "${newRes.name}" بنجاح!`, `Resident "${newRes.nameEn || newRes.name}" added successfully!`), 'success');
                   }} className="space-y-4 text-xs">
                     {/* الاسم بالكامل بالعربية والإنجليزية */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -10941,7 +12357,7 @@ export default function App() {
                     </div>
                     <div className="flex justify-end gap-2 pt-2 border-t border-slate-800/60">
                       <button type="button" onClick={() => setShowAddResidentModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold cursor-pointer">{text('إلغاء', 'Cancel')}</button>
-                      <button type="submit" className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold shadow-lg shadow-teal-900/20 cursor-pointer">{text('حفظ المقيم', 'Save Resident')}</button>
+                      <button type="submit" className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold shadow-lg shadow-teal-900/20 cursor-pointer">{text('حفظ المستفيد', 'Save Resident')}</button>
                     </div>
                   </form>
                 </div>
@@ -10955,7 +12371,7 @@ export default function App() {
                   <div className="flex justify-between items-center pb-4 border-b border-slate-800 mb-4">
                     <h3 className="text-base font-black text-slate-200 flex items-center gap-2">
                       <User className="w-5 h-5 text-teal-400" />
-                      <span>{text('تعديل بيانات المقيم', 'Edit Resident Profile')}</span>
+                      <span>{text('تعديل بيانات المستفيد', 'Edit Resident Profile')}</span>
                     </h3>
                     <button onClick={() => setShowEditResidentModal(false)} className="text-slate-400 hover:text-white transition p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer">
                       <X className="w-4 h-4" />
@@ -10964,7 +12380,7 @@ export default function App() {
                   <form onSubmit={(e) => {
                     e.preventDefault();
                     if (currentUser?.role === 'technician') {
-                      showToast(text('ليس لديك صلاحية لتعديل بيانات المقيمين (صلاحيات فني صيدلة).', 'Pharmacy technicians are not permitted to edit resident profiles.'), 'error');
+                      showToast(text('ليس لديك صلاحية لتعديل بيانات المستفيدين (صلاحيات فني صيدلة).', 'Pharmacy technicians are not permitted to edit resident profiles.'), 'error');
                       return;
                     }
                     if (!selectedResidentId) return;
@@ -10989,7 +12405,7 @@ export default function App() {
                       setActiveDossierResident(target);
                     }
                     setShowEditResidentModal(false);
-                    showToast(text('تم تعديل بيانات المقيم بنجاح.', 'Resident profile updated successfully.'), 'success');
+                    showToast(text('تم تعديل بيانات المستفيد بنجاح.', 'Resident profile updated successfully.'), 'success');
                   }} className="space-y-4 text-xs">
                     {/* الاسم بالكامل بالعربية والإنجليزية */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -11453,7 +12869,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* شريط توضيحي يفصل بين بيانات الملف الطبي وبيانات المقيم العامة */}
+                      {/* شريط توضيحي يفصل بين بيانات الملف الطبي وبيانات المستفيد العامة */}
                       <div className="p-2.5 rounded-xl bg-teal-950/30 border border-teal-500/20 text-[11px] text-teal-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <span>
                           {text("💡 ملاحظة نظامية: هذا القسم مخصص لبيانات الملف الطبي السريري (التشخيص، فصيلة الدم، الطبيب، الإحالات، والأدوية). البيانات الشخصية (الاسم، الهوية، الغرفة) محمية ومستقلة تماماً.", "Clinical medical file data only. Personal resident demographics are managed separately.")}
@@ -11924,7 +13340,7 @@ export default function App() {
                               <span>{text("📋 جدول الجرعات اليومي (نظام 24 ساعة)", "Daily Dosage Schedule (24-Hour Timeline)")}</span>
                             </h4>
                             <p className="text-[11px] text-slate-400">
-                              {text("متابعة تسليم أدوية المقيم عبر مدار ساعات اليوم الـ 24", "Track patient medication intake across the 24 hours of the day")}
+                              {text("متابعة تسليم أدوية المستفيد عبر مدار ساعات اليوم الـ 24", "Track patient medication intake across the 24 hours of the day")}
                             </p>
                           </div>
                           <span className="text-[10px] bg-teal-500/10 text-teal-300 border border-teal-500/20 px-2.5 py-1 rounded-lg font-bold">
@@ -11937,7 +13353,7 @@ export default function App() {
                           <div className="p-8 text-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/20 space-y-2">
                             <Clock className="w-8 h-8 text-slate-600 mx-auto" />
                             <p className="text-slate-300 text-xs font-bold">
-                              {text("لا توجد أي أدوية مجدولة لهذا المقيم حالياً.", "No medications currently scheduled for this resident.")}
+                              {text("لا توجد أي أدوية مجدولة لهذا المستفيد حالياً.", "No medications currently scheduled for this resident.")}
                             </p>
                             <p className="text-slate-500 text-[11px]">
                               {text("استخدم النموذج المقابل لجدولة دواء واختيار توقيت الصرف من بين ساعات اليوم الـ 24 (1 صباحاً - 24 منتصف الليل).", "Use the schedule form to assign medication at any of the 24 hours of the day.")}
@@ -12046,7 +13462,7 @@ export default function App() {
                                                 onClick={() => dispenseDoseAutomatically(activeDossierResident.id, dose.id)}
                                                 title={isDispensed 
                                                   ? text("تم صرف جرعة اليوم وخصمها من المخزن بنجاح ولا يمكن تكرار الصرف اليوم. ستُتاح الجرعة للصرف تلقائياً غداً في نفس الميعاد.", "Dispensed and deducted from stock for today. Next dose unlocks tomorrow at the same scheduled time.")
-                                                  : text(`صرف ${doseQuantity} من المخزن وتوثيقها في ملف المقيم`, `Dispense ${doseQuantity} from inventory and log to patient record`)
+                                                  : text(`صرف ${doseQuantity} من المخزن وتوثيقها في ملف المستفيد`, `Dispense ${doseQuantity} from inventory and log to patient record`)
                                                 }
                                                 className={`px-3 py-1.5 rounded-xl font-bold text-[10px] flex items-center gap-1 transition-all ${
                                                   isDispensed 
@@ -12070,7 +13486,7 @@ export default function App() {
                                               <button 
                                                 type="button"
                                                 onClick={() => removeDoseFromResidentSchedule(activeDossierResident.id, dose.id)}
-                                                title={text("إلغاء وإزالة هذا الدواء نهائياً من جدول المقيم (عند توقف المريض عن تناوله)", "Permanently remove dose from resident schedule")}
+                                                title={text("إلغاء وإزالة هذا الدواء نهائياً من جدول المستفيد (عند توقف المريض عن تناوله)", "Permanently remove dose from resident schedule")}
                                                 className="p-1.5 bg-slate-800 hover:bg-rose-950 hover:text-rose-400 text-slate-400 rounded-lg transition cursor-pointer border border-slate-700/50"
                                               >
                                                 <Trash2 className="w-3.5 h-3.5" />
@@ -12160,7 +13576,7 @@ export default function App() {
                       </div>
                       <div>
                         <h3 className="text-base font-black text-slate-100 flex items-center gap-2">
-                          <span>{text("تعديل بيانات الملف الطبي السريري فقط (دون المساس ببيانات المقيم العامة)", "Edit Clinical Medical File Data Only")}</span>
+                          <span>{text("تعديل بيانات الملف الطبي السريري فقط (دون المساس ببيانات المستفيد العامة)", "Edit Clinical Medical File Data Only")}</span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 font-mono">
                             MRN-AI-{activeDossierResident.id}
                           </span>
@@ -12500,7 +13916,7 @@ export default function App() {
                       </div>
                       <div>
                         <h3 className="text-base font-black text-slate-100 flex items-center gap-2">
-                          <span>{text("تقرير تنبيهات الإحالات الطبية للمقيمين", "Resident Medical Refill Alerts Report")}</span>
+                          <span>{text("تقرير تنبيهات الإحالات الطبية للمستفيدين", "Resident Medical Refill Alerts Report")}</span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">
                             {text("تنبيه استباقي قبلها بيوم 🔔", "1-Day Prior Notice 🔔")}
                           </span>
@@ -12885,13 +14301,13 @@ export default function App() {
                   </div>
                   <p className="text-xs text-slate-400 mb-6 leading-relaxed">
                     {deleteConfirmTarget.type === 'resident' ? (
-                      <span>{text('هل أنت متأكد تماماً من شطب المقيم ', 'Are you sure you want to delete resident ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' نهائياً من سجلات الصيدلية والمركز؟ هذا الإجراء سيؤثر على ربط سجلات الصرف القديمة.', ' permanently from pharmacy records? This will affect historical dispense records.')}</span>
+                      <span>{text('هل أنت متأكد تماماً من شطب المستفيد ', 'Are you sure you want to delete resident ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' نهائياً من سجلات الصيدلية والمركز؟ هذا الإجراء سيؤثر على ربط سجلات الصرف القديمة.', ' permanently from pharmacy records? This will affect historical dispense records.')}</span>
                     ) : deleteConfirmTarget.type === 'user' ? (
                       <span>{text('هل أنت متأكد تماماً من إلغاء حساب المستخدم ', 'Are you sure you want to delete user ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' وحظر وصوله إلى نظام الصيدلية؟', ' and revoke access to the pharmacy system?')}</span>
                     ) : deleteConfirmTarget.type === 'company' ? (
                       <span>{text('هل أنت متأكد تماماً من شطب شركة الأدوية ', 'Are you sure you want to delete pharma company ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' نهائياً من دليل شركات التوريد والإنتاج؟', ' from the supplier directory?')}</span>
                     ) : (
-                      <span>{text('هل أنت متأكد تماماً من حذف الملاحظة السلوكية والطبية المسجلة للمقيم ', 'Are you sure you want to delete the behavioral observation for resident ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' نهائياً من نظام التتبع السلوكي؟', ' permanently from the behavioral tracking system?')}</span>
+                      <span>{text('هل أنت متأكد تماماً من حذف الملاحظة السلوكية والطبية المسجلة للمستفيد ', 'Are you sure you want to delete the behavioral observation for resident ')}<strong className="text-teal-400">{deleteConfirmTarget.name}</strong>{text(' نهائياً من نظام التتبع السلوكي؟', ' permanently from the behavioral tracking system?')}</span>
                     )}
                   </p>
                   <div className="flex justify-end gap-2 text-xs">
@@ -12916,7 +14332,7 @@ export default function App() {
                           const updated = residents.filter(r => r.id !== deleteConfirmTarget.id);
                           setResidents(updated);
                           saveLocalResidents(updated);
-                          showToast(text(`تم شطب المقيم "${deleteConfirmTarget.name}" بنجاح.`, `Resident "${deleteConfirmTarget.name}" removed successfully.`), 'success');
+                          showToast(text(`تم شطب المستفيد "${deleteConfirmTarget.name}" بنجاح.`, `Resident "${deleteConfirmTarget.name}" removed successfully.`), 'success');
                           loadAllData();
                         } else if (deleteConfirmTarget.type === 'user') {
                           const targetUser = users.find(u => u.uid === deleteConfirmTarget.id);
@@ -13150,7 +14566,7 @@ export default function App() {
                     {/* Resident Select with Live Search Box */}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <label className="block text-slate-300 font-bold">{text('المقيم المستهدف *', 'Target Resident *')}</label>
+                        <label className="block text-slate-300 font-bold">{text('المستفيد المستهدف *', 'Target Resident *')}</label>
                         {behaviorResidentSearch && (
                           <span className="text-[11px] text-teal-400 font-mono font-bold bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
                             {filteredBehaviorResidents.length} {text('نتيجة مطابقة', 'matches')}
@@ -13162,7 +14578,7 @@ export default function App() {
                       <div className="relative flex items-center">
                         <input 
                           type="text"
-                          placeholder={text('🔍 ابحث باسم المقيم (عربي أو إنجليزي)، رقم الغرفة، أو رقم الهوية...', '🔍 Search resident by name, room number, or ID...')}
+                          placeholder={text('🔍 ابحث باسم المستفيد (عربي أو إنجليزي)، رقم الغرفة، أو رقم الهوية...', '🔍 Search resident by name, room number, or ID...')}
                           value={behaviorResidentSearch}
                           onChange={(e) => setBehaviorResidentSearch(e.target.value)}
                           className="w-full px-3 py-2.5 pl-9 rounded-xl bg-slate-950 border border-slate-700/80 text-white placeholder-slate-500 text-xs focus:border-teal-400 focus:ring-1 focus:ring-teal-400 outline-none transition"
@@ -13188,14 +14604,14 @@ export default function App() {
                         onChange={(e) => setBehaviorForm(prev => ({ ...prev, residentId: e.target.value }))}
                         className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer font-medium text-xs"
                       >
-                        <option value="">{text('-- اختر المقيم المستهدف من القائمة --', '-- Select Target Resident from list --')}</option>
+                        <option value="">{text('-- اختر المستفيد المستهدف من القائمة --', '-- Select Target Resident from list --')}</option>
                         {filteredBehaviorResidents.map(r => (
                           <option key={r.id} value={r.id}>
                             {lang === 'en' ? (r.nameEn || r.name) : (r.nameAr || r.name)} {lang !== 'en' && r.nameEn ? `(${r.nameEn})` : ''} - {text('غرفة', 'Room')} {r.roomNumber}{r.nationalId ? ` | ${text('هوية:', 'ID:')} ${r.nationalId}` : ''}
                           </option>
                         ))}
                         {filteredBehaviorResidents.length === 0 && (
-                          <option value="" disabled>{text('❌ لا يوجد مقيم مطابق لكلمات البحث', '❌ No matching resident found')}</option>
+                          <option value="" disabled>{text('❌ لا يوجد مستفيد مطابق لكلمات البحث', '❌ No matching resident found')}</option>
                         )}
                         {behaviorForm.residentId && !filteredBehaviorResidents.some(r => r.id === behaviorForm.residentId) && (() => {
                           const currentSelected = residents.find(r => r.id === behaviorForm.residentId);
@@ -13486,7 +14902,7 @@ export default function App() {
                         value={behaviorForm.notes}
                         onChange={(e) => setBehaviorForm(prev => ({ ...prev, notes: e.target.value }))}
                         className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-sans"
-                        placeholder={text("اكتب بالتفصيل التقلبات الملاحظة، مثلاً: تغير في سلوك المقيم بعد تناول دواء الصرع، هدوء مفرط، صعوبة تركيز، تفاصيل الغثيان أو الحساسية...", "Describe observed behavioral changes in detail, e.g., resident behavior changes after dose, lethargy, poor focus, tremors, nausea...")}
+                        placeholder={text("اكتب بالتفصيل التقلبات الملاحظة، مثلاً: تغير في سلوك المستفيد بعد تناول دواء الصرع، هدوء مفرط، صعوبة تركيز، تفاصيل الغثيان أو الحساسية...", "Describe observed behavioral changes in detail, e.g., resident behavior changes after dose, lethargy, poor focus, tremors, nausea...")}
                       />
                     </div>
 
@@ -14087,7 +15503,7 @@ export default function App() {
                       </div>
                       <div>
                         <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                          <span>{text('توثيق وصرف جرعة علاجية لمقيم', 'Document & Dispense Medication')}</span>
+                          <span>{text('توثيق وصرف جرعة علاجية لمستفيد', 'Document & Dispense Medication to Beneficiary')}</span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">💊 Dual-Audit</span>
                         </h3>
                         <p className="text-[11px] text-slate-400">
@@ -14132,6 +15548,17 @@ export default function App() {
                       );
                     });
 
+                    const filteredDispenseDoctors = doctors.filter(d => {
+                      if (!dispenseDoctorSearch.trim()) return true;
+                      const q = dispenseDoctorSearch.trim().toLowerCase();
+                      return (
+                        (d.nameAr && d.nameAr.toLowerCase().includes(q)) ||
+                        (d.nameEn && d.nameEn.toLowerCase().includes(q)) ||
+                        (d.specialty && d.specialty.toLowerCase().includes(q))
+                      );
+                    });
+
+                    const selectedDoctorObj = doctors.find(d => d.id === dispenseDoctorId);
                     const selectedMedicineObj = medicines.find(m => m.id === dispenseForm.medicineId);
 
                     return (
@@ -14201,25 +15628,25 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 2. المقيم ذوي الإعاقة + تيكست للبحث عن المقيم */}
+                        {/* 2. المستفيد ذوي الإعاقة + تيكست للبحث عن المستفيد */}
                         <div className="space-y-1.5">
                           <div className="flex items-center justify-between">
                             <label className="block text-slate-300 font-bold flex items-center gap-1.5">
-                              <span>{text('المقيم ذوي الإعاقة المستفيد من العلاج', 'Resident Beneficiary')}</span>
+                              <span>{text('المستفيد ذوي الإعاقة المستفيد من العلاج', 'Resident Beneficiary')}</span>
                               <span className="text-rose-400 font-black">*</span>
                             </label>
                             {dispenseResidentSearch && (
                               <span className="text-[10px] text-teal-400 font-mono bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
-                                {text(`${filteredDispenseResidents.length} مقيم مطابق`, `${filteredDispenseResidents.length} matches`)}
+                                {text(`${filteredDispenseResidents.length} مستفيد مطابق`, `${filteredDispenseResidents.length} matches`)}
                               </span>
                             )}
                           </div>
 
-                          {/* تيكست للبحث عن المقيم ذي الإعاقة */}
+                          {/* تيكست للبحث عن المستفيد ذي الإعاقة */}
                           <div className="relative flex items-center">
                             <input 
                               type="text"
-                              placeholder={text('🔍 تيكست للبحث عن المقيم (الاسم بالعربي أو الإنجليزي، الغرفة، أو الهوية)...', '🔍 Search resident by name, room number, or ID...')}
+                              placeholder={text('🔍 تيكست للبحث عن المستفيد (الاسم بالعربي أو الإنجليزي، الغرفة، أو الهوية)...', '🔍 Search resident by name, room number, or ID...')}
                               value={dispenseResidentSearch}
                               onChange={(e) => setDispenseResidentSearch(e.target.value)}
                               className="w-full px-3 py-2 pl-8 rounded-xl bg-slate-950 border border-slate-700/80 text-white placeholder-slate-500 text-xs focus:border-indigo-400 outline-none transition"
@@ -14237,23 +15664,101 @@ export default function App() {
                             )}
                           </div>
 
-                          {/* قائمة اختيار المقيم */}
+                          {/* قائمة اختيار المستفيد */}
                           <select 
                             required
                             value={dispenseForm.residentName}
                             onChange={(e) => setDispenseForm(prev => ({ ...prev, residentName: e.target.value }))}
                             className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-indigo-500 outline-none cursor-pointer font-semibold text-xs"
                           >
-                            <option value="">{text('-- اختر المقيم المستفيد من رعاية المركز --', '-- Select beneficiary resident --')}</option>
+                            <option value="">{text('-- اختر المستفيد من رعاية المركز --', '-- Select beneficiary resident --')}</option>
                             {filteredDispenseResidents.map(r => (
                               <option key={r.id} value={r.name}>
                                 {lang === 'en' ? (r.nameEn || r.name) : (r.nameAr || r.name)} {lang !== 'en' && r.nameEn ? `(${r.nameEn})` : ''} ({r.roomNumber}) {r.nationalId ? `| ${text('هوية:', 'ID:')} ${r.nationalId}` : ''}
                               </option>
                             ))}
                             {filteredDispenseResidents.length === 0 && (
-                              <option value="" disabled>{text('لا يوجد مقيمون مطابقون لبحثك', 'No matching residents found')}</option>
+                              <option value="" disabled>{text('لا يوجد مستفيدون مطابقون لبحثك', 'No matching beneficiaries found')}</option>
                             )}
                           </select>
+                        </div>
+
+                        {/* 3. الطبيب المعالج المشرف على الوصفة (اختياري) + بحث سريع + كمبوبوكس */}
+                        <div className="space-y-1.5 p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-slate-300 font-bold flex items-center gap-1.5">
+                              <span className="text-teal-400">🩺</span>
+                              <span>{text('اسم الطبيب المعالج المشرف على الوصفة', 'Attending Physician')}</span>
+                              <span className="text-[10px] text-teal-400 font-bold bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                                {text('اختياري', 'Optional')}
+                              </span>
+                            </label>
+                            {dispenseDoctorSearch && (
+                              <span className="text-[10px] text-teal-400 font-mono bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                                {text(`${filteredDispenseDoctors.length} طبيب مطابق`, `${filteredDispenseDoctors.length} matches`)}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* حقل بحث سريع عن الطبيب */}
+                          <div className="relative flex items-center">
+                            <input 
+                              type="text"
+                              placeholder={text('🔍 تيكست للبحث عن الطبيب (الاسم بالعربي أو الإنجليزي، أو التخصص)...', '🔍 Search doctor by name or specialty...')}
+                              value={dispenseDoctorSearch}
+                              onChange={(e) => setDispenseDoctorSearch(e.target.value)}
+                              className="w-full px-3 py-2 pl-8 rounded-xl bg-slate-950 border border-slate-700/80 text-white placeholder-slate-500 text-xs focus:border-teal-400 outline-none transition"
+                            />
+                            {dispenseDoctorSearch ? (
+                              <button 
+                                type="button" 
+                                onClick={() => setDispenseDoctorSearch('')} 
+                                className="absolute left-2.5 text-slate-400 hover:text-white p-0.5 cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none" />
+                            )}
+                          </div>
+
+                          {/* كمبوبوكس لاختيار الطبيب من جدول الأطباء الجديد */}
+                          <select 
+                            value={dispenseDoctorId}
+                            onChange={(e) => setDispenseDoctorId(e.target.value)}
+                            className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none cursor-pointer font-semibold text-xs"
+                          >
+                            <option value="">{text('-- بدون تحديد طبيب (اختياري - انقر للاختيار من جدول الأطباء الجديد) --', '-- None / Optional (Click to choose from Doctors Directory) --')}</option>
+                            {filteredDispenseDoctors.map(doc => (
+                              <option key={doc.id} value={doc.id}>
+                                {doc.nameAr} {doc.nameEn ? `(${doc.nameEn})` : ''} - {doc.specialty}
+                              </option>
+                            ))}
+                            {filteredDispenseDoctors.length === 0 && (
+                              <option value="" disabled>{text('لا يوجد أطباء مطابقون لبحثك', 'No matching doctors found')}</option>
+                            )}
+                          </select>
+
+                          {/* عرض ملخص الطبيب المحدد مع زر إلغاء */}
+                          {selectedDoctorObj && (
+                            <div className="flex items-center justify-between p-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-xs text-teal-300">
+                              <div className="flex items-center gap-2">
+                                <span>👨‍⚕️</span>
+                                <span className="font-bold">{selectedDoctorObj.nameAr}</span>
+                                {selectedDoctorObj.nameEn && <span className="font-sans text-[11px] opacity-80">({selectedDoctorObj.nameEn})</span>}
+                                <span className="text-[10px] text-teal-300 bg-teal-950/80 px-2 py-0.5 rounded border border-teal-500/30">
+                                  {selectedDoctorObj.specialty}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setDispenseDoctorId('')}
+                                className="text-[11px] text-rose-400 hover:text-rose-300 font-bold px-2 py-0.5 rounded hover:bg-rose-500/10 cursor-pointer"
+                              >
+                                {text('إلغاء الاختيار ✕', 'Clear ✕')}
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {/* Warning if selected medicine is controlled and user is technician (or general reminder) */}
@@ -14515,7 +16020,7 @@ export default function App() {
                             ) : (
                               <>
                                 <CheckCircle2 className="w-5 h-5 text-indigo-200 shrink-0" />
-                                <span>{text('توثيق وصرف الأدوية للمقيم 📋💊✓', 'Document & Dispense Medication 📋💊✓')}</span>
+                                <span>{text('توثيق وصرف الأدوية للمستفيد 📋💊✓', 'Document & Dispense Medication 📋💊✓')}</span>
                               </>
                             )}
                           </button>
@@ -14530,7 +16035,7 @@ export default function App() {
             {/* ----------------- MODAL: ADD/EDIT PHARMACEUTICAL COMPANY ----------------- */}
             {showCompanyModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
-                <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl relative animate-fade-in">
+                <div className="w-full max-w-lg max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl relative animate-fade-in">
                   <button 
                     onClick={() => {
                       setShowCompanyModal(false);
@@ -14622,6 +16127,105 @@ export default function App() {
                       className="w-full rounded-xl bg-teal-600 hover:bg-teal-700 py-2.5 text-sm font-bold text-white transition mt-4 shadow-lg shadow-teal-900/20 cursor-pointer"
                     >
                       {selectedCompanyId ? text('تحديث بيانات الشركة', 'Update Company Details') : text('إضافة الشركة الجديدة وحفظها', 'Save & Add New Company')}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- MODAL: ADD/EDIT DOCTOR (إضافة وتعديل بيانات الطبيب في جدول الأطباء) ----------------- */}
+            {showDoctorModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+                <div className="w-full max-w-lg max-h-[calc(100vh-4rem)] overflow-y-auto rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl relative animate-fade-in">
+                  <button 
+                    onClick={() => {
+                      setShowDoctorModal(false);
+                      setSelectedDoctorId(null);
+                    }}
+                    className={`absolute top-4 ${lang === 'ar' ? 'left-4' : 'right-4'} p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 cursor-pointer`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  
+                  <h3 className="text-lg font-bold text-teal-400 mb-4 flex items-center gap-2">
+                    <span className="text-xl">🩺</span>
+                    <span>{selectedDoctorId ? text('تعديل بيانات الطبيب في الجدول', 'Edit Physician Details') : text('إضافة طبيب جديد لجدول الأطباء', 'Add New Physician to Directory')}</span>
+                  </h3>
+
+                  <form onSubmit={handleAddOrEditDoctor} className="space-y-4 text-xs text-slate-300">
+                    <div>
+                      <label className="block text-slate-300 mb-1 font-bold">
+                        <span>{text('اسم الطبيب بالعربي', 'Physician Name (Arabic)')}</span>
+                        <span className="text-rose-400 font-black mr-1 ml-1">*</span>
+                      </label>
+                      <input 
+                        type="text"
+                        required
+                        value={doctorForm.nameAr}
+                        onChange={(e) => setDoctorForm(prev => ({ ...prev, nameAr: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                        placeholder={text('مثال: د. عبد العزيز السليمان', 'e.g. Dr. Abdulaziz Al-Sulaiman')}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 mb-1 font-bold">
+                        <span>{text('اسم الطبيب باللغة الإنجليزية', 'Physician Name (English)')}</span>
+                      </label>
+                      <input 
+                        type="text"
+                        value={doctorForm.nameEn}
+                        onChange={(e) => setDoctorForm(prev => ({ ...prev, nameEn: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-sans"
+                        placeholder="e.g. Dr. Abdulaziz Al-Sulaiman"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 mb-1 font-bold">
+                        <span>{text('التخصص الطبي', 'Specialty')}</span>
+                        <span className="text-rose-400 font-black mr-1 ml-1">*</span>
+                      </label>
+                      <input 
+                        type="text"
+                        required
+                        value={doctorForm.specialty}
+                        onChange={(e) => setDoctorForm(prev => ({ ...prev, specialty: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none"
+                        placeholder={text('مثال: استشاري طب نفسي وعصبي / استشاري باطنة', 'e.g. Consultant Psychiatrist / Internal Medicine')}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-slate-400 mb-1">{text('رقم الهاتف / الجوال', 'Phone Number')}</label>
+                        <input 
+                          type="text"
+                          value={doctorForm.phone}
+                          onChange={(e) => setDoctorForm(prev => ({ ...prev, phone: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                          placeholder="+9665XXXXXXXX"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">{text('البريد الإلكتروني', 'Email Address')}</label>
+                        <input 
+                          type="email"
+                          value={doctorForm.email}
+                          onChange={(e) => setDoctorForm(prev => ({ ...prev, email: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-teal-500 outline-none font-mono"
+                          placeholder="doctor@carecenter.org"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-teal-600 hover:bg-teal-500 py-2.5 text-sm font-bold text-white transition mt-4 shadow-lg shadow-teal-900/30 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{selectedDoctorId ? text('حفظ التعديلات في جدول الأطباء', 'Save Physician Changes') : text('حفظ وإضافة الطبيب إلى الجدول', 'Save & Add Physician')}</span>
                     </button>
                   </form>
                 </div>
@@ -14870,7 +16474,7 @@ export default function App() {
             {/* ----------------- MODAL: MANAGE CATEGORIES (إدارة وتعديل وإضافة وحذف الفئات) ----------------- */}
             {showManageCategoriesModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 text-slate-100" dir="rtl">
-                <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl relative animate-fade-in space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-800'}`}>
+                <div className={`w-full max-w-md max-h-[calc(100vh-4rem)] overflow-y-auto rounded-3xl border p-6 shadow-2xl relative animate-fade-in space-y-5 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 text-slate-800'}`}>
                   <button 
                     type="button"
                     onClick={() => {
@@ -15154,7 +16758,7 @@ export default function App() {
 
                         {/* 5. residents */}
                         <div className={`p-2.5 rounded-xl border ${darkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} flex justify-between items-center`}>
-                          <span className="text-slate-400 font-medium">👥 {text('المقيمين (residents):', 'Residents:')}</span>
+                          <span className="text-slate-400 font-medium">👥 {text('المستفيدين (residents):', 'Residents:')}</span>
                           <span className="font-mono font-bold text-sky-400">
                             {restoreModalData.counts?.residents ?? (restoreModalData.collections?.residents?.length || restoreModalData.data?.residents?.length || 0)}
                           </span>
@@ -15318,7 +16922,7 @@ export default function App() {
               {text('مقدمة النظام والهدف السريري العام:', 'System Introduction & Clinical Scope:')}
             </h3>
             <p style={{ fontSize: '11px', lineHeight: '1.7', margin: '0', color: '#334155' }}>
-              {text('تم تصميم منظومة صيدلية الرعاية الذكية خصيصاً لتلبية أعلى معايير السلامة الدوائية والرعاية السريرية الشاملة لمقيمي مراكز ذوي الاحتياجات الخاصة والتأهيل الشامل. يدمج النظام بين الرقابة اللوجستية الصارمة للمخزون الدوائي، والفحص التلقائي للحساسية وتعارضات الجرعات، وتوثيق السلوك النفسي وتأثيرات الأدوية، والتقييم السريري التنبؤي المدعوم بالذكاء الاصطناعي.', 'The Smart Care Pharmacy system is purpose-built to fulfill the highest standards of medication safety and comprehensive clinical care for residents of special needs and rehabilitation centers. It seamlessly unifies rigorous inventory logistics, automated allergy and dose interaction checks, psychiatric behavioral monitoring, and predictive AI-powered clinical assessments.')}
+              {text('تم تصميم منظومة صيدلية الرعاية الذكية خصيصاً لتلبية أعلى معايير السلامة الدوائية والرعاية السريرية الشاملة لمستفيدي مراكز ذوي الاحتياجات الخاصة والتأهيل الشامل. يدمج النظام بين الرقابة اللوجستية الصارمة للمخزون الدوائي، والفحص التلقائي للحساسية وتعارضات الجرعات، وتوثيق السلوك النفسي وتأثيرات الأدوية، والتقييم السريري التنبؤي المدعوم بالذكاء الاصطناعي.', 'The Smart Care Pharmacy system is purpose-built to fulfill the highest standards of medication safety and comprehensive clinical care for residents of special needs and rehabilitation centers. It seamlessly unifies rigorous inventory logistics, automated allergy and dose interaction checks, psychiatric behavioral monitoring, and predictive AI-powered clinical assessments.')}
             </p>
           </div>
 
@@ -15488,8 +17092,8 @@ export default function App() {
             </div>
 
             <div style={{ marginBottom: '20px', borderBottom: '2px solid #333', paddingBottom: '10px' }}>
-              <h3>{text('معلومات المقيم الطبية والسريرية:', 'Resident Clinical Information:')}</h3>
-              <p>{text('اسم المقيم:', 'Resident Name:')} <strong>{lang === 'en' ? (activeDossierResident.nameEn || activeDossierResident.name) : (activeDossierResident.nameAr || activeDossierResident.name)}</strong></p>
+              <h3>{text('معلومات المستفيد الطبية والسريرية:', 'Resident Clinical Information:')}</h3>
+              <p>{text('اسم المستفيد:', 'Resident Name:')} <strong>{lang === 'en' ? (activeDossierResident.nameEn || activeDossierResident.name) : (activeDossierResident.nameAr || activeDossierResident.name)}</strong></p>
               <p>{text('العمر:', 'Age:')} <strong>{activeDossierResident.age} {text('سنة', 'years')}</strong></p>
               <p>{text('رقم الغرفة/الجناح:', 'Room / Ward:')} <strong>{activeDossierResident.roomNumber}</strong></p>
               <p>{text('الحساسية المسجلة:', 'Documented Allergies:')} <strong style={{ color: '#b91c1c' }}>{activeDossierResident.allergies || text('لا توجد', 'None')}</strong></p>

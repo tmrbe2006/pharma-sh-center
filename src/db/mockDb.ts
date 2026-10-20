@@ -25,8 +25,8 @@ export interface DispenseRecord {
   medicineName: string;
   medicineNameEn?: string;
   residentId?: string;
-  residentName: string; // اسم المقيم المعاق المستفيد
-  residentNameEn?: string; // اسم المقيم بالإنجليزي
+  residentName: string; // اسم المستفيد
+  residentNameEn?: string; // اسم المستفيد بالإنجليزي
   quantityDispensed: number; // الكمية المطلوبة
   unit: string;
   totalPrice: number;
@@ -34,6 +34,21 @@ export interface DispenseRecord {
   dispensedBy: string; // اسم الصيدلي الصارف
   dispensedById: string;
   dispensedAt: string; // تاريخ الصرف
+  doctorId?: string; // معرف الطبيب المعالج
+  doctorName?: string; // اسم الطبيب بالعربي
+  doctorNameEn?: string; // اسم الطبيب بالإنجليزي
+  doctorSpecialty?: string; // تخصص الطبيب
+}
+
+export interface Doctor {
+  id: string;
+  nameAr: string;       // اسم الطبيب بالعربي
+  nameEn: string;       // اسم الطبيب باللغة الإنجليزية
+  specialty: string;    // التخصص
+  phone?: string;
+  email?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UserSession {
@@ -62,7 +77,7 @@ export interface StockAuditLog {
   id: string;
   medicineId: string;
   medicineName: string;
-  actionType: 'إضافة دواء جديد' | 'تحديث كمية' | 'تعديل يدوي' | 'حذف دواء' | 'صرف دواء لمقيم' | 'شطب ملف مقيم' | 'إلغاء حساب مستخدم' | 'حذف شركة أدوية' | 'حذف سجل سلوكي' | string;
+  actionType: 'إضافة دواء جديد' | 'تحديث كمية' | 'تعديل يدوي' | 'حذف دواء' | 'صرف دواء لمستفيد' | 'شطب ملف مستفيد' | 'إلغاء حساب مستخدم' | 'حذف شركة أدوية' | 'حذف سجل سلوكي' | string;
   quantityChanged: number;
   previousQuantity: number;
   newQuantity: number;
@@ -231,6 +246,86 @@ const INITIAL_MEDICINES: Medicine[] = [
     updatedAt: new Date().toISOString(),
     manufacturer: "شركة نوفارتس العالمية (Novartis)",
     isControlled: true
+  },
+  {
+    id: "med-supply-1",
+    commercialName: "شاش طبي معقم 10×10 سم",
+    commercialNameAr: "شاش طبي معقم 10×10 سم",
+    commercialNameEn: "Sterile Medical Gauze 10x10 cm",
+    scientificName: "Sterile Absorbent Gauze Pad",
+    quantity: 120,
+    entryDate: "2026-09-10",
+    expiryDate: "2028-12-30",
+    price: 12.0,
+    unit: "علبة",
+    category: "Medical supplies",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    manufacturer: "شركة الشرق الأوسط للمستلزمات الطبية"
+  },
+  {
+    id: "med-supply-2",
+    commercialName: "حقن طبية معقمة 5 مل",
+    commercialNameAr: "حقن طبية معقمة 5 مل",
+    commercialNameEn: "Disposable Syringes 5ml",
+    scientificName: "Single-Use Sterile Syringe",
+    quantity: 200,
+    entryDate: "2026-09-12",
+    expiryDate: "2028-06-15",
+    price: 35.0,
+    unit: "عبوة",
+    category: "Medical supplies",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    manufacturer: "الشركة السعودية للصناعات الدوائية والمستلزمات (سبيماكو)"
+  },
+  {
+    id: "med-supply-3",
+    commercialName: "قفازات فحص طبية نيتريل معقمة",
+    commercialNameAr: "قفازات فحص طبية نيتريل معقمة",
+    commercialNameEn: "Nitrile Medical Exam Gloves",
+    scientificName: "Powder-Free Nitrile Examination Gloves",
+    quantity: 90,
+    entryDate: "2026-09-08",
+    expiryDate: "2029-01-20",
+    price: 45.0,
+    unit: "علبة",
+    category: "Medical supplies",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    manufacturer: "شركة الرياض للمستلزمات الطبية"
+  },
+  {
+    id: "med-supply-4",
+    commercialName: "قطن طبي ماص فائق النقاء",
+    commercialNameAr: "قطن طبي ماص فائق النقاء",
+    commercialNameEn: "Absorbent Medical Cotton Roll",
+    scientificName: "100% Pure Absorbent Cotton",
+    quantity: 75,
+    entryDate: "2026-09-15",
+    expiryDate: "2029-08-30",
+    price: 18.0,
+    unit: "لفة",
+    category: "Medical supplies",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    manufacturer: "مصنع الرعاية الطبية الحديثة"
+  },
+  {
+    id: "med-supply-5",
+    commercialName: "لواصق جروح جراحية مضادة للميكروبات",
+    commercialNameAr: "لواصق جروح جراحية مضادة للميكروبات",
+    commercialNameEn: "Antimicrobial Surgical Plasters",
+    scientificName: "Hypoallergenic Adhesive Bandage",
+    quantity: 110,
+    entryDate: "2026-09-05",
+    expiryDate: "2028-10-10",
+    price: 22.0,
+    unit: "باكت",
+    category: "Medical supplies",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    manufacturer: "شركة الخليج للمستلزمات الطبية"
   }
 ];
 
@@ -248,7 +343,11 @@ const INITIAL_DISPENSES: DispenseRecord[] = [
     actualQuantityDispensed: 2,
     dispensedBy: "د. طارق اليوسف",
     dispensedById: "pharmacist-1",
-    dispensedAt: "2026-09-22T10:30:00.000Z"
+    dispensedAt: "2026-09-22T10:30:00.000Z",
+    doctorId: "doc-1",
+    doctorName: "د. خالد السبيعي",
+    doctorNameEn: "Dr. Khaled Al-Subaie",
+    doctorSpecialty: "استشاري طب نفسي وعصبي"
   },
   {
     id: "disp-2",
@@ -263,7 +362,48 @@ const INITIAL_DISPENSES: DispenseRecord[] = [
     actualQuantityDispensed: 1,
     dispensedBy: "د. عبد الرحيم محمد محجوب",
     dispensedById: "pharmacist-2",
-    dispensedAt: "2026-09-29T16:29:24.000Z"
+    dispensedAt: "2026-09-29T16:29:24.000Z",
+    doctorId: "doc-2",
+    doctorName: "د. عبد الله الشمري",
+    doctorNameEn: "Dr. Abdullah Al-Shammari",
+    doctorSpecialty: "استشاري باطنة وأمراض مزمنة"
+  },
+  {
+    id: "disp-3",
+    medicineId: "med-supply-1",
+    medicineName: "شاش طبي معقم 10×10 سم",
+    medicineNameEn: "Sterile Medical Gauze 10x10 cm",
+    residentName: "أحمد عبد الله المري",
+    residentNameEn: "Ahmed Abdullah Al-Marri",
+    quantityDispensed: 15,
+    unit: "علبة",
+    totalPrice: 180.0,
+    actualQuantityDispensed: 15,
+    dispensedBy: "صيدلي المركز",
+    dispensedById: "pharmacist-1",
+    dispensedAt: "2026-10-01T09:15:00.000Z",
+    doctorId: "doc-3",
+    doctorName: "د. سارة المنصور",
+    doctorNameEn: "Dr. Sara Al-Mansoor",
+    doctorSpecialty: "أخصائية طب الأسرة ورعاية المستفيدين"
+  },
+  {
+    id: "disp-4",
+    medicineId: "med-supply-2",
+    medicineName: "حقن طبية معقمة 5 مل",
+    residentName: "سارة محمد العتيبي",
+    residentNameEn: "Sara Mohammed Al-Otaibi",
+    quantityDispensed: 25,
+    unit: "عبوة",
+    totalPrice: 875.0,
+    actualQuantityDispensed: 25,
+    dispensedBy: "صيدلي المركز",
+    dispensedById: "pharmacist-1",
+    dispensedAt: "2026-10-02T11:45:00.000Z",
+    doctorId: "doc-1",
+    doctorName: "د. خالد السبيعي",
+    doctorNameEn: "Dr. Khaled Al-Subaie",
+    doctorSpecialty: "استشاري طب نفسي وعصبي"
   }
 ];
 
@@ -330,14 +470,14 @@ const INITIAL_STOCK_LOGS: StockAuditLog[] = [
     id: "log-2",
     medicineId: "med-1",
     medicineName: "بنادول اكسترا (Paracetamol + Caffeine)",
-    actionType: "صرف دواء لمقيم",
+    actionType: "صرف دواء لمستفيد",
     quantityChanged: -2,
     previousQuantity: 122,
     newQuantity: 120,
     performedByName: "صيدلي المركز",
     performedByEmail: "pharmacist@carecenter.org",
     performedById: "pharmacist-1",
-    notes: "صرف علاج مجدول للمقيم: أحمد عبد الله المري",
+    notes: "صرف علاج مجدول للمستفيد: أحمد عبد الله المري",
     timestamp: "2026-09-22T10:30:00.000Z"
   },
   {
@@ -358,14 +498,14 @@ const INITIAL_STOCK_LOGS: StockAuditLog[] = [
     id: "log-4",
     medicineId: "med-5",
     medicineName: "ديباكين كرونو 500 ملجم (Sodium Valproate)",
-    actionType: "صرف دواء لمقيم",
+    actionType: "صرف دواء لمستفيد",
     quantityChanged: -1,
     previousQuantity: 61,
     newQuantity: 60,
     performedByName: "صيدلي المركز",
     performedByEmail: "pharmacist@carecenter.org",
     performedById: "pharmacist-1",
-    notes: "صرف علاج مجدول للمقيم: سارة محمد العتيبي",
+    notes: "صرف علاج مجدول للمستفيد: سارة محمد العتيبي",
     timestamp: "2026-09-23T08:15:00.000Z"
   }
 ];
@@ -394,13 +534,18 @@ export const saveLocalStockLogs = (logs: StockAuditLog[]) => {
 };
 
 export const getLocalSecuritySettings = (): SecuritySettings => {
+  const localAlertDays = localStorage.getItem('care_pharmacy_alert_days');
   const data = localStorage.getItem('care_pharmacy_security_settings');
-  if (!data) return DEFAULT_SECURITY_SETTINGS;
-  try {
-    return { ...DEFAULT_SECURITY_SETTINGS, ...JSON.parse(data) };
-  } catch (e) {
-    return DEFAULT_SECURITY_SETTINGS;
+  let result = { ...DEFAULT_SECURITY_SETTINGS };
+  if (data) {
+    try {
+      result = { ...result, ...JSON.parse(data) };
+    } catch (e) {}
   }
+  if (localAlertDays && !isNaN(Number(localAlertDays)) && Number(localAlertDays) >= 5) {
+    result.alertDays = Number(localAlertDays);
+  }
+  return result;
 };
 
 export const saveLocalSecuritySettings = (settings: SecuritySettings) => {
@@ -420,7 +565,9 @@ export const saveLocalSecuritySettings = (settings: SecuritySettings) => {
   localStorage.setItem('waPilotType', settings.waPilotType || '');
   localStorage.setItem('waPilotDevice', settings.waPilotDevice || '');
   localStorage.setItem('waPilotPath', settings.waPilotPath || '');
-  if (settings.alertDays) localStorage.setItem('care_pharmacy_alert_days', String(settings.alertDays));
+  if (settings.alertDays && !isNaN(Number(settings.alertDays)) && Number(settings.alertDays) >= 5) {
+    localStorage.setItem('care_pharmacy_alert_days', String(settings.alertDays));
+  }
 };
 
 export const DEFAULT_UNITS: string[] = [
@@ -449,8 +596,23 @@ export const DEFAULT_CATEGORIES: string[] = [
   'فيتامينات ومكملات',
   'أدوية صرع وتشنجات',
   'مراهم ومستحضرات موضعية',
+  'Medical supplies',
   'أخرى'
 ];
+
+export const isMedicalSuppliesCategory = (categoryName?: string): boolean => {
+  if (!categoryName) return false;
+  const clean = categoryName.trim().toLowerCase();
+  return clean === 'medical supplies' || 
+         clean === 'medical supply' || 
+         clean === 'medical_supplies' || 
+         clean === 'medicalsupplies' || 
+         clean.includes('medical supplies') ||
+         clean === 'مستلزمات طبية' || 
+         clean === 'المستلزمات الطبية' ||
+         clean.includes('مستلزمات طبية') ||
+         clean.includes('مستلزمات');
+};
 
 export const getLocalUnits = (): string[] => {
   const saved = localStorage.getItem('care_pharmacy_custom_units');
@@ -470,6 +632,58 @@ export const saveLocalCategories = (categories: string[]): void => {
   localStorage.setItem('care_pharmacy_custom_categories', JSON.stringify(categories));
 };
 
+export const DEFAULT_DOCTORS: Doctor[] = [
+  {
+    id: "doc-1",
+    nameAr: "د. خالد السبيعي",
+    nameEn: "Dr. Khaled Al-Subaie",
+    specialty: "استشاري طب نفسي وعصبي",
+    phone: "+966501112233",
+    email: "dr.khaled@carecenter.org",
+    createdAt: "2026-01-01T08:00:00.000Z",
+    updatedAt: "2026-01-01T08:00:00.000Z"
+  },
+  {
+    id: "doc-2",
+    nameAr: "د. عبد الله الشمري",
+    nameEn: "Dr. Abdullah Al-Shammari",
+    specialty: "استشاري باطنة وأمراض مزمنة",
+    phone: "+966502223344",
+    email: "dr.abdullah@carecenter.org",
+    createdAt: "2026-01-01T08:00:00.000Z",
+    updatedAt: "2026-01-01T08:00:00.000Z"
+  },
+  {
+    id: "doc-3",
+    nameAr: "د. سارة المنصور",
+    nameEn: "Dr. Sara Al-Mansoor",
+    specialty: "أخصائية طب الأسرة ورعاية المستفيدين",
+    phone: "+966503334455",
+    email: "dr.sara@carecenter.org",
+    createdAt: "2026-01-01T08:00:00.000Z",
+    updatedAt: "2026-01-01T08:00:00.000Z"
+  },
+  {
+    id: "doc-4",
+    nameAr: "د. محمد القحطاني",
+    nameEn: "Dr. Mohammed Al-Qahtani",
+    specialty: "استشاري أطفال وتأهيل حركي",
+    phone: "+966504445566",
+    email: "dr.mohammed@carecenter.org",
+    createdAt: "2026-01-01T08:00:00.000Z",
+    updatedAt: "2026-01-01T08:00:00.000Z"
+  }
+];
+
+export const getLocalDoctors = (): Doctor[] => {
+  const saved = localStorage.getItem('care_pharmacy_doctors');
+  return saved ? JSON.parse(saved) : DEFAULT_DOCTORS;
+};
+
+export const saveLocalDoctors = (doctors: Doctor[]): void => {
+  localStorage.setItem('care_pharmacy_doctors', JSON.stringify(doctors));
+};
+
 export const INITIAL_RESIDENTS = [
   {
     id: "res-0",
@@ -483,7 +697,7 @@ export const INITIAL_RESIDENTS = [
     roomNumber: "غرفة 101 - جناح أ",
     nationalId: "1076543219",
     age: 66,
-    notes: "مقيم يحتاج رعاية ومتابعة منتظمة لجرعات الصرف",
+    notes: "مستفيد يحتاج رعاية ومتابعة منتظمة لجرعات الصرف",
     allergies: "لا توجد حساسية معروفة",
     bloodGroup: "A+",
     attendingPhysician: "د. طارق اليوسف",
@@ -1035,14 +1249,14 @@ export const DbService = {
       await this.addStockLog({
         medicineId: targetMed.id,
         medicineName: `${targetMed.commercialName} (${targetMed.scientificName})`,
-        actionType: 'صرف دواء لمقيم',
+        actionType: 'صرف دواء لمستفيد',
         quantityChanged: -rec.actualQuantityDispensed,
         previousQuantity,
         newQuantity: newQty,
         performedByName: rec.dispensedBy,
         performedByEmail: "pharmacist@carecenter.com",
         performedById: rec.dispensedById,
-        notes: `صرف علاج للمقيم: ${rec.residentName}`
+        notes: `صرف علاج للمستفيد: ${rec.residentName}`
       });
     }
 
@@ -1603,19 +1817,35 @@ export const DbService = {
         const snap = await withTimeout(getDoc(doc(db, "security_settings", "config")), 10000);
         if (snap.exists()) {
           const data = snap.data() as Partial<SecuritySettings>;
+          const localSettings = getLocalSecuritySettings();
+          const localDays = localStorage.getItem('care_pharmacy_alert_days');
+
+          // Prioritize non-default alertDays if data has it, otherwise local user preference
+          let effectiveDays = DEFAULT_SECURITY_SETTINGS.alertDays;
+          if (typeof data?.alertDays === 'number' && data.alertDays >= 5) {
+            effectiveDays = data.alertDays;
+          } else if (localDays && !isNaN(Number(localDays)) && Number(localDays) >= 5) {
+            effectiveDays = Number(localDays);
+          } else if (localSettings.alertDays && localSettings.alertDays >= 5) {
+            effectiveDays = localSettings.alertDays;
+          }
+
           const merged: SecuritySettings = {
             ...DEFAULT_SECURITY_SETTINGS,
+            ...localSettings,
             ...data,
+            alertDays: effectiveDays,
             id: "config"
           };
           saveLocalSecuritySettings(merged);
           return merged;
         } else {
-          // Initialize Firestore with default settings in background
-          console.log("Firestore security_settings is empty. Seeding DEFAULT_SECURITY_SETTINGS into Firestore in background...");
-          setDoc(doc(db, "security_settings", "config"), DEFAULT_SECURITY_SETTINGS).catch(() => {});
-          saveLocalSecuritySettings(DEFAULT_SECURITY_SETTINGS);
-          return DEFAULT_SECURITY_SETTINGS;
+          // Initialize Firestore with current settings in background
+          const current = getLocalSecuritySettings();
+          console.log("Firestore security_settings is empty. Seeding settings into Firestore in background...");
+          setDoc(doc(db, "security_settings", "config"), current).catch(() => {});
+          saveLocalSecuritySettings(current);
+          return current;
         }
       }
     } catch (e) {
@@ -1626,13 +1856,21 @@ export const DbService = {
 
   async saveSecuritySettings(settings: Partial<SecuritySettings>, actor?: { name?: string; email?: string }): Promise<SecuritySettings> {
     const current = getLocalSecuritySettings();
+    const targetAlertDays = typeof settings.alertDays === 'number' && settings.alertDays >= 5
+      ? settings.alertDays
+      : (current.alertDays || 30);
+
     const updated: SecuritySettings = {
       ...current,
       ...settings,
+      alertDays: targetAlertDays,
       id: "config",
       updatedAt: new Date().toISOString(),
-      updatedBy: actor?.name || "م. تامر"
+      updatedBy: actor?.name || "مدير النظام"
     };
+
+    localStorage.setItem('care_pharmacy_alert_days', String(targetAlertDays));
+    saveLocalSecuritySettings(updated);
 
     try {
       if (isFirebaseConnected) {
@@ -1651,17 +1889,24 @@ export const DbService = {
           waPilotType: updated.waPilotType || '',
           waPilotDevice: updated.waPilotDevice || '',
           waPilotPath: updated.waPilotPath || '',
-          alertDays: updated.alertDays || 30,
+          alertDays: targetAlertDays,
           updatedAt: updated.updatedAt,
           updatedBy: updated.updatedBy
         }, { merge: true });
-        console.log("Security settings saved successfully to Firestore (security_settings/config)");
+
+        // Redundancy doc for direct settings query
+        await setDoc(doc(db, "settings", "expiry_alerts"), {
+          alertDays: targetAlertDays,
+          updatedAt: updated.updatedAt,
+          updatedBy: updated.updatedBy
+        }, { merge: true });
+
+        console.log("Security settings & alertDays saved successfully to Firestore");
       }
     } catch (e) {
       console.warn("Firestore saveSecuritySettings failed, saving locally:", e);
     }
 
-    saveLocalSecuritySettings(updated);
     return updated;
   },
 
@@ -1940,14 +2185,14 @@ export const DbService = {
     await this.addStockLog({
       medicineId: id,
       medicineName: target ? (target.name || target.fullName || id) : id,
-      actionType: 'شطب ملف مقيم',
+      actionType: 'شطب ملف مستفيد',
       quantityChanged: 0,
       previousQuantity: 0,
       newQuantity: 0,
       performedByName: actor?.name || "مستخدم النظام",
       performedByEmail: actor?.email || "",
       performedById: actor?.id || "",
-      notes: target ? `شطب ملف المقيم "${target.name || target.fullName}" نهائياً من سجلات المركز` : "شطب مقيم"
+      notes: target ? `شطب ملف المستفيد "${target.name || target.fullName}" نهائياً من سجلات المركز` : "شطب مستفيد"
     });
   },
 
@@ -1962,6 +2207,102 @@ export const DbService = {
     } catch (e) {
       console.warn("Firestore syncAllResidents failed:", e);
     }
+  },
+
+  // --- Doctors CRUD & Cloud Firestore Sync ---
+  async fetchDoctors(): Promise<Doctor[]> {
+    try {
+      if (isFirebaseConnected) {
+        const querySnapshot = await withTimeout(getDocs(collection(db, "doctors")), 10000);
+        if (!querySnapshot.empty) {
+          const list: Doctor[] = [];
+          querySnapshot.forEach((doc) => {
+            list.push({ id: doc.id, ...doc.data() } as Doctor);
+          });
+          saveLocalDoctors(list);
+          return list;
+        } else {
+          // Seed Firestore with DEFAULT_DOCTORS in background
+          DEFAULT_DOCTORS.forEach((docItem) => {
+            setDoc(doc(db, "doctors", docItem.id), docItem).catch(() => {});
+          });
+          saveLocalDoctors(DEFAULT_DOCTORS);
+          return DEFAULT_DOCTORS;
+        }
+      }
+    } catch (e) {
+      console.warn("Firestore fetchDoctors failed, using offline fallback:", e);
+    }
+    return getLocalDoctors();
+  },
+
+  async addDoctor(doctor: Omit<Doctor, 'id' | 'createdAt' | 'updatedAt'>): Promise<Doctor> {
+    const id = "doc-" + Date.now();
+    const now = new Date().toISOString();
+    const newDoc: Doctor = {
+      ...doctor,
+      id,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    try {
+      if (isFirebaseConnected) {
+        await setDoc(doc(db, "doctors", id), newDoc);
+      }
+    } catch (e) {
+      console.warn("Firestore addDoctor failed, saving locally:", e);
+    }
+
+    const current = getLocalDoctors();
+    const updated = [newDoc, ...current];
+    saveLocalDoctors(updated);
+    return newDoc;
+  },
+
+  async updateDoctor(id: string, updates: Partial<Doctor>): Promise<Doctor> {
+    const current = getLocalDoctors();
+    const index = current.findIndex(d => d.id === id);
+    const existing = index !== -1 ? current[index] : null;
+    const now = new Date().toISOString();
+
+    const updatedDoc: Doctor = {
+      ...(existing || { id, nameAr: '', nameEn: '', specialty: '', createdAt: now, updatedAt: now }),
+      ...updates,
+      id,
+      updatedAt: now
+    };
+
+    try {
+      if (isFirebaseConnected) {
+        await setDoc(doc(db, "doctors", id), updatedDoc, { merge: true });
+      }
+    } catch (e) {
+      console.warn("Firestore updateDoctor failed, saving locally:", e);
+    }
+
+    if (index !== -1) {
+      current[index] = updatedDoc;
+    } else {
+      current.push(updatedDoc);
+    }
+    saveLocalDoctors(current);
+    return updatedDoc;
+  },
+
+  async deleteDoctor(id: string): Promise<boolean> {
+    try {
+      if (isFirebaseConnected) {
+        await deleteDoc(doc(db, "doctors", id));
+      }
+    } catch (e) {
+      console.warn("Firestore deleteDoctor failed, deleting locally:", e);
+    }
+
+    const current = getLocalDoctors();
+    const updated = current.filter(d => d.id !== id);
+    saveLocalDoctors(updated);
+    return true;
   },
 
   // --- Pharmaceutical Companies CRUD & Cloud Sync ---
@@ -2488,7 +2829,7 @@ export const DbService = {
       performedByName: actor?.name || "المبرمج",
       performedByEmail: actor?.email || "tmrbe2006@gmail.com",
       performedById: actor?.id || "user-tmrbe",
-      notes: `تمت استعادة كافة جداول قاعدة البيانات (${batches.length} تشغيلة، ${residents.length} مقيم، ${dispense_records.length} صرف، ${stock_audit_logs.length} تدقيق، ${user_sessions.length} جلسة، ${item_units.length} وحدة، ${therapeutic_categories.length} فئة)`
+      notes: `تمت استعادة كافة جداول قاعدة البيانات (${batches.length} تشغيلة، ${residents.length} مستفيد، ${dispense_records.length} صرف، ${stock_audit_logs.length} تدقيق، ${user_sessions.length} جلسة، ${item_units.length} وحدة، ${therapeutic_categories.length} فئة)`
     });
 
     return {
