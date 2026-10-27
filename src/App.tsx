@@ -2535,6 +2535,31 @@ export default function App() {
     }
   };
 
+  // Universal Database Cloud Sync Handler (Accessible to ALL users across the entire system)
+  const [isSyncingDb, setIsSyncingDb] = useState<boolean>(false);
+  const handleManualSyncDb = async () => {
+    if (isSyncingDb) return;
+    setIsSyncingDb(true);
+    try {
+      await loadAllData();
+      showToast(
+        lang === 'ar' 
+          ? `تمت مزامنة وتحديث قاعدة البيانات سحابياً بنجاح! 🔄 (${medicines.length} صنف دواء مسجل)` 
+          : `Database synchronized successfully with Cloud! 🔄 (${medicines.length} items loaded)`, 
+        'success'
+      );
+    } catch (err) {
+      showToast(
+        lang === 'ar' 
+          ? 'تعذر إتمام المزامنة السحابية. يرجى التحقق من اتصال الإنترنت.' 
+          : 'Cloud sync failed. Please check network connection.', 
+        'error'
+      );
+    } finally {
+      setIsSyncingDb(false);
+    }
+  };
+
   useEffect(() => {
     loadAllData();
 
@@ -5507,6 +5532,25 @@ export default function App() {
             <span className="font-sans font-bold">{lang === 'ar' ? "EN" : "عربي"}</span>
           </button>
 
+          {/* 🔄 زر مزامنة قاعدة البيانات سحابياً (متاح لجميع المستخدمين بلا استثناء) */}
+          <button
+            type="button"
+            onClick={handleManualSyncDb}
+            disabled={isSyncingDb}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95 shadow-xs shrink-0 ${
+              isSyncingDb
+                ? 'border-teal-400 bg-teal-600/30 text-teal-200 ring-2 ring-teal-400/30'
+                : darkMode
+                  ? 'border-teal-500/30 bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 ring-1 ring-teal-500/20'
+                  : 'border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800 ring-1 ring-teal-200'
+            }`}
+            title={lang === 'ar' ? 'مزامنة وتحديث قاعدة البيانات سحابياً فوراً (متاح لجميع المستخدمين)' : 'Synchronize Database with Cloud Now (For all users)'}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-teal-400 shrink-0 ${isSyncingDb ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline font-bold">{lang === 'ar' ? 'مزامنة قاعدة البيانات 🔄' : 'Sync DB 🔄'}</span>
+            <span className="sm:hidden font-bold">{lang === 'ar' ? 'مزامنة 🔄' : 'Sync 🔄'}</span>
+          </button>
+
           {/* ⚡ Power BI Smart Action Group Dropdown: Groups AI Tools, User Utilities & Quick Actions without horizontal overflow */}
           <div className="relative" ref={actionGroupRef}>
             <button
@@ -5631,6 +5675,25 @@ export default function App() {
                   <div className="text-[10px] font-bold text-slate-400 px-2 uppercase tracking-wider">
                     {lang === 'ar' ? 'إجراءات سريعة' : 'Quick Actions'}
                   </div>
+
+                  {/* Universal Database Cloud Sync Button (متاح لجميع المستخدمين بلا استثناء) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowActionGroup(false);
+                      handleManualSyncDb();
+                    }}
+                    disabled={isSyncingDb}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-right cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-800 text-teal-300' : 'hover:bg-teal-50 text-teal-800'
+                    }`}
+                  >
+                    <RefreshCw className={`w-4 h-4 text-teal-400 shrink-0 ${isSyncingDb ? 'animate-spin' : ''}`} />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'مزامنة قاعدة البيانات سحابياً 🔄' : 'Sync Database with Cloud 🔄'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'جلب أحدث التعديلات والسجلات فوراً' : 'Instant live update from Firestore'}</span>
+                    </div>
+                  </button>
 
                   {/* Quick Dispense Button for all authenticated roles */}
                   <button
@@ -6005,6 +6068,25 @@ export default function App() {
                 </div>
 
                 <div className="space-y-1 pt-1">
+                  {/* Universal Database Cloud Sync Button (متاح لجميع المستخدمين بلا استثناء) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSideDrawerOpen(false);
+                      handleManualSyncDb();
+                    }}
+                    disabled={isSyncingDb}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition text-right cursor-pointer border ${
+                      darkMode ? 'bg-teal-500/10 border-teal-500/25 hover:bg-teal-500/20 text-teal-300' : 'bg-teal-50 border-teal-200 hover:bg-teal-100 text-teal-800'
+                    }`}
+                  >
+                    <RefreshCw className={`w-4 h-4 text-teal-400 shrink-0 ${isSyncingDb ? 'animate-spin' : ''}`} />
+                    <div className="flex flex-col text-right">
+                      <span>{lang === 'ar' ? 'مزامنة قاعدة البيانات سحابياً 🔄' : 'Sync Database with Cloud 🔄'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{lang === 'ar' ? 'تحديث ومزامنة كافة السجلات فوراً' : 'Instant live update from Firestore'}</span>
+                    </div>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => {
@@ -6347,16 +6429,32 @@ export default function App() {
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition cursor-pointer hover:scale-105 active:scale-95 shadow-xs ${
-              darkMode ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 ring-1 ring-amber-400/40 animate-pulse' : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 ring-1 ring-amber-300'
-            }`}
-          >
-            <Menu className="w-3.5 h-3.5 text-amber-400" />
-            <span>{lang === 'ar' ? 'إظهار القائمة الكاملة ☰' : 'Show Full Menu ☰'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleManualSyncDb}
+              disabled={isSyncingDb}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-bold transition cursor-pointer hover:scale-105 active:scale-95 shadow-xs ${
+                darkMode ? 'bg-teal-500/15 border-teal-500/40 text-teal-300 hover:bg-teal-500/25' : 'bg-teal-50 border-teal-300 text-teal-800 hover:bg-teal-100'
+              }`}
+              title={lang === 'ar' ? 'مزامنة وتحديث قاعدة البيانات سحابياً فوراً (متاح للجميع)' : 'Sync Database with Cloud Now'}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-teal-400 shrink-0 ${isSyncingDb ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{lang === 'ar' ? 'مزامنة الداتابيز 🔄' : 'Sync DB 🔄'}</span>
+              <span className="sm:hidden">{lang === 'ar' ? 'مزامنة 🔄' : 'Sync 🔄'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition cursor-pointer hover:scale-105 active:scale-95 shadow-xs ${
+                darkMode ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 ring-1 ring-amber-400/40 animate-pulse' : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 ring-1 ring-amber-300'
+              }`}
+            >
+              <Menu className="w-3.5 h-3.5 text-amber-400" />
+              <span>{lang === 'ar' ? 'إظهار القائمة الكاملة ☰' : 'Show Full Menu ☰'}</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -9455,18 +9553,11 @@ export default function App() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={async () => {
-                          await loadAllData();
-                          showToast(
-                            lang === 'ar' 
-                              ? `تمت مزامنة البيانات سحابياً بنجاح مع قاعدة بيانات (${firebaseConfig.projectId})! 🔄` 
-                              : `Data synchronized with Cloud Firestore (${firebaseConfig.projectId})! 🔄`, 
-                            'success'
-                          );
-                        }}
-                        className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0 hover:scale-105 active:scale-95"
+                        onClick={handleManualSyncDb}
+                        disabled={isSyncingDb}
+                        className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0 hover:scale-105 active:scale-95 disabled:opacity-50"
                       >
-                        <RefreshCw className="w-4 h-4" />
+                        <RefreshCw className={`w-4 h-4 ${isSyncingDb ? 'animate-spin' : ''}`} />
                         <span>{text('مزامنة سحابية الآن 🔄', 'Sync with Cloud Now 🔄')}</span>
                       </button>
 
