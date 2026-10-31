@@ -4260,38 +4260,34 @@ export default function App() {
   // --- Recharts Data Calculations for Monthly Consumption & Category Distributions ---
   const getMonthlyDispenseData = () => {
     const arabicMonths = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
-    const dataPoints: { month: string; disp: number; cost: number }[] = [];
+    const englishMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const dataPoints: { month: string; year: number; monthIndex: number }[] = [];
     const now = new Date();
     
-    // Create baseline for the last 6 months
+    // Create baseline for the last 6 calendar months
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const mName = arabicMonths[d.getMonth()];
-      dataPoints.push({ month: mName, disp: 0, cost: 0 });
+      const mName = lang === 'ar' ? arabicMonths[d.getMonth()] : englishMonths[d.getMonth()];
+      dataPoints.push({ 
+        month: mName, 
+        year: d.getFullYear(), 
+        monthIndex: d.getMonth() 
+      });
     }
-    
-    // Monthly baseline simulated consumption to make the chart gorgeous on first load
-    const simulatedBaselines = [
-      { disp: 54, cost: 2450 },
-      { disp: 68, cost: 3200 },
-      { disp: 61, cost: 2900 },
-      { disp: 78, cost: 3950 },
-      { disp: 84, cost: 4400 },
-      { disp: 35, cost: 1800 }
-    ];
 
-    return dataPoints.map((dp, idx) => {
-      const sim = simulatedBaselines[idx] || { disp: 0, cost: 0 };
-      
-      // Calculate actual real dispenses recorded this month
+    // Calculate strictly 100% real dispenses recorded without any simulated mock data
+    return dataPoints.map((dp) => {
       let realQty = 0;
       let realCost = 0;
       
       dispenseRecords.forEach(rec => {
         try {
+          if (!rec.dispensedAt) return;
           const rDate = new Date(rec.dispensedAt);
-          const rMonthName = arabicMonths[rDate.getMonth()];
-          if (rMonthName === dp.month) {
+          if (isNaN(rDate.getTime())) return;
+          
+          // Match both month and year precisely
+          if (rDate.getMonth() === dp.monthIndex && rDate.getFullYear() === dp.year) {
             realQty += Number(rec.actualQuantityDispensed || rec.quantityDispensed || 0);
             realCost += Number(rec.totalPrice || 0);
           }
@@ -4302,8 +4298,8 @@ export default function App() {
       
       return {
         month: dp.month,
-        "الكمية المصروفة": sim.disp + realQty,
-        "القيمة الإجمالية (ر.س)": Math.round(sim.cost + realCost)
+        "الكمية المصروفة": realQty,
+        "القيمة الإجمالية (ر.س)": Math.round(realCost)
       };
     });
   };
@@ -7130,12 +7126,27 @@ export default function App() {
                         </h3>
                         <p className="text-xs text-slate-400">{t('monthly_desc')}</p>
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs font-semibold bg-slate-950/50 p-1.5 rounded-xl border border-slate-800 self-start">
-                        <span className="flex items-center gap-1 text-teal-400 px-2 py-1 bg-teal-400/5 rounded-lg">
-                          <TrendingUp className="w-3.5 h-3.5" />
-                          {t('stable_badge')}
-                        </span>
-                      </div>
+                      {(() => {
+                        const totalRecent = monthlyChartData.reduce((sum, d) => sum + (d["الكمية المصروفة"] || 0), 0);
+                        if (totalRecent === 0) {
+                          return (
+                            <div className="flex items-center gap-1.5 text-xs font-semibold bg-slate-950/50 p-1.5 rounded-xl border border-slate-800 self-start">
+                              <span className="flex items-center gap-1 text-slate-400 px-2 py-1 bg-slate-800/40 rounded-lg">
+                                <Info className="w-3.5 h-3.5 text-slate-400" />
+                                {lang === 'ar' ? 'لا توجد عمليات صرف مسجلة (0)' : 'No dispenses recorded (0)'}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="flex items-center gap-1.5 text-xs font-semibold bg-slate-950/50 p-1.5 rounded-xl border border-slate-800 self-start">
+                            <span className="flex items-center gap-1 text-teal-400 px-2 py-1 bg-teal-400/5 rounded-lg">
+                              <TrendingUp className="w-3.5 h-3.5" />
+                              {t('stable_badge')}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="h-80 w-full" dir="ltr">
